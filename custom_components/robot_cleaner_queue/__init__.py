@@ -8,9 +8,10 @@ import time
 from uuid import uuid4
 
 import voluptuous as vol
+from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.const import EVENT_CALL_SERVICE, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import Context, HomeAssistant, ServiceCall, callback
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import ServiceValidationError, Unauthorized
 from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.event import async_track_time_interval
@@ -18,6 +19,7 @@ from homeassistant.helpers.storage import Store
 
 from .adapter import is_competing_command, routine_matches, snapshot
 from .engine import ACTIVE, Queue, Snapshot
+from .permissions import async_require_control
 
 DOMAIN = "robot_cleaner_queue"
 _LOGGER = logging.getLogger(__name__)
@@ -119,6 +121,11 @@ class Manager:
                 raise ServiceValidationError("No robot queue has been started.")
             if command != "start" and self.queue.vacuum and vacuum != self.queue.vacuum:
                 raise ServiceValidationError("This command targets a different vacuum than the current queue.")
+            permission_entities = [vacuum, *(call.data["presets"] if command == "start" else self.queue.presets)]
+            try:
+                await async_require_control(self.hass.auth, call.context.user_id, permission_entities, POLICY_CONTROL)
+            except PermissionError as err:
+                raise Unauthorized(context=call.context, permission=POLICY_CONTROL) from err
             try:
                 if command == "cancel":
                     effect = self.queue.command(command, Snapshot(), time.time())
@@ -132,6 +139,7 @@ class Manager:
                             if not routine_matches(registry.async_get(preset), entry, coordinator) or state is None or state.state == "unavailable":
                                 raise ValueError("Every room must be an available routine button belonging to the selected robot.")
                         effect = self.queue.start(vacuum, presets, current, time.time(), uuid4().hex)
+                        self.queue.owner_user_id = call.context.user_id
                     else:
                         effect = self.queue.command(command, current, time.time())
             except ValueError as err:
@@ -149,7 +157,21 @@ class Manager:
             self.queue.phase != "starting" or self.queue.pending_command != "start"
         )) or (kind == "vacuum" and not self.queue.pending_command):
             return
-        context = Context(parent_id=parent.id if parent else None)
+        user_id = parent.user_id if parent is not None else self.queue.owner_user_id
+        try:
+            await async_require_control(
+                self.hass.auth, user_id, [self.queue.vacuum, *self.queue.presets], POLICY_CONTROL
+            )
+        except PermissionError:
+            self.queue.attention("The initiating user can no longer control this cleaning sequence. No command was sent.")
+            await self.publish()
+            return
+        # The auth lookup yields; an external command can invalidate the effect.
+        if self.closing or (kind == "preset" and (
+            self.queue.phase != "starting" or self.queue.pending_command != "start"
+        )) or (kind == "vacuum" and not self.queue.pending_command):
+            return
+        context = Context(user_id=user_id, parent_id=parent.id if parent else None)
         self.contexts.add(context.id)
         # Bound bookkeeping; service events are emitted synchronously at dispatch.
         if len(self.contexts) > 128:

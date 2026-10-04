@@ -20,6 +20,7 @@ def load(name):
 
 engine = load("engine")
 adapter = load("adapter")
+permissions = load("permissions")
 Queue, Snapshot = engine.Queue, engine.Snapshot
 
 def ready(record=None):
@@ -270,6 +271,51 @@ class AdapterTests(unittest.TestCase):
         rec = types.SimpleNamespace(**record(), private_data="never export")
         self.assertEqual(adapter.clean_record(rec), record())
         self.assertNotIn("private_data", adapter.clean_record(rec))
+
+class PermissionTests(unittest.IsolatedAsyncioTestCase):
+    def auth(self, user):
+        async def get_user(user_id):
+            return user
+        return types.SimpleNamespace(async_get_user=get_user)
+
+    def user(self, allowed=(), admin=False, active=True):
+        allowed = set(allowed)
+        checks = []
+        def check(entity, policy):
+            checks.append((entity, policy))
+            return entity in allowed
+        return types.SimpleNamespace(is_active=active, is_admin=admin, permissions=types.SimpleNamespace(check_entity=check), checks=checks, allowed=allowed)
+
+    async def test_read_only_user_and_partial_access_cannot_start(self):
+        for allowed in [[], ["vacuum.robot"], ["button.kitchen"]]:
+            with self.assertRaises(PermissionError):
+                await permissions.async_require_control(self.auth(self.user(allowed)), "user", ["vacuum.robot", "button.kitchen"], "control")
+
+    async def test_authorized_user_checks_every_entity_with_control_policy(self):
+        user = self.user(["vacuum.robot", "button.kitchen", "button.office"])
+        await permissions.async_require_control(self.auth(user), "user", ["vacuum.robot", "button.kitchen", "button.office"], "control")
+        self.assertEqual(set(user.checks), {("vacuum.robot", "control"), ("button.kitchen", "control"), ("button.office", "control")})
+
+    async def test_revoked_permissions_are_rechecked_before_continuation(self):
+        user = self.user(["vacuum.robot", "button.kitchen"])
+        auth = self.auth(user)
+        await permissions.async_require_control(auth, "user", ["vacuum.robot", "button.kitchen"], "control")
+        user.allowed.remove("button.kitchen")
+        with self.assertRaises(PermissionError):
+            await permissions.async_require_control(auth, "user", ["vacuum.robot", "button.kitchen"], "control")
+
+    async def test_deleted_inactive_admin_and_automation_contexts(self):
+        for user in [None, self.user(admin=True, active=False)]:
+            with self.assertRaises(PermissionError):
+                await permissions.async_require_control(self.auth(user), "user", ["vacuum.robot"], "control")
+        await permissions.async_require_control(self.auth(self.user(admin=True)), "admin", ["vacuum.robot"], "control")
+        await permissions.async_require_control(self.auth(None), None, ["vacuum.robot"], "control")
+
+    def test_owner_survives_restore_without_exposing_it_on_sensor(self):
+        queue = Queue(owner_user_id="user123")
+        self.assertEqual(Queue.restore(queue.dump()).owner_user_id, "user123")
+        sensor_source = (PACKAGE / "sensor.py").read_text()
+        self.assertNotIn("owner_user_id", sensor_source)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

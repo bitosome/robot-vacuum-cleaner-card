@@ -77,6 +77,8 @@ A normal room transition requires all of these:
 
 The companion waits up to three minutes after job-off for the corresponding completion record. It never infers completion from the current-room sensor, a stale percentage, a generic docked state, or `last_clean_end` alone. The native end timestamp is also updated for unsuccessful records.
 
+The initiating Home Assistant user's control permission is checked on the vacuum and every selected preset before the queue changes. The caller's user ID is retained in HA's private queue storage and propagated to native commands. Permissions are fetched again before each later dispatch, so deleting/deactivating a user or revoking entity access stops progression. This does not grant additional access; automations without a user context retain normal HA system behavior.
+
 No automatic retries are sent. Faults and lost telemetry stop progression for review. HA commands from other controls stop this queue to avoid competing writers. App/device interruption is caught by the cleaning record's completion/finish reason; changes that produce indistinguishable successful records cannot be attributed to a particular caller. A single-room routine that internally ends and starts another independent job is unsuitable for automatic chaining and must be simplified in the app.
 
 Pause/resume and return-to-dock also require observed acknowledgement within 60 seconds. Queued presets and position are persisted in HA's storage before dispatch. An HA restart or shutdown preserves the sequence for inspection and changes it to `attention`; it never resumes cleaning automatically. Clear and reselect the desired remaining rooms after checking the robot. Cancelling or docking clears progression before sending another robot action.

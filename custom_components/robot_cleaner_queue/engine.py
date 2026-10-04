@@ -67,6 +67,7 @@ class Queue:
     next_pending: bool = False
     run_id: str = ""
     not_before: float = 0
+    owner_user_id: str | None = None
 
     def dump(self) -> dict[str, Any]:
         return asdict(self)
