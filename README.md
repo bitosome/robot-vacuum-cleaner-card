@@ -19,7 +19,13 @@ Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap 
 
 Build with `npm ci && npm run build`, then copy `dist/robot-vacuum-cleaner-card.js` to `/config/www/robot-vacuum-cleaner-card.js`. Register `/local/robot-vacuum-cleaner-card.js` as a JavaScript module in Home Assistant's dashboard resources.
 
-Published release assets can also be installed through HACS by adding `bitosome/robot-vacuum-cleaner-card` as a custom **Dashboard** repository. HACS installs the frontend only.
+To install through HACS:
+
+1. Open **HACS → Custom repositories** and enter `https://github.com/bitosome/robot-vacuum-cleaner-card`.
+2. Select **Dashboard**, add the repository, then download the latest release.
+3. Reload the browser and add **Robot Vacuum Cleaner Card** to your dashboard.
+
+HACS downloads `robot-vacuum-cleaner-card.js` from the published GitHub release. The source-only default branch is hidden because its generated `dist/` directory is not committed. HACS installs the frontend only; the separate `robot-cleaner-queue.zip` release asset contains the companion. If adding the repository previously failed before the first release, retry after refreshing HACS.
 
 For room sequencing and manual setup, install the [Home Assistant queue companion](docs/queue-backend.md). This is an additional custom integration and requires an HA restart. Without it, standalone controls remain available unless `require_queue: true` is configured; ordered room starts are always disabled. It never falls back to a browser-driven queue.
 
