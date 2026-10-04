@@ -266,6 +266,101 @@ class ManagerTraceTests(unittest.IsolatedAsyncioTestCase):
                                    "rooms": ["kitchen"] if rooms is None else rooms,
                                    "setup": setup or {"mode": "vacuum_mop", "suction": "max", "water": "high", "route": "fast"}}))
 
+    async def save_manual(self, **overrides):
+        data = {"vacuum":"vacuum.robot", "source":"manual", "presets":[], "rooms":["office", "kitchen"],
+                "setup":{"mode":"vacuum", "suction":"max", "repeat":2}, **overrides}
+        await self.manager.save_preset(NS(context=FakeContext("user"), data=data))
+
+    async def test_app_preset_save_and_water_empty_dispatch_preserve_routine(self):
+        eid = "button.robot_office"
+        self.entries.append(NS(entity_id=eid, unique_id="123_robot1", device_id="device", config_entry_id="entry", platform="roborock", domain="button", disabled_by=None))
+        self.states[eid] = NS(state="unknown", attributes={})
+        self.allowed.add(eid)
+        await self.manager.save_preset(NS(context=FakeContext("user"), data={"vacuum":"vacuum.robot", "source":"preset", "presets":[eid]}))
+        self.assertEqual(self.calls, [])
+        self.coordinator.data.status.dock_error_status = 38
+        await self.manager.control(NS(context=FakeContext("user"), data={"command":"toggle_saved", "vacuum":"vacuum.robot", "presets":[], "rooms":[]}))
+        self.assertEqual(self.calls, [("button", "press", {"entity_id":eid})])
+
+    async def test_save_is_durable_no_commands_and_retrievable_from_new_manager(self):
+        await self.save_manual()
+        self.assertEqual(self.calls, [])
+        stored = self.manager.preset_store.saved[-1]
+        self.assertEqual(stored["vacuum.robot"]["rooms"], ["office", "kitchen"])
+        self.assertEqual(stored["vacuum.robot"]["map_id"], 0)
+        fresh = manager_class()(self.hass)
+        fresh.saved_presets = stored
+        self.assertEqual(await fresh.read_saved_preset("vacuum.robot", "user"), stored["vacuum.robot"])
+        caps = await self.manager.get_capabilities(NS(context=FakeContext("user"), data={"vacuum":"vacuum.robot"}))
+        self.assertEqual(caps["saved_preset"], stored["vacuum.robot"])
+        self.assertEqual(caps["control_version"], 4)
+
+    async def test_startup_restores_preset_without_starting_cleaning(self):
+        await self.save_manual()
+        stored = self.manager.preset_store.saved[-1]
+        fresh = manager_class()(self.hass)
+        async def load_plan(): return stored
+        async def load_queue(): return None
+        fresh.preset_store.async_load = load_plan
+        fresh.store.async_load = load_queue
+        env = fresh.setup.__func__.__globals__
+        env["async_track_time_interval"] = lambda *args: lambda: None
+        env["timedelta"] = lambda **kwargs: None
+        env["EVENT_CALL_SERVICE"], env["EVENT_HOMEASSISTANT_STOP"] = "service", "stop"
+        self.hass.bus = NS(async_listen=lambda *args: lambda: None, async_listen_once=lambda *args: lambda: None)
+        await fresh.setup()
+        self.assertEqual(fresh.saved_presets, stored)
+        self.assertEqual(fresh.queue.phase, "idle")
+        self.assertEqual(self.calls, [])
+
+    async def test_busy_saved_toggle_finishes_even_if_saved_plan_is_invalid(self):
+        self.manager.saved_presets = {"vacuum.robot": {"source":"broken"}}
+        self.coordinator.data.status.state_name = "segment_cleaning"
+        self.coordinator.data.status.in_cleaning = 1
+        self.states["vacuum.robot"].state = "cleaning"
+        await self.manager.control(NS(context=FakeContext("user"), data={"command":"toggle_saved", "vacuum":"vacuum.robot", "presets":[], "rooms":[]}))
+        self.assertEqual(self.manager.queue.mode, "finish")
+        self.assertFalse(self.manager.queue.presets)
+
+    async def test_saved_toggle_uses_manual_order_and_settings_not_fallback_button(self):
+        await self.save_manual()
+        await self.manager.control(NS(context=FakeContext("user"), data={"command":"toggle_saved", "vacuum":"vacuum.robot", "presets":["button.unrelated"], "rooms":[]}))
+        self.assertEqual(self.manager.queue.targets, ["office", "kitchen"])
+        self.assertEqual(self.manager.queue.setup["suction"], "max")
+        self.assertEqual(self.manager.queue.setup["repeat"], 2)
+        self.assertEqual(self.manager.queue.mode, "manual")
+        self.assertFalse(any(service=="press" for _,service,_ in self.calls))
+
+    async def test_saved_map_change_rejects_before_any_command(self):
+        await self.save_manual()
+        self.coordinator.properties_api.maps.current_map = 1
+        with self.assertRaisesRegex(ServiceError, "another map"):
+            await self.manager.control(NS(context=FakeContext("user"), data={"command":"toggle_saved", "vacuum":"vacuum.robot", "presets":[], "rooms":[]}))
+        self.assertEqual(self.calls, [])
+
+    async def test_invalid_settings_and_storage_failure_preserve_previous_preset(self):
+        await self.save_manual()
+        previous = self.manager.saved_presets
+        with self.assertRaises(ServiceError):
+            await self.save_manual(setup={"mode":"vacuum", "suction":"made_up"})
+        self.assertEqual(self.manager.saved_presets, previous)
+        async def fail(data): raise RuntimeError("disk full")
+        self.manager.preset_store.async_save = fail
+        with self.assertRaises(RuntimeError): await self.save_manual(rooms=["kitchen"])
+        self.assertEqual(self.manager.saved_presets, previous)
+        self.assertEqual(self.calls, [])
+
+    async def test_saving_requires_permission_and_cannot_change_active_queue(self):
+        await self.start()
+        queue = self.manager.queue.dump()
+        count = len(self.calls)
+        await self.save_manual()
+        self.assertEqual(self.manager.queue.dump(), queue)
+        self.assertEqual(len(self.calls), count)
+        self.allowed.clear()
+        with self.assertRaises(Exception): await self.save_manual()
+        self.assertEqual(len(self.manager.preset_store.saved), 1)
+
     async def test_capabilities_do_not_dispatch_or_poll(self):
         caps = await self.manager.get_capabilities(NS(context=FakeContext("user"), data={"vacuum": "vacuum.robot"}))
         self.assertTrue(caps["supported"])

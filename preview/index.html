@@ -268,6 +268,7 @@
     const card = document.querySelector('#card');
     const calls = [];
     let states = {};
+    let savedPreset;
     let fixtureRevision = 0;
     let commandPending = false;
     let ready = false;
@@ -280,7 +281,7 @@
     function capabilities() {
       if (scenario === 'manual_unavailable' || states[config.entity]?.state === 'unavailable') return {supported: false, modes: [], suction: [], water: [], routes: [], repeats: [], room_targets: [], defaults: {}, error: 'Manual cleaning settings are unavailable. Check the robot connection.'};
       const vacuumOnly = scenario === 'vacuum_only';
-      return {control_version:3,device_entities:deviceEntities,supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
+      return {saved_preset:savedPreset,current_map:0,control_version:4,device_entities:deviceEntities,supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
         suction: ['quiet', 'balanced', 'turbo', 'max', 'max_plus'],
         water: vacuumOnly ? [] : ['low', 'medium', 'high'],
         routes: vacuumOnly ? [] : ['standard', 'deep', 'deep_plus', 'fast'],
@@ -293,7 +294,7 @@
       return {response: structuredClone(capabilities())};
     }
     const stamp = () => new Date().toISOString();
-    const set = (id, state, attributes = {}) => { states[id] = {entity_id: id, state: String(state), attributes: id===config.queue_entity ? {control_version:3,...attributes}:attributes, last_changed: stamp(), last_updated: stamp()}; };
+    const set = (id, state, attributes = {}) => { states[id] = {entity_id: id, state: String(state), attributes: id===config.queue_entity ? {control_version:4,...attributes}:attributes, last_changed: stamp(), last_updated: stamp()}; };
     const queue = () => states[config.queue_entity];
     const queueAttrs = () => ({vacuum: config.entity, presets: [], current_index: 0, completed: 0, error: '', ...(queue()?.attributes || {})});
     const roomByPreset = preset => rooms.find(room => room.preset === preset);
@@ -344,7 +345,7 @@
         config: {unit_system: {length: 'km', temperature: '°C', mass: 'kg', volume: 'L'}, time_zone: 'Europe/London'},
         localize: () => undefined,
         callService, callWS, hassUrl: path=>path.startsWith('/api/image_proxy/') ? './demo-map.svg' : path,
-        services: {vacuum: {start: {}, pause: {}, return_to_base: {}, stop: {}}, button: {press: {}}, script: {turn_on: {}}, robot_cleaner_queue: {control: {}, get_capabilities: {}, device_control:{}}},
+        services: {vacuum: {start: {}, pause: {}, return_to_base: {}, stop: {}}, button: {press: {}}, script: {turn_on: {}}, robot_cleaner_queue: {control: {}, get_capabilities: {}, device_control:{}, save_preset:{}}},
         formatEntityState: state => state.state,
         formatEntityAttributeValue: (state, attribute) => state.attributes[attribute]
       };
@@ -375,6 +376,7 @@
       }
     }
     async function callService(domain, service, data = {}) {
+      if (domain==='robot_cleaner_queue' && service==='save_preset') { savedPreset=structuredClone({...data,map_id:0});log(domain,service,data);return; }
       if (states[config.entity]?.state === 'unavailable' && (data.variables?.command || data.command) !== 'cancel') throw new Error('The robot is unavailable.');
       log(domain, service, data);
       commandPending = true;

@@ -47,7 +47,7 @@ class Snapshot:
 
     def healthy_for(self, mode: str = "preset") -> bool:
         return self.robot_healthy and (self.dock_error in {"ok", "none"} or
-                                      self.dock_error == "water_empty" and mode == "vacuum")
+                                      self.dock_error == "water_empty" and mode in {"vacuum", "preset"})
 
     @property
     def healthy(self) -> bool:

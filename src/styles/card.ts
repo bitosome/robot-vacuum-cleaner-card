@@ -36,6 +36,8 @@ export const cardStyles = css`
   .secondary { color:var(--secondary-text-color); }
   .room-section { padding:6px 4px 3px; }
   .section-heading { display:flex; align-items:center; justify-content:space-between; min-height:40px; margin-bottom:4px; gap:8px; }
+  .preset-heading { flex-wrap:wrap; }
+  .preset-buttons { margin-top:0; }
   .section-heading h3 { font-size:14px; font-weight:700; margin:0; }
   .text-button { border:0; padding:10px; min-height:44px; background:transparent; color:var(--robot-accent); font-size:12px; font-weight:650; }
   .hint { font-size:12px; line-height:1.4; color:var(--secondary-text-color); margin-bottom:14px; }

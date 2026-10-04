@@ -1,5 +1,26 @@
 # Presets from wall switches and other dashboards
 
+## Card-saved preset (0.4.0+)
+
+Choose the room order and manual settings in the card and press **Save preset**. This persists one preset per robot in Home Assistant. Use a stable zero-argument script for the wall switch:
+
+```yaml
+script:
+  robot_vacuum_cleaner_preset:
+    alias: Robot vacuum cleaner preset
+    mode: single
+    sequence:
+      - action: robot_cleaner_queue.control
+        data:
+          command: toggle_saved
+          vacuum: vacuum.robot
+```
+
+Idle starts the saved plan; another hold cancels remaining stages and returns to dock for native care. Repeated holds while finishing do not restart cleaning. Optional `presets` provide a fallback app routine only before the first save. A saved plan that is no longer valid is rejected, never replaced by the fallback. Saving itself never starts cleaning. Existing input-button compatibility automations can call this same script without a firmware flash.
+
+## Fixed app-routine scripts
+
+
 Use a named Home Assistant script for each saved cleaning preset. A switch that only accepts a service and an entity can then call `script.turn_on`. The script sends the saved Roborock routine button to the same controller as the robot card, preserving its app settings and the queue's busy/uncertainty checks.
 
 This requires companion **0.2.2 or later**. Install and check the companion before switching existing callers. These examples are generic; substitute your own vacuum and routine button entities.
@@ -39,7 +60,7 @@ Use a direct script call from that compatibility automation so errors propagate 
 
 ## Manual settings and controls
 
-A saved preset does not use an unsubmitted manual draft from a browser. For a fixed manual plan, create a separate wrapper calling `robot_cleaner_queue.control` with `command: start_manual`, explicit `vacuum`, `rooms` and `setup`; use only capabilities supported by that robot. See [manual cleaning](manual-cleaning.md).
+An unsaved browser draft never changes the wall-switch preset. Use **Save preset** and `toggle_saved` to reuse manual settings. For a fixed manual plan, create a separate wrapper calling `robot_cleaner_queue.control` with `command: start_manual`, explicit `vacuum`, `rooms` and `setup`; use only capabilities supported by that robot. See [manual cleaning](manual-cleaning.md).
 
 Route pause/resume/dock through the companion too, with an explicit vacuum. Version 0.2.2 can control an existing app-started job without adopting it as an ordered queue. Resume requires a confirmed paused, unfinished job, and every physical command waits for acknowledgement. A failed command is never retried or replaced by native `vacuum.start`.
 

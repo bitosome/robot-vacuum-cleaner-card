@@ -27,7 +27,7 @@ DOMAIN = "robot_cleaner_queue"
 _LOGGER = logging.getLogger(__name__)
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 SERVICE_SCHEMA = vol.Schema({
-    vol.Required("command"): vol.In(["start", "start_manual", "pause", "resume", "cancel", "return_to_dock", "stop", "toggle"]),
+    vol.Required("command"): vol.In(["start", "start_manual", "pause", "resume", "cancel", "return_to_dock", "stop", "toggle", "toggle_saved"]),
     vol.Optional("presets", default=[]): vol.All(cv.ensure_list, [cv.entity_id]),
     vol.Optional("vacuum", default=""): str,
     vol.Optional("rooms", default=[]): vol.All(cv.ensure_list, [str]),
@@ -49,6 +49,13 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data[DOMAIN] = manager
     await manager.setup()
     hass.services.async_register(DOMAIN, "control", manager.control, schema=SERVICE_SCHEMA)
+    hass.services.async_register(DOMAIN, "save_preset", manager.save_preset, schema=vol.Schema({
+        vol.Required("vacuum"): cv.entity_id,
+        vol.Required("source"): vol.In(["preset", "manual"]),
+        vol.Optional("presets", default=[]): vol.All(cv.ensure_list, [cv.entity_id]),
+        vol.Optional("rooms", default=[]): vol.All(cv.ensure_list, [str]),
+        vol.Optional("setup", default={}): dict,
+    }))
     hass.services.async_register(DOMAIN, "get_capabilities", manager.get_capabilities,
                                  schema=vol.Schema({vol.Required("vacuum"): cv.entity_id}),
                                  supports_response=SupportsResponse.ONLY)
@@ -65,6 +72,8 @@ class Manager:
         self.hass = hass
         self.queue = Queue()
         self.store = Store(hass, 1, DOMAIN)
+        self.preset_store = Store(hass, 1, DOMAIN + "_presets")
+        self.saved_presets: dict = {}
         self.lock = asyncio.Lock()
         self.listeners = []
         self.unsubs = []
@@ -75,6 +84,7 @@ class Manager:
         self.last_published = None
 
     async def setup(self) -> None:
+        self.saved_presets = await self.preset_store.async_load() or {}
         self.queue = Queue.restore(await self.store.async_load())
         await self.store.async_save(self.queue.dump())
         self.unsubs.extend([
@@ -124,7 +134,9 @@ class Manager:
         try:
             caps, controls, _, _ = self.manual_capabilities(call.data["vacuum"])
             await async_require_control(self.hass.auth, call.context.user_id, list(controls.values()), POLICY_CONTROL)
-            caps["control_version"] = 3
+            caps["control_version"] = 4
+            caps["current_map"] = current_map(self.resolve(call.data["vacuum"])[2])[0]
+            caps["saved_preset"] = await self.read_saved_preset(call.data["vacuum"], call.context.user_id)
             caps["device_entities"] = {}
             for key, entity_id in self.device_entities(call.data["vacuum"]).items():
                 try:
@@ -140,6 +152,49 @@ class Manager:
             return {"supported": False, "modes": [], "suction": [], "water": [], "routes": [], "repeats": [],
                     "room_targets": [], "defaults": {}, "error": "Manual cleaning is unavailable. Check the native Roborock integration and area mapping."}
 
+    async def read_saved_preset(self, vacuum, user_id):
+        plan = self.saved_presets.get(vacuum)
+        if plan:
+            await async_require_control(self.hass.auth, user_id, [vacuum, *plan.get("presets", [])], POLICY_CONTROL)
+        return plan
+
+    async def save_preset(self, call: ServiceCall) -> None:
+        """Persist a reusable plan; never configure or actuate the robot."""
+        async with self.lock:
+            if self.closing:
+                raise ServiceValidationError("Home Assistant is stopping.")
+            vacuum, source = call.data["vacuum"], call.data["source"]
+            try:
+                await async_require_control(self.hass.auth, call.context.user_id, [vacuum], POLICY_CONTROL)
+                plan = {"source": source, "presets": [], "rooms": [], "setup": {}}
+                if source == "manual":
+                    if call.data.get("presets"):
+                        raise ValueError("A manual preset cannot contain Roborock routine buttons.")
+                    caps, controls, targets, map_id = self.manual_capabilities(vacuum)
+                    await async_require_control(self.hass.auth, call.context.user_id, list(controls.values()), POLICY_CONTROL)
+                    setup, _ = build_plan(call.data.get("rooms", []), call.data.get("setup", {}), caps, targets, map_id)
+                    plan.update(rooms=list(call.data.get("rooms", [])), setup=setup, map_id=map_id)
+                else:
+                    if call.data.get("rooms") or call.data.get("setup"):
+                        raise ValueError("Roborock routines use their app settings, not manual settings.")
+                    presets = list(call.data.get("presets", []))
+                    if not 1 <= len(presets) <= 32 or len(set(presets)) != len(presets):
+                        raise ValueError("Select 1–32 distinct room presets.")
+                    await async_require_control(self.hass.auth, call.context.user_id, presets, POLICY_CONTROL)
+                    registry, entry, coordinator = self.resolve(vacuum)
+                    for preset in presets:
+                        state = self.hass.states.get(preset)
+                        if not routine_matches(registry.async_get(preset), entry, coordinator) or state is None or state.state == "unavailable":
+                            raise ValueError("Every preset must be an available routine for this robot.")
+                    plan["presets"] = presets
+                updated = {**self.saved_presets, vacuum: plan}
+                await self.preset_store.async_save(updated)
+                self.saved_presets = updated  # Report success only after durable storage.
+            except PermissionError as err:
+                raise Unauthorized(context=call.context, permission=POLICY_CONTROL) from err
+            except ValueError as err:
+                raise ServiceValidationError(str(err)) from err
+
     def device_entities(self, vacuum: str) -> dict:
         registry, entry, coordinator = self.resolve(vacuum)
         return device_entities(entry, coordinator, registry.entities.values(), self.hass.states)
@@ -152,7 +207,7 @@ class Manager:
         if not current.connected or current.vacuum in {"unknown", "unavailable"}:
             raise ValueError("The robot is unavailable.")
         if key in DOCK and value == "on":
-            mode = "preset" if key == "mop_washing" else "vacuum"
+            mode = "mop" if key == "mop_washing" else "vacuum"
             if current.vacuum != "docked" or not current.ready_for(mode):
                 raise ValueError("The robot must be docked, without an unfinished job or a fault affecting this dock action.")
         return current
@@ -192,7 +247,7 @@ class Manager:
                 if self.device_entities(vacuum).get(key) != entity_id:
                     raise ValueError("The native control changed before dispatch.")
                 current = self.current_snapshot(vacuum)
-                if key in DOCK and value == "on" and (current.vacuum != "docked" or not current.ready_for("preset" if key == "mop_washing" else "vacuum")):
+                if key in DOCK and value == "on" and (current.vacuum != "docked" or not current.ready_for("mop" if key == "mop_washing" else "vacuum")):
                     raise ValueError("The robot became busy before the dock command.")
                 context = Context(user_id=call.context.user_id, parent_id=call.context.id)
                 self.contexts.add(context.id)
@@ -251,21 +306,29 @@ class Manager:
         async with self.lock:
             if self.closing:
                 raise ServiceValidationError("Home Assistant is stopping.")
-            command = call.data["command"]
-            vacuum = call.data.get("vacuum") or self.queue.vacuum
-            if command == "toggle":
+            data = dict(call.data)
+            command = data["command"]
+            vacuum = data.get("vacuum") or self.queue.vacuum
+            saved_plan = None
+            if command in {"toggle", "toggle_saved"}:
+                use_saved = command == "toggle_saved"
                 # Decide under the same lock as starts and stage advancement.
                 if self.queue.vacuum and vacuum != self.queue.vacuum and (self.queue.phase in ACTIVE or self.queue.pending_command):
                     raise ServiceValidationError("Another vacuum has an active command.")
                 command = "finish" if self.queue.should_finish(self.current_snapshot(vacuum)) else "start"
+                if command == "start" and use_saved:
+                    saved_plan = self.saved_presets.get(vacuum)
+                    if saved_plan:
+                        data.update({key: saved_plan[key] for key in ("presets", "rooms", "setup")})
+                        command = "start_manual" if saved_plan["source"] == "manual" else "start"
             bound = self.queue.phase in ACTIVE or self.queue.phase == "attention" or bool(self.queue.pending_command)
             owned_plan = bound and self.queue.mode in {"preset", "manual"}
             standalone = command in {"pause", "resume", "return_to_dock", "stop"} and not owned_plan
-            if standalone and not call.data.get("vacuum"):
+            if standalone and not data.get("vacuum"):
                 raise ServiceValidationError("Specify a vacuum when controlling a job outside an active queue.")
             if command not in {"start", "start_manual"} and bound and self.queue.vacuum and vacuum != self.queue.vacuum:
                 raise ServiceValidationError("This command targets a different vacuum than the current queue.")
-            permission_entities = [vacuum, *(call.data["presets"] if command == "start" else [] if command == "start_manual" else self.queue.presets if owned_plan else []),
+            permission_entities = [vacuum, *(data["presets"] if command == "start" else [] if command == "start_manual" else self.queue.presets if owned_plan else []),
                                    *(self.queue.control_entities.values() if owned_plan and command not in {"start", "start_manual"} else [])]
             try:
                 await async_require_control(self.hass.auth, call.context.user_id, permission_entities, POLICY_CONTROL)
@@ -280,19 +343,21 @@ class Manager:
                         effect = self.queue.finish(vacuum, current, time.time(), uuid4().hex)
                         self.queue.owner_user_id = call.context.user_id
                     elif command == "start_manual":
-                        if call.data["presets"]:
+                        if data["presets"]:
                             raise ValueError("Manual cleaning cannot run preset buttons.")
                         caps, controls, targets, map_id = self.manual_capabilities(vacuum)
-                        setup, stages = build_plan(call.data["rooms"], call.data.get("setup", {}), caps, targets, map_id)
+                        if saved_plan is not None and saved_plan.get("map_id") != map_id:
+                            raise ValueError("The saved preset belongs to another map. Select that map or save a new preset.")
+                        setup, stages = build_plan(data["rooms"], data.get("setup", {}), caps, targets, map_id)
                         try:
                             await async_require_control(self.hass.auth, call.context.user_id, list(controls.values()), POLICY_CONTROL)
                         except PermissionError as err:
                             raise Unauthorized(context=call.context, permission=POLICY_CONTROL) from err
-                        effect = self.queue.start_manual(vacuum, call.data["rooms"], setup, stages, controls, current, time.time(), uuid4().hex)
+                        effect = self.queue.start_manual(vacuum, data["rooms"], setup, stages, controls, current, time.time(), uuid4().hex)
                         self.queue.owner_user_id = call.context.user_id
                     elif command == "start":
                         registry, entry, coordinator = self.resolve(vacuum)
-                        presets = call.data["presets"]
+                        presets = data["presets"]
                         for preset in presets:
                             state = self.hass.states.get(preset)
                             if not routine_matches(registry.async_get(preset), entry, coordinator) or state is None or state.state == "unavailable":

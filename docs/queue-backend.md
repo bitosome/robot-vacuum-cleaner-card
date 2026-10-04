@@ -109,10 +109,15 @@ To remove the companion, first clear its queue, remove the package include and c
 
 ### Mode-specific dock faults and auxiliary controls
 
-v0.3.0 retains the native dock fault identity. Only Roborock V1 `water_empty` (code 38, python-roborock 7.4.2) permits an explicit manual vacuum-only plan. The exception is checked at acceptance, every settings write, final start dispatch, observation and each subsequent stage. Preset contents are opaque, so presets and all mopping plans remain blocked. Other dock faults and missing robot telemetry fail closed.
+v0.3.0 retains the native dock fault identity. Roborock V1 `water_empty` (code 38, python-roborock 7.4.2) permits an explicit manual vacuum-only plan. Since v0.4.0 it also permits launching native app presets; Roborock decides whether their mop operations can proceed. The exception is checked at acceptance, every settings write, final start dispatch, observation and each subsequent stage. Explicit manual mopping plans remain blocked. Preset settings are never rewritten to vacuum-only. Other dock faults and missing robot telemetry fail closed.
 
 `control: stop` differs from `cancel`: it cancels future stages and sends `vacuum.stop`, awaiting fresh idle/docked telemetry with `in_cleaning == 0`. It does not replace a command already awaiting acknowledgement. Pause/Home do not require a healthy water tank; Resume still checks the cleaning mode.
 
 `robot_cleaner_queue.device_control` accepts `vacuum`, an allowlisted `control` and its native `value`. Registry unique IDs and config-entry ownership select the target; callers cannot pass arbitrary entity IDs. Settings/dock actions persist a `mode: device` reservation under the same queue lock, preserve the caller's permissions, and wait for fresh entity readback. Failure, timeout or restart requires review and retains the uncertainty barrier. A rejected concurrent command does not cancel an existing reservation. Read-only `get_capabilities` includes enabled/available, permission-filtered `device_entities` and `control_version: 3`.
 
 Dock starts require a docked idle robot with no unfinished job. Washing requires a healthy dock; emptying/drying may proceed with the specific water-empty warning. Turning an already-running dock action off does not require water. Native robot/dock firmware remains authoritative. `locate` plays a sound and does not adopt or advance any cleaning plan. Map images and maintenance values are read-only.
+
+
+## Persisted preset — v0.4.0
+
+`save_preset` stores one validated plan per vacuum in the separate version-1 HA store `robot_cleaner_queue_presets`. Writes share the controller lock, and the new plan is published to memory only after durable save. Saving requires control permissions and never writes robot settings. `get_capabilities` exposes the authorized saved plan, current map and control_version 4. `toggle_saved` chooses finish/start atomically; only its idle branch reads the saved plan, then normal start validation and dispatch permissions apply. Manual plans retain map identity and are revalidated against current area mappings/settings. A supplied routine list is used only if no saved plan exists. Storage survives queue clearing and restarts without triggering a run.

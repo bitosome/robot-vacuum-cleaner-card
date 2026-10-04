@@ -373,10 +373,10 @@ async function deviceFixture(extra={}) {
       'image.rover_map':entity('2026-01-01',{entity_picture:'/api/image_proxy/image.rover_map?token=fixture'}),...extra
     }});
 }
-test('water-empty warning blocks presets but manual vacuum-only can start on updated companion',async()=>{
+test('older companion blocks presets but manual vacuum-only can start',async()=>{
   const {card,calls}=await deviceFixture();await settle(card);
   assert.ok(card.shadowRoot.querySelector('[data-action="start"]').disabled);
-  assert.match(card.shadowRoot.textContent,/Choose Manual/);
+  assert.match(card.shadowRoot.textContent,/Manual mopping needs water/);
   card.source='manual';card.planEdited=true;card.setup={mode:'vacuum',repeat:1,suction:'max'};await settle(card);
   assert.equal(card.shadowRoot.querySelector('[data-action="start"]').disabled,false);
   card.shadowRoot.querySelector('[data-action="start"]').click();await settle(card);
@@ -416,4 +416,45 @@ test('unavailable native devices disappear and Stop sends stop rather than cance
   assert.equal(card.shadowRoot.querySelector('[data-panel="dock"]'),null);
   card.shadowRoot.querySelector('[data-action="stop"]').click();await settle(card);
   assert.equal(calls.at(-1).data.command,'stop');assert.equal(calls.at(-1).domain,'robot_cleaner_queue');
+});
+
+
+test('version 4 allows Roborock presets with missing water without altering app settings',async()=>{
+  const {card,calls}=await deviceFixture({'sensor.robot_cleaner_queue':entity('idle',{vacuum:'vacuum.rover',control_version:4})});
+  await click(card,room(card,'kitchen_preset'));
+  assert.equal(action(card,'start').disabled,false);
+  await click(card,action(card,'start'));
+  assert.equal(calls.at(-1).data.command,'start');
+  assert.deepEqual(calls.at(-1).data.presets,['button.rover_kitchen']);
+  assert.equal(calls.at(-1).data.setup,undefined);
+});
+
+test('save manual preset persists order and settings without a cleaning command',async()=>{
+  const {card,calls}=await fixture({services:{robot_cleaner_queue:{control:{},get_capabilities:{},save_preset:{}}}});
+  await selectManual(card); await click(card,mode(card,'vacuum')); await apply(card);
+  await click(card,room(card,'kitchen_area')); await click(card,room(card,'living_area'));
+  await click(card,action(card,'save-preset'));
+  assert.equal(calls.length,1); assert.equal(calls[0].action,'save_preset');
+  assert.deepEqual(calls[0].data.rooms,['kitchen_area','living_area']);
+  assert.equal(calls[0].data.setup.mode,'vacuum');
+  assert.match(root(card).textContent,/Preset saved in Home Assistant/);
+});
+
+test('a fresh card loads a server-saved preset without starting cleaning',async()=>{
+  const plan={source:'manual',presets:[],rooms:['kitchen_area','living_area'],setup:{mode:'vacuum',suction:'max',repeat:2},map_id:0};
+  const {card,calls}=await fixture({capabilities:{...baseCapabilities,current_map:0,saved_preset:plan},
+    states:{'sensor.robot_cleaner_queue':entity('idle',{control_version:4})},services:{robot_cleaner_queue:{control:{},get_capabilities:{},save_preset:{}}}});
+  await click(card,action(card,'load-preset'));
+  assert.equal(calls.length,0);
+  assert.deepEqual(card.manualSelected,['kitchen_area','living_area']);
+  assert.deepEqual(card.setup,plan.setup);
+  assert.equal(card.source,'manual');
+});
+
+test('failed save is shown and never starts cleaning',async()=>{
+  const {card}=await fixture({services:{robot_cleaner_queue:{control:{},get_capabilities:{},save_preset:{}}}});
+  card.hass.callService=async()=>{throw new Error('Storage unavailable');};
+  await click(card,action(card,'save-preset'));
+  assert.match(root(card).textContent,/Storage unavailable/);
+  assert.doesNotMatch(root(card).textContent,/Preset saved in Home Assistant/);
 });

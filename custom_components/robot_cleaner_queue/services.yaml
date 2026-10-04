@@ -6,7 +6,7 @@ control:
       required: true
       selector:
         select:
-          options: [start, start_manual, pause, resume, cancel, return_to_dock, stop, toggle]
+          options: [start, start_manual, pause, resume, cancel, return_to_dock, stop, toggle, toggle_saved]
     vacuum:
       selector:
         entity:
@@ -58,3 +58,31 @@ device_control:
       description: Switches use on/off; volume uses a number; times use HH:MM; empty_mode uses a native option. Omit for locate.
       selector:
         text: {}
+
+save_preset:
+  name: Save cleaning preset
+  description: Save this robot's room order and manual settings in Home Assistant for reuse by the card and hardware toggle. Does not start cleaning or change robot settings. Replaces its previous saved preset.
+  fields:
+    vacuum:
+      required: true
+      selector:
+        entity:
+          domain: vacuum
+          integration: roborock
+    source:
+      required: true
+      selector:
+        select:
+          options: [preset, manual]
+    presets:
+      selector:
+        entity:
+          domain: button
+          multiple: true
+    rooms:
+      selector:
+        area:
+          multiple: true
+    setup:
+      selector:
+        object: {}

@@ -18,11 +18,11 @@ class PolicyTests(unittest.TestCase):
             coordinator.data.status.dock_error_status=code
             self.assertEqual(adapter.snapshot(coordinator,"docked").dock_error,expected)
 
-    def test_water_exception_is_only_for_explicit_vacuum(self):
+    def test_water_exception_allows_app_presets_and_explicit_vacuum(self):
         for fault in ["water_empty","error","waste_water_tank_full","unknown"]:
             for mode in ["vacuum","mop","vacuum_mop","vacuum_then_mop","preset"]:
                 current=ready(); current.dock_error=fault
-                self.assertEqual(current.ready_for(mode),fault=="water_empty" and mode=="vacuum")
+                self.assertEqual(current.ready_for(mode),fault=="water_empty" and mode in {"vacuum", "preset"})
                 current.error="error"
                 self.assertFalse(current.ready_for(mode))
 

@@ -1,7 +1,7 @@
 import { LitElement, html, nothing, type PropertyValues } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
-import { MODE_LABELS, normalizeSetup, renderSetupSheet, setupSummary, type CleaningSource, type ManualCapabilities, type ManualSetup, type ManualStage } from './manual-setup';
+import { MODE_LABELS, normalizeSetup, renderSetupSheet, setupSummary, type CleaningSource, type ManualCapabilities, type ManualSetup, type ManualStage, type SavedPreset } from './manual-setup';
 import { panelKeys, renderDevicePanel, type DevicePanel } from './device-panel';
 import { designTokens } from './shared/design-tokens';
 import { buildGlow, type PulseColors } from './shared/glow';
@@ -34,11 +34,14 @@ export class RobotVacuumCleanerCard extends LitElement {
   @state() private planEdited = false;
   @state() private panel?: DevicePanel;
   @state() private deviceSending = false;
+  @state() private savingPreset = false;
+  @state() private presetFeedback = '';
+  @state() private savedPreset?: SavedPreset;
   private capsFor = '';
   private capsRequest = 0;
   private requestTimer?: ReturnType<typeof setTimeout>;
 
-  setConfig(config: CardConfig) { if (this.config?.entity !== config.entity) { this.capsRequest++; this.capsFor=''; this.caps=undefined; this.manualSelected=[]; this.source='preset'; } this.config = validateConfig(config); this.selected = this.selected.filter(id => this.config!.rooms.some(room => room.id === id)); }
+  setConfig(config: CardConfig) { if (this.config?.entity !== config.entity) { this.capsRequest++; this.capsFor=''; this.caps=undefined; this.savedPreset=undefined; this.presetFeedback=''; this.manualSelected=[]; this.source='preset'; } this.config = validateConfig(config); this.selected = this.selected.filter(id => this.config!.rooms.some(room => room.id === id)); }
   getCardSize() { return 8; }
   getGridOptions() { return { columns: 12, min_columns: 6, rows: 9, min_rows: 6 }; }
   static async getConfigElement() { await import('./editor'); return document.createElement('robot-vacuum-cleaner-card-editor'); }
@@ -56,10 +59,10 @@ export class RobotVacuumCleanerCard extends LitElement {
   private get completed() { return Math.max(0,Number(this.queue?.attributes.completed) || 0); }
   private get robotReady() { return available(this.vacuum); }
   private get jobActive() { return this.entity(this.config?.cleaning_entity)?.state === 'on' || ['cleaning','paused','returning'].includes(this.vacuum?.state ?? ''); }
-  private get blocked() { return this.deviceSending || this.phase === 'controlling' || !!this.request || !!this.queue?.attributes.pending_command; }
+  private get blocked() { return this.savingPreset || this.deviceSending || this.phase === 'controlling' || !!this.request || !!this.queue?.attributes.pending_command; }
   private get waterEmpty() { return this.entity(this.config?.dock_error_entity)?.state === 'water_empty'; }
   private get modernController() { return Number(this.queue?.attributes.control_version) >= 3; }
-  private get waterAllowed() { return this.waterEmpty && this.modernController && this.manual && this.activeSetup.mode==='vacuum'; }
+  private get waterAllowed() { return this.waterEmpty && ((this.modernController && this.manual && this.activeSetup.mode==='vacuum') || (Number(this.queue?.attributes.control_version)>=4 && !this.manual)); }
   private get fault() {
     const err = this.entity(this.config?.error_entity)?.state;
     const dock = this.entity(this.config?.dock_error_entity)?.state;
@@ -97,13 +100,46 @@ export class RobotVacuumCleanerCard extends LitElement {
       if (request!==this.capsRequest) return;
       const caps=result.response;
       if (!caps || !Array.isArray(caps.modes) || !Array.isArray(caps.room_targets) || !Array.isArray(caps.suction) || !Array.isArray(caps.water) || !Array.isArray(caps.routes) || !Array.isArray(caps.repeats) || caps.modes.some(mode=>!Object.prototype.hasOwnProperty.call(MODE_LABELS,mode.value))) throw new Error('The companion returned an incomplete capability response.');
-      this.caps=caps;
+      this.caps=caps; this.savedPreset=caps.saved_preset;
       if (caps.supported && caps.modes.length) {
         this.draftSetup=normalizeSetup(caps,this.source==='manual' ? this.setup : caps.defaults);
         if (this.source==='manual') this.setup=normalizeSetup(caps,this.setup);
       }
     } catch(error) { if (request===this.capsRequest) { this.caps=undefined; this.capsError=error instanceof Error ? error.message : 'Could not read robot capabilities.'; } }
     finally { if (request===this.capsRequest) this.capsLoading=false; }
+  }
+  private get canSavePreset() { return !!this.hass?.services?.robot_cleaner_queue?.save_preset && !this.blocked && !this.queueActive && !this.jobActive && (!this.manual || this.manualReady); }
+  private async savePreset() {
+    if (!this.canSavePreset || !this.hass || !this.config) return;
+    const plan = this.manual
+      ? {source:'manual',presets:[],rooms:[...this.manualSelected],setup:{...this.setup}}
+      : {source:'preset',presets:this.selectedRooms.length ? this.selectedRooms.map(room=>room.preset) : this.config.full_clean_entity ? [this.config.full_clean_entity] : [],rooms:[],setup:{}};
+    if (plan.source==='preset' && !plan.presets.length) { this.commandError='Choose rooms before saving a preset.'; return; }
+    this.savingPreset=true; this.commandError=''; this.presetFeedback='';
+    try {
+      await this.hass.callService('robot_cleaner_queue','save_preset',{vacuum:this.config.entity,...plan});
+      this.savedPreset=plan as SavedPreset;
+      this.presetFeedback='Preset saved in Home Assistant. Your wall switch will use it. Nothing started.';
+      await this.readCapabilities();
+    } catch(error) { this.commandError=error instanceof Error ? error.message : 'Could not save the preset. Your previous preset is unchanged.'; }
+    finally { this.savingPreset=false; }
+  }
+  private loadPreset() {
+    const plan=this.savedPreset;
+    if (!plan || this.blocked || this.queueActive || this.jobActive) return;
+    if (plan.source==='manual') {
+      const normalized=this.caps ? normalizeSetup(this.caps,plan.setup) : undefined;
+      if (!this.caps?.supported || (plan.map_id!==undefined && plan.map_id!==this.caps.current_map) || !normalized || Object.keys(plan.setup).some(key=>normalized[key as keyof ManualSetup]!==plan.setup[key as keyof ManualSetup]) || plan.rooms.some(id=>!this.caps!.room_targets.some(room=>room.id===id))) {
+        this.commandError='The saved preset has settings or areas that are no longer available. Edit and save a new preset.'; return;
+      }
+      this.setup={...plan.setup}; this.manualSelected=[...plan.rooms];
+    } else {
+      const full=plan.presets.length===1 && plan.presets[0]===this.config?.full_clean_entity;
+      const rooms=plan.presets.map(preset=>this.config?.rooms.find(room=>room.preset===preset));
+      if (!full && rooms.some(room=>!room)) { this.commandError='A saved room is missing from this card configuration.'; return; }
+      this.selected=full ? [] : rooms.map(room=>room!.id);
+    }
+    this.source=plan.source; this.planEdited=true; this.commandError=''; this.presetFeedback='Preset loaded. Press Start when ready.';
   }
   private async openSetup() {
     if (this.queueActive || this.blocked || this.jobActive) return;
@@ -212,11 +248,11 @@ export class RobotVacuumCleanerCard extends LitElement {
     }
     if (this.queueActive) return 'Cleaning sequence in progress';
     if (this.phase === 'completed' && this.showCommitted) return 'Your rooms are clean';
-    return this.waterAllowed ? 'Ready to vacuum' : 'Ready to clean';
+    return this.waterAllowed && this.manual ? 'Ready to vacuum' : 'Ready to clean';
   }
   private subline(): string {
     if (!this.robotReady) return 'Waiting for Home Assistant to reconnect.';
-    if (this.fault) return this.waterEmpty && this.fault==='Water empty' ? 'Vacuum-only cleaning is available in Manual setup.' : this.fault;
+    if (this.fault) return this.waterEmpty && this.fault==='Water empty' ? 'Roborock presets and manual vacuum-only cleaning can run. Mopping needs water.' : this.fault;
     if (this.phase === 'attention') return this.queue?.attributes.error || 'The sequence stopped. Check the robot before starting a new plan.';
     if (this.phase === 'controlling') return this.queue?.attributes.mode === 'finish' ? 'Remaining rooms cancelled · Returning to dock for care' : 'Confirming your command · No retry will be sent';
     if (this.queueActive && this.queueManual) {
@@ -311,12 +347,13 @@ export class RobotVacuumCleanerCard extends LitElement {
         <button class="setup-launch" data-action="setup" aria-label=${`Cleaning setup: ${this.manual ? setupSummary(this.activeSetup) : 'Preset'}`} ?disabled=${this.queueActive || this.blocked || this.jobActive} @click=${()=>this.openSetup()}><span><ha-icon .icon=${this.manual?'mdi:tune-variant':'mdi:bookmark-outline'}></ha-icon>${this.manual ? setupSummary(this.activeSetup) : 'Preset'}</span><span class="setup-edit">${icon('mdi:chevron-right')}</span></button>
         ${this.renderActions()}
       </section></div>
-      ${this.waterEmpty ? html`<div class="note water-warning">${icon('mdi:water-alert-outline')}<span>Refill and reseat the dock’s clean-water tank for mopping. ${this.waterAllowed ? 'Your vacuum-only plan can run.' : 'Choose Manual → Vacuum to clean without water. Presets may include mopping.'}</span></div>`:nothing}
+      ${this.waterEmpty ? html`<div class="note water-warning">${icon('mdi:water-alert-outline')}<span>Refill and reseat the dock’s clean-water tank for mopping. ${this.waterAllowed ? 'You can start this clean. Roborock may skip or stop mopping until water is available.' : 'Manual mopping needs water. Choose Vacuum or a Roborock preset to continue.'}</span></div>`:nothing}
       ${this.renderUtilities()}
       ${this.phase === 'attention' ? html`<div class="note">Review the robot, then clear this sequence before choosing a new one.<button class="text-button" data-action="clear-queue" ?disabled=${this.blocked || !this.queueReady} @click=${()=>this.command('cancel')}>Clear sequence</button></div>`:nothing}
       ${this.commandError ? html`<div class="error" role="alert">${this.commandError}<button class="text-button" @click=${()=>this.commandError=''}>Dismiss</button></div>`:nothing}
       ${this.request ? html`<div class="note" role="status">${this.feedback}</div>`:nothing}
       ${!this.queueReady && (this.rooms.length || this.config?.require_queue) ? html`<div class="note">${this.config?.require_queue ? 'The shared cleaning controller is unavailable. Controls will return when it reconnects.' : 'Install and configure the Home Assistant queue companion to clean rooms in order. Full-home cleaning remains available when the robot is ready.'}</div>`:nothing}
+      ${this.hass.services?.robot_cleaner_queue?.save_preset ? html`<section class="surface hero" aria-label="Reusable preset"><div class="section-heading preset-heading"><h3>Preset</h3><div class="pills preset-buttons">${this.savedPreset ? html`<button class="text-button" data-action="load-preset" ?disabled=${this.blocked||this.queueActive||this.jobActive} @click=${()=>this.loadPreset()}>Load preset</button>`:nothing}<button class="action" data-action="save-preset" ?disabled=${!this.canSavePreset} @click=${()=>this.savePreset()}>${icon('mdi:content-save-outline')}${this.savingPreset?'Saving…':'Save preset'}</button></div></div><p class="hint">Save this room order and setup for the card and wall switch. Saving replaces the previous preset without starting cleaning.</p>${this.presetFeedback ? html`<p class="hint" role="status">${this.presetFeedback}</p>`:nothing}</section>`:nothing}
       <section class="room-section" aria-label="Rooms"><div class="section-heading"><h3>${this.queueActive?'Cleaning sequence':this.manual?'Choose your areas':'Choose your rooms'}</h3>${this.selection.length && !this.queueActive?html`<button class="text-button" ?disabled=${this.blocked} @click=${()=>{this.planEdited=true;this.setSelection([]);this.feedback='Selection cleared.';}}>Clear selection</button>`:nothing}</div>
         <p class="hint">${this.queueActive ? 'Your sequence continues even when you close this dashboard.' : 'Tap in order. Tap again to remove. Numbers show the cleaning sequence.'}</p>
         <div class="rooms">${repeat(this.rooms,room=>room.id,room=>this.renderRoom(room))}</div>
@@ -333,4 +370,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status, room presets and ordered cleaning with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.3.2');
+console.info('ROBOT VACUUM CLEANER CARD 0.4.0');

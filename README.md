@@ -136,7 +136,7 @@ Update **both** the HACS card and the queue companion, then restart Home Assista
 - **Settings** includes voice volume, Do Not Disturb and its times, child lock and dust emptying mode.
 - **Care** shows available consumable time-left sensors and overdue reminders. It never enables entities or resets counters.
 
-An empty clean-water tank is a dock warning, not a blanket cleaning lock. **Manual setup → Vacuum** can run with this specific fault. Mopping, combined/two-pass plans and opaque app presets remain blocked until water is restored. Other faults do not receive this exception. Pause, Stop and return-to-dock have action-specific checks. Robot firmware can still reject an operation; the card never bypasses device interlocks or claims success before acknowledgement.
+An empty clean-water tank is a dock warning, not a blanket cleaning lock. **Manual setup → Vacuum** can run with this specific fault. Roborock app presets can also be launched; the robot decides whether their mopping steps can proceed. Explicit manual mopping and combined/two-pass plans remain blocked until water is restored. Other faults do not receive this exception. Pause, Stop and return-to-dock have action-specific checks. Robot firmware can still reject an operation; the card never bypasses device interlocks or claims success before acknowledgement.
 
 Dock/settings changes use the shared server controller and caller permissions, wait up to 60 seconds for fresh native readback, and never retry automatically. Resolve an active/uncertain queue before changing these controls. A pending cloud command must finish its acknowledgement window before another motion command. Find is independent of cleaning.
 
@@ -147,3 +147,9 @@ Compatibility fix in v0.3.1: discover Roborock V1 map images whose native unique
 ### Hardware preset toggle
 
 Call `robot_cleaner_queue.control` with `command: toggle`, a `vacuum`, and selected `presets`. The controller atomically starts the selection when idle, or cancels all remaining stages and returns an active robot to its dock. Repeated holds during finishing do not restart cleaning. In-flight starts wait for fresh telemetry after the acknowledgement window; mop servicing is allowed to finish before docking, and an unfinished recharge break is stopped. Native dock care remains subject to robot settings, DND and dock supplies; no duplicate washing/emptying/drying commands are sent. Restart, lost telemetry or unacknowledged commands require review instead of retry. An empty preset selection rejects an idle start but can still finish an active job.
+
+### Save a reusable preset (companion 0.4.0+)
+
+Choose rooms in order and optionally use Manual setup, then press **Save preset**. One preset per robot is stored in Home Assistant (`.storage/robot_cleaner_queue_presets`), survives restarts and is shared across browsers. Saving replaces the previous saved plan without changing robot settings or starting cleaning. **Load preset** restores it into the card for review and Start. App routine sequences keep Roborock's own settings; manual presets retain the selected areas, mode, suction, water, route and repeat count. Plans are checked again at execution; changed maps, missing areas, unavailable settings or missing permissions cannot silently redirect cleaning.
+
+For a wall switch use `command: toggle_saved` with the robot entity. It starts the saved preset when idle and cancels/docks when busy. Optional `presets` are a fallback only until a preset is saved; invalid saved plans do not fall back to another clean. No preset is created automatically during installation.
