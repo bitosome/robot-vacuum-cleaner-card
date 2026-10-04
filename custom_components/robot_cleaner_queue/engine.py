@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-ACTIVE = {"preparing", "starting", "running", "paused"}
+ACTIVE = {"preparing", "starting", "running", "paused", "controlling"}
 READY_STATUS = {"idle", "charging", "charging_complete"}
 CLEANING_STATUS = {
     "cleaning", "spot_cleaning", "segment_cleaning", "zoned_cleaning",
@@ -93,7 +93,7 @@ class Queue:
         self.next_pending = False
 
     def _preserve_command_barrier(self) -> None:
-        if self.pending_command in {"start", "resume", "return_to_dock"}:
+        if self.pending_command in {"start", "pause", "resume", "return_to_dock"}:
             # A cloud command may have been accepted before telemetry catches up.
             # Clearing the UI must not permit another start on that stale state.
             self.not_before = max(self.not_before, self.command_at + ACK_SECONDS)
@@ -101,10 +101,71 @@ class Queue:
     def _validate_start(self, snapshot: Snapshot, now: float) -> None:
         if self.phase in ACTIVE or self.phase == "attention" or self.pending_command:
             raise ValueError("A queue is active or needs attention. Clear it before starting another sequence.")
-        if self.not_before and (now < self.not_before or snapshot.observed_at < self.not_before):
-            raise ValueError("A previous command is still uncertain. Wait for a fresh robot update after its 60-second acknowledgement window, then check that the robot is idle.")
+        self._validate_command_barrier(snapshot, now)
         if not snapshot.ready:
             raise ValueError("The robot must be available, idle or docked, and have no unfinished cleaning job.")
+
+    def _validate_command_barrier(self, snapshot: Snapshot, now: float) -> None:
+        if self.not_before and (now < self.not_before or snapshot.observed_at < self.not_before):
+            raise ValueError("A previous command is still uncertain. Wait for a fresh robot update after its 60-second acknowledgement window, then check the robot.")
+
+    def external_control(self, command: str, vacuum: str, snapshot: Snapshot,
+                         now: float, run_id: str) -> tuple[str, str] | None:
+        """Control an existing app-started job without adopting it as a queue."""
+        if command not in {"pause", "resume", "return_to_dock"}:
+            raise ValueError("Only pause, resume and return to dock can control an existing job.")
+        if not vacuum:
+            raise ValueError("Choose the vacuum to control.")
+        if self.phase in ACTIVE or self.phase == "attention" or self.pending_command:
+            raise ValueError("A queue or command is active or needs attention. Resolve it before controlling another job.")
+        self._validate_command_barrier(snapshot, now)
+        if not self.validate_control_state(command, snapshot):
+            return None
+        # A terminal sequence is historical, not a job to resume. Discard all
+        # stage bookkeeping so no observation can advance its old presets.
+        self.mode, self.phase = "external", "controlling"
+        self.vacuum, self.run_id = vacuum, run_id
+        self.presets, self.targets, self.stages = [], [], []
+        self.setup, self.control_entities = {}, {}
+        self.current_index = self.completed = 0
+        self.started_at = self.baseline_end = self.finish_wait_at = 0
+        self.seen_job = self.next_pending = False
+        self.not_before = 0
+        self.error = ""
+        self.pending_command, self.command_at = command, now
+        return "vacuum", {"pause": "pause", "resume": "start", "return_to_dock": "return_to_base"}[command]
+
+    @staticmethod
+    def validate_control_state(command: str, snapshot: Snapshot) -> bool:
+        """Recheck state both at acceptance and immediately before dispatch."""
+        if not snapshot.healthy:
+            raise ValueError("The robot and dock must be available and have no fault.")
+        if command == "pause" and snapshot.status not in CLEANING_STATUS | {"returning_home", "docking"}:
+            raise ValueError("Pause is available while cleaning or returning; wait for mop servicing to finish.")
+        if command == "resume" and not (snapshot.vacuum == snapshot.status == "paused" and snapshot.job == "on"):
+            raise ValueError("The robot must confirm a paused, unfinished cleaning job before resuming.")
+        if command == "return_to_dock":
+            if snapshot.vacuum in {"docked", "returning"}:
+                return False
+            if snapshot.status not in CLEANING_STATUS | {"paused", "idle"}:
+                raise ValueError("Return to dock is unavailable while the robot is servicing.")
+        return True
+
+    def _observe_external(self, snapshot: Snapshot, now: float) -> None:
+        if not self.pending_command:
+            return
+        if not snapshot.healthy:
+            self.attention("The robot or dock has a fault, or telemetry is unavailable. Check the robot before another command.")
+            return
+        confirmed = snapshot.observed_at >= self.command_at and (
+            (self.pending_command == "pause" and snapshot.vacuum == snapshot.status == "paused") or
+            (self.pending_command == "resume" and snapshot.job == "on" and snapshot.status in START_STATUS) or
+            (self.pending_command == "return_to_dock" and snapshot.vacuum in {"docked", "returning"})
+        )
+        if confirmed:
+            self.phase, self.pending_command, self.error = "idle", "", ""
+        elif now - self.command_at >= ACK_SECONDS:
+            self.attention("The robot did not acknowledge the command within 60 seconds. No retry was sent.")
 
     def start(self, vacuum: str, presets: list[str], snapshot: Snapshot, now: float, run_id: str) -> tuple[str, str]:
         self._validate_start(snapshot, now)
@@ -165,8 +226,18 @@ class Queue:
             self.error = ""
             return None  # Cancelling a queue never claims to stop the robot.
         if command == "return_to_dock":
+            had_pending_command = bool(self.pending_command)
             self.command("cancel", snapshot, now)
             if snapshot.vacuum in {"docked", "returning"}:
+                return None
+            # Cancelling future stages must not permit a second cloud command
+            # while the earlier start/pause/resume/home result is uncertain.
+            try:
+                self._validate_command_barrier(snapshot, now)
+                if had_pending_command:
+                    raise ValueError("A previous command was still awaiting acknowledgement.")
+            except ValueError:
+                self.attention("Queue cleared. A previous command is still uncertain; wait for a fresh robot update after its acknowledgement window before returning to dock.")
                 return None
             if not snapshot.healthy or not (snapshot.status in CLEANING_STATUS | {"paused", "idle"}):
                 self.attention("Queue cleared. Return to dock is unavailable while the robot is servicing or its state is uncertain.")
@@ -193,8 +264,8 @@ class Queue:
                 if not snapshot.ready:
                     raise ValueError("The robot is not ready for the next room.")
                 return self._dispatch(snapshot, now)
-            if not snapshot.healthy or snapshot.vacuum != "paused" or snapshot.status != "paused":
-                raise ValueError("The robot must confirm that it is paused before resuming.")
+            if not snapshot.healthy or snapshot.vacuum != "paused" or snapshot.status != "paused" or snapshot.job != "on":
+                raise ValueError("The robot must confirm a paused, unfinished cleaning job before resuming.")
             self.phase = "starting"
             self.pending_command = "resume"
             self.command_at = now
@@ -202,6 +273,9 @@ class Queue:
         raise ValueError("Unknown queue command.")
 
     def observe(self, snapshot: Snapshot, now: float) -> tuple[str, str] | None:
+        if self.mode == "external":
+            self._observe_external(snapshot, now)
+            return None
         if self.pending_command == "return_to_dock":
             if snapshot.vacuum in {"docked", "returning"}:
                 self.pending_command = ""

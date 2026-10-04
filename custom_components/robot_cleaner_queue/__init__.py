@@ -149,12 +149,15 @@ class Manager:
                 raise ServiceValidationError("Home Assistant is stopping.")
             command = call.data["command"]
             vacuum = call.data.get("vacuum") or self.queue.vacuum
-            if command not in {"start", "start_manual", "cancel"} and not self.queue.vacuum:
-                raise ServiceValidationError("No robot queue has been started.")
-            if command not in {"start", "start_manual"} and self.queue.vacuum and vacuum != self.queue.vacuum:
+            bound = self.queue.phase in ACTIVE or self.queue.phase == "attention" or bool(self.queue.pending_command)
+            owned_plan = bound and self.queue.mode in {"preset", "manual"}
+            standalone = command in {"pause", "resume", "return_to_dock"} and not owned_plan
+            if standalone and not call.data.get("vacuum"):
+                raise ServiceValidationError("Specify a vacuum when controlling a job outside an active queue.")
+            if command not in {"start", "start_manual"} and bound and self.queue.vacuum and vacuum != self.queue.vacuum:
                 raise ServiceValidationError("This command targets a different vacuum than the current queue.")
-            permission_entities = [vacuum, *(call.data["presets"] if command == "start" else [] if command == "start_manual" else self.queue.presets),
-                                   *(self.queue.control_entities.values() if command not in {"start", "start_manual"} else [])]
+            permission_entities = [vacuum, *(call.data["presets"] if command == "start" else [] if command == "start_manual" else self.queue.presets if owned_plan else []),
+                                   *(self.queue.control_entities.values() if owned_plan and command not in {"start", "start_manual"} else [])]
             try:
                 await async_require_control(self.hass.auth, call.context.user_id, permission_entities, POLICY_CONTROL)
             except PermissionError as err:
@@ -184,6 +187,10 @@ class Manager:
                                 raise ValueError("Every room must be an available routine button belonging to the selected robot.")
                         effect = self.queue.start(vacuum, presets, current, time.time(), uuid4().hex)
                         self.queue.owner_user_id = call.context.user_id
+                    elif standalone:
+                        effect = self.queue.external_control(command, vacuum, current, time.time(), uuid4().hex)
+                        if effect:
+                            self.queue.owner_user_id = call.context.user_id
                     else:
                         effect = self.queue.command(command, current, time.time())
             except ValueError as err:
@@ -266,6 +273,10 @@ class Manager:
                     raise ValueError("The next room preset is unavailable or no longer belongs to this robot.")
                 await self.hass.services.async_call("button", "press", {"entity_id": target}, blocking=True, context=context)
             else:
+                current = self.current_snapshot(self.queue.vacuum)
+                self.queue._validate_command_barrier(current, time.time())
+                if not self.queue.validate_control_state(self.queue.pending_command, current):
+                    return
                 await self.hass.services.async_call("vacuum", target, {"entity_id": self.queue.vacuum}, blocking=True, context=context)
         except PermissionError:
             self.queue.attention("The initiating user can no longer control this cleaning sequence. No further command was sent.")

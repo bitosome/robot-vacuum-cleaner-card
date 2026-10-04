@@ -20,6 +20,7 @@ jobs:
       - run: npm run check
       - run: python3 -B test/backend_queue_test.py
       - run: python3 -B test/backend_manual_test.py
+      - run: python3 -B test/backend_controls_test.py
       - run: zip -r robot-cleaner-queue.zip custom_components/robot_cleaner_queue packages/robot_cleaner_queue.yaml -x '*.pyc' '*/__pycache__/*'
       - name: Publish tested artifacts
         env:

@@ -387,3 +387,63 @@ test('next room stays queued while the robot returns to the dock', async () => {
   assert.match(room(card,'hall').textContent,/Queued/);
   assert.match(root(card).querySelector('.subline').textContent,/Next: Hall/);
 });
+
+test('app-started jobs use the shared companion for pause, resume and docking', async () => {
+  const { card, calls } = await fixture({ services: {robot_cleaner_queue:{control:{}}}, states: {
+    'vacuum.robot': entity('cleaning', {supported_features:FEATURES}),
+    'sensor.robot_status': entity('cleaning'),
+    'binary_sensor.robot_cleaning': entity('on'),
+  }});
+  button(card,'pause').click(); await settle(card);
+  assert.deepEqual(calls[0], {domain:'robot_cleaner_queue',action:'control',data:{command:'pause',vacuum:'vacuum.robot'}});
+  await changeStates(card, {'vacuum.robot':entity('paused',{supported_features:FEATURES})});
+  button(card,'resume').click(); await settle(card);
+  assert.equal(calls[1].data.command,'resume');
+  await changeStates(card, {'vacuum.robot':entity('cleaning',{supported_features:FEATURES})});
+  button(card,'dock').click(); await settle(card);
+  assert.equal(calls[2].data.command,'return_to_dock');
+  assert.equal(calls.some(call=>['vacuum','button'].includes(call.domain)),false);
+});
+
+test('standalone acknowledgement blocks edits without inventing a room sequence', async () => {
+  const { card, calls } = await fixture({services:{robot_cleaner_queue:{control:{}}},states:{
+    'sensor.robot_queue':entity('controlling',{vacuum:'vacuum.robot',mode:'external',presets:[],pending_command:'pause'}),
+    'vacuum.robot':entity('cleaning',{supported_features:FEATURES}),
+    'sensor.robot_status':entity('cleaning'),
+  }});
+  assert.equal(button(card,'pause').disabled,true);
+  assert.equal(room(card,'living').disabled,true);
+  assert.match(root(card).querySelector('h2').textContent,/Waiting/);
+  assert.doesNotMatch(root(card).textContent,/Room 0 of 0|Room 1 of 0/);
+  assert.equal(calls.length,0);
+});
+
+for (const missing of ['sensor','service']) test(`required companion ${missing} loss never falls back to native cleaning`, async () => {
+  const {card,calls}=await fixture({overrides:{require_queue:true},services:missing==='service'?{}:{robot_cleaner_queue:{control:{}}},states:{
+    'script.robot_queue_control':undefined,
+    ...(missing==='sensor'?{'sensor.robot_queue':undefined}:{}),
+  }});
+  assert.equal(button(card,'start').disabled,true);
+  button(card,'start').click(); await settle(card);
+  await changeStates(card,{'vacuum.robot':entity('cleaning',{supported_features:FEATURES}),'sensor.robot_status':entity('cleaning')});
+  assert.equal(button(card,'pause').disabled,true);
+  assert.equal(button(card,'dock').disabled,true);
+  button(card,'pause').click(); button(card,'dock').click(); await settle(card);
+  assert.deepEqual(calls,[]);
+});
+
+test('required companion never starts a default native full clean when no preset is configured', async () => {
+  const {card,calls}=await fixture({overrides:{require_queue:true,full_clean_entity:undefined},services:{robot_cleaner_queue:{control:{}}}});
+  assert.equal(button(card,'start').disabled,true);
+  button(card,'start').click(); await settle(card);
+  assert.deepEqual(calls,[]);
+});
+
+test('a rejected shared external command is shown without native fallback',async()=>{
+  const {card,calls}=await fixture({overrides:{require_queue:true},services:{robot_cleaner_queue:{control:{}}},service:async()=>{throw Error('Check the unfinished job first');},states:{
+    'vacuum.robot':entity('paused',{supported_features:FEATURES}),'sensor.robot_status':entity('paused'),
+  }});
+  button(card,'resume').click();await settle(card);
+  assert.equal(calls.length,1);assert.equal(calls[0].domain,'robot_cleaner_queue');
+  assert.match(root(card).querySelector('[role="alert"]').textContent,/unfinished job/);
+});

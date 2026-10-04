@@ -59,6 +59,7 @@ export class RobotVacuumCleanerCardEditor extends LitElement {
         <button class="add" data-action="add-area-override" @click=${()=>{this.areaRows=[...this.areaRows,{id:'',name:'',icon:''}];}}>Add area appearance</button>
       </details>
       <details><summary>Telemetry and queue entities</summary>
+        <label>Require shared cleaning controller<select aria-label="Require shared cleaning controller" @change=${(event:Event)=>{this.config={...this.config!,require_queue:(event.target as HTMLSelectElement).value==='true'};this.emit();}}><option value="false" ?selected=${!this.config.require_queue}>No — standalone controls allowed</option><option value="true" ?selected=${!!this.config.require_queue}>Yes — all controls use the companion</option></select></label>
         ${this.field('battery_entity','Battery','sensor')}${this.field('status_entity','Detailed status','sensor')}${this.field('cleaning_entity','Cleaning job active','binary_sensor')}${this.field('current_room_entity','Current room','sensor')}${this.field('progress_entity','Cleaning progress','sensor')}${this.field('area_entity','Cleaning area','sensor')}${this.field('time_entity','Cleaning time','sensor')}${this.field('error_entity','Vacuum error','sensor')}${this.field('dock_error_entity','Dock error','sensor')}${this.field('last_clean_end_entity','Last clean end','sensor')}${this.field('queue_entity','Queue status','sensor')}${this.field('queue_script','Queue control','script')}
       </details>`;
   }

@@ -53,13 +53,13 @@ export class RobotVacuumCleanerCard extends LitElement {
   private get completed() { return Math.max(0,Number(this.queue?.attributes.completed) || 0); }
   private get robotReady() { return available(this.vacuum); }
   private get jobActive() { return this.entity(this.config?.cleaning_entity)?.state === 'on' || ['cleaning','paused','returning'].includes(this.vacuum?.state ?? ''); }
-  private get blocked() { return !!this.request || !!this.queue?.attributes.pending_command; }
+  private get blocked() { return this.phase === 'controlling' || !!this.request || !!this.queue?.attributes.pending_command; }
   private get fault() {
     const err = this.entity(this.config?.error_entity)?.state;
     const dock = this.entity(this.config?.dock_error_entity)?.state;
     return !quietError(err) ? humanize(err) : !quietError(dock) ? humanize(dock) : this.vacuum?.state === 'error' ? 'Robot needs attention' : '';
   }
-  private get canStart() { return this.phase !== 'attention' && this.robotReady && !this.jobActive && !this.queueActive && !this.blocked && !this.fault && ['docked','idle'].includes(this.vacuum?.state ?? ''); }
+  private get canStart() { return this.phase !== 'attention' && (!this.config?.require_queue || this.queueReady) && this.robotReady && !this.jobActive && !this.queueActive && !this.blocked && !this.fault && ['docked','idle'].includes(this.vacuum?.state ?? ''); }
   private get queueReady() { return available(this.queue) && (!!this.hass?.services?.robot_cleaner_queue?.control || available(this.entity(this.config?.queue_script))); }
   private feature(bit: number) { return ((Number(this.vacuum?.attributes.supported_features) || 0) & bit) !== 0; }
   private get queueManual() { return this.queue?.attributes.mode === 'manual'; }
@@ -145,6 +145,8 @@ export class RobotVacuumCleanerCard extends LitElement {
   }
   private async command(kind: 'start'|'start_manual'|'full'|'pause'|'resume'|'return_to_dock'|'cancel') {
     if (!this.hass || !this.config || this.blocked || (kind !== 'cancel' && !this.robotReady)) return;
+    if (this.config.require_queue && !this.queueReady) return;
+    if (kind === 'full' && this.config.require_queue && !this.config.full_clean_entity) return;
     if ((kind === 'start' || kind === 'start_manual' || kind === 'full') && !this.canStart) return;
     if (kind === 'start' && (!this.queueReady || !this.selection.length || this.selectedRooms.some(room => !available(this.entity(room.preset),true)))) return;
     if (kind === 'start_manual' && (!this.manualReady || this.selectedRooms.some(room=>!this.roomAvailable(room)) || this.selectedRooms.length!==this.manualSelected.length)) return;
@@ -158,7 +160,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     try {
       if (kind === 'start_manual') {
         await this.hass.callService('robot_cleaner_queue','control',{command:'start_manual',vacuum:this.config.entity,rooms:[...this.manualSelected],setup:normalizeSetup(this.caps!,this.setup)});
-      } else if (kind === 'start' || this.queueActive || kind === 'cancel' || (kind === 'full' && this.queueReady && this.config.full_clean_entity)) {
+      } else if (kind === 'start' || this.queueActive || kind === 'cancel' || (['pause','resume','return_to_dock'].includes(kind) && this.queueReady && (this.config.require_queue || !!this.hass.services?.robot_cleaner_queue?.control)) || (kind === 'full' && this.queueReady && this.config.full_clean_entity)) {
         const variables: Record<string,unknown> = {command:kind === 'full' ? 'start' : kind,vacuum:this.config.entity};
         if (kind === 'start' || kind === 'full') Object.assign(variables,{presets:kind === 'full' ? [this.config.full_clean_entity] : this.selectedRooms.map(room => room.preset),cleaning_entity:this.config.cleaning_entity,status_entity:this.config.status_entity,error_entity:this.config.error_entity,last_clean_end_entity:this.config.last_clean_end_entity});
         for (const key of Object.keys(variables)) if (variables[key] === undefined) delete variables[key];
@@ -181,6 +183,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (!this.robotReady) return 'Robot unavailable';
     if (this.fault) return 'Needs attention';
     if (this.phase === 'attention') return 'Sequence needs attention';
+    if (this.phase === 'controlling') return 'Waiting for the robot';
     if (this.phase === 'preparing') return 'Applying cleaning settings';
     if (this.request?.kind === 'start_manual') return 'Starting your clean';
     if (this.request?.kind === 'start' || this.phase === 'starting') return 'Starting your sequence';
@@ -207,6 +210,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (!this.robotReady) return 'Waiting for Home Assistant to reconnect.';
     if (this.fault) return this.fault;
     if (this.phase === 'attention') return this.queue?.attributes.error || 'The sequence stopped. Check the robot before starting a new plan.';
+    if (this.phase === 'controlling') return 'Confirming your command · No retry will be sent';
     if (this.queueActive && this.queueManual) {
       if (this.queue?.attributes.waiting_for_dock) return `Next: ${this.stageName} · Waiting for the dock`;
       const stage=this.stages[this.index];
@@ -221,7 +225,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     return this.vacuum?.state === 'docked' ? 'At the dock · Choose rooms or clean the whole home' : 'Choose rooms in the order you want them cleaned';
   }
   private renderActions() {
-    const busy = this.blocked || !this.robotReady || (this.queueActive && !this.queueReady);
+    const busy = this.blocked || !this.robotReady || ((this.queueActive || this.config?.require_queue) && !this.queueReady);
     if (this.jobActive || this.queueActive) {
       const paused = this.vacuum?.state === 'paused' || this.phase === 'paused';
       const servicing = /wash|dry|empty|attaching|detaching/.test(this.entity(this.config?.status_entity)?.state ?? '');
@@ -232,9 +236,9 @@ export class RobotVacuumCleanerCard extends LitElement {
       </div>`;
     }
     const selected = this.selection.length;
-    const fullAvailable = this.config?.full_clean_entity ? available(this.entity(this.config.full_clean_entity),true) : this.feature(8192);
+    const fullAvailable = this.config?.full_clean_entity ? available(this.entity(this.config.full_clean_entity),true) : !this.config?.require_queue && this.feature(8192);
     const selectedAvailable = this.selectedRooms.every(room=>this.roomAvailable(room));
-    return html`<div class="actions"><button class="action primary" data-action="start" ?disabled=${!this.canStart || (this.manual ? !this.manualReady || !selectedAvailable || this.selectedRooms.length!==this.manualSelected.length : selected ? !this.queueReady || !selectedAvailable : !fullAvailable)} @click=${()=>this.command(this.manual ? 'start_manual' : selected ? 'start':'full')}>${icon('mdi:play')}${this.blocked ? 'Starting…' : selected ? `Clean ${selected} ${selected===1?'room':'rooms'}` : 'Clean all rooms'}</button></div>`;
+    return html`<div class="actions"><button class="action primary" data-action="start" ?disabled=${!this.canStart || (this.manual ? !this.manualReady || !selectedAvailable || this.selectedRooms.length!==this.manualSelected.length : selected ? !this.queueReady || !selectedAvailable : !fullAvailable)} @click=${()=>this.command(this.manual ? 'start_manual' : selected ? 'start':'full')}>${icon('mdi:play')}${this.blocked ? 'Waiting…' : selected ? `Clean ${selected} ${selected===1?'room':'rooms'}` : 'Clean all rooms'}</button></div>`;
   }
   private renderRoom(room: RoomConfig) {
     const committed = this.showCommitted;
@@ -282,7 +286,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       ${this.phase === 'attention' ? html`<div class="note">Review the robot, then clear this sequence before choosing a new one.<button class="text-button" data-action="clear-queue" ?disabled=${this.blocked || !this.queueReady} @click=${()=>this.command('cancel')}>Clear sequence</button></div>`:nothing}
       ${this.commandError ? html`<div class="error" role="alert">${this.commandError}<button class="text-button" @click=${()=>this.commandError=''}>Dismiss</button></div>`:nothing}
       ${this.request ? html`<div class="note" role="status">${this.feedback}</div>`:nothing}
-      ${!this.queueReady && this.rooms.length ? html`<div class="note">Install and configure the Home Assistant queue companion to clean rooms in order. Full-home cleaning remains available when the robot is ready.</div>`:nothing}
+      ${!this.queueReady && (this.rooms.length || this.config?.require_queue) ? html`<div class="note">${this.config?.require_queue ? 'The shared cleaning controller is unavailable. Controls will return when it reconnects.' : 'Install and configure the Home Assistant queue companion to clean rooms in order. Full-home cleaning remains available when the robot is ready.'}</div>`:nothing}
       <section class="room-section" aria-label="Rooms"><div class="section-heading"><h3>${this.queueActive?'Cleaning sequence':this.manual?'Choose your areas':'Choose your rooms'}</h3>${this.selection.length && !this.queueActive?html`<button class="text-button" ?disabled=${this.blocked} @click=${()=>{this.planEdited=true;this.setSelection([]);this.feedback='Selection cleared.';}}>Clear selection</button>`:nothing}</div>
         <p class="hint">${this.queueActive ? 'Your sequence continues even when you close this dashboard.' : 'Tap in order. Tap again to remove. Numbers show the cleaning sequence.'}</p>
         <div class="rooms">${repeat(this.rooms,room=>room.id,room=>this.renderRoom(room))}</div>
@@ -298,4 +302,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status, room presets and ordered cleaning with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.2.1');
+console.info('ROBOT VACUUM CLEANER CARD 0.2.2');

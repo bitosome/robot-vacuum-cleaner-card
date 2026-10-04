@@ -7,7 +7,7 @@ export interface CardConfig {
   battery_entity?: string; activity_entity?: string; status_entity?: string; cleaning_entity?: string;
   current_room_entity?: string; progress_entity?: string; area_entity?: string; time_entity?: string;
   error_entity?: string; dock_error_entity?: string; full_clean_entity?: string; last_clean_end_entity?: string;
-  queue_entity?: string; queue_script?: string; area_overrides?: Record<string, AreaAppearance>;
+  require_queue?: boolean; queue_entity?: string; queue_script?: string; area_overrides?: Record<string, AreaAppearance>;
 }
 export const BAD = new Set(['unknown', 'unavailable', 'none', '']);
 export const QUEUE_ACTIVE = new Set(['preparing', 'starting', 'running', 'paused', 'cancelling']);
@@ -23,6 +23,7 @@ export function numeric(entity?: EntityState): number | undefined {
 export function validateConfig(raw: CardConfig): CardConfig {
   if (!raw || !/^vacuum\.[a-z0-9_]+$/.test(raw.entity ?? '')) throw new Error('Choose a vacuum entity.');
   if (!Array.isArray(raw.rooms)) throw new Error('Configure a rooms list with a name and preset button for each room.');
+  if (raw.require_queue !== undefined && typeof raw.require_queue !== 'boolean') throw new Error('require_queue must be true or false.');
   const ids = new Set<string>(); const presets = new Set<string>();
   raw.rooms.forEach(room => {
     if (!room.id || !room.name || !/^button\.[a-z0-9_]+$/.test(room.preset)) throw new Error('Every room needs an id, name and button preset entity.');

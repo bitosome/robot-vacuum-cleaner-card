@@ -47,6 +47,8 @@ Other commands:
 | `cancel` | Clear the remaining queue only. The current robot operation continues. |
 | `return_to_dock` | Clear the remaining queue first, then request docking when the robot's state permits it. Mop servicing and uncertain states are not interrupted. |
 
+Version 0.2.2 can pause/resume/dock an app-started job with an explicit vacuum. It stores `mode: external` without presets or stages; acknowledgement returns it to idle and cannot advance an old plan. Resume requires a paused, unfinished job. Active, attention and uncertain commands cannot be bypassed by controlling a different robot.
+
 For non-start commands, pass the same `vacuum` to protect against a card configured for another robot. An `attention` queue must be cleared with `cancel` before a new queue can start. Clearing an unacknowledged start/resume preserves a safety barrier: another start requires the 60-second window to expire and a new native poll after that window confirming idle/job-off. Cancelling cannot reuse a stale docked state to send duplicate routines. Only an idle/docked robot with no unfinished job can start a new sequence. Starts cannot replace an existing queue or unfinished job.
 
 The service accepts 1–32 distinct preset entity IDs. It verifies that each is an enabled, available native Roborock **routine** button on the selected vacuum's device and config entry. It rejects maintenance-reset buttons and arbitrary entities. An `unknown` routine button state is valid before its first press.
@@ -55,7 +57,8 @@ The optional `cleaning_entity`, `status_entity`, `error_entity` and `last_clean_
 
 `sensor.robot_cleaner_queue` states:
 
-- `idle`: no queue has been started.
+- `idle`: no queue is running; also used after an external-job control is acknowledged.
+- `controlling`: a pause/resume/dock command for an externally started job is awaiting fresh acknowledgement; new commands and starts are blocked.
 - `preparing`: manual settings are being applied and awaiting fresh native readback.
 - `starting`: a start/resume command is awaiting observed acknowledgement.
 - `running`: the acknowledged routine is active or waiting to return to the dock before the next room.
@@ -97,6 +100,7 @@ Run the offline production-code trace tests without HA or a robot:
 ```sh
 python3 -B test/backend_queue_test.py
 python3 -B test/backend_manual_test.py
+python3 -B test/backend_controls_test.py
 ```
 
 These test ordered success, low-battery/wash breaks, interrupted records, faults, missing acknowledgements, stale records, pause/resume, cancellation, return-to-dock, concurrent starts, restart behavior and routine validation. They do not prove physical operation or native HA runtime compatibility.

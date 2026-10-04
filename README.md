@@ -21,7 +21,7 @@ Build with `npm ci && npm run build`, then copy `dist/robot-vacuum-cleaner-card.
 
 Published release assets can also be installed through HACS by adding `bitosome/robot-vacuum-cleaner-card` as a custom **Dashboard** repository. HACS installs the frontend only.
 
-For room sequencing and manual setup, install the [Home Assistant queue companion](docs/queue-backend.md). This is an additional custom integration and requires an HA restart. Without it, the card can show robot state and perform full-home cleaning, but ordered room starts are disabled. It never falls back to a browser-driven queue.
+For room sequencing and manual setup, install the [Home Assistant queue companion](docs/queue-backend.md). This is an additional custom integration and requires an HA restart. Without it, standalone controls remain available unless `require_queue: true` is configured; ordered room starts are always disabled. It never falls back to a browser-driven queue.
 
 ## Configure
 
@@ -39,6 +39,7 @@ time_entity: sensor.robot_cleaning_time
 error_entity: sensor.robot_vacuum_error
 dock_error_entity: sensor.robot_dock_error
 full_clean_entity: button.robot_full_cleaning
+require_queue: true
 queue_entity: sensor.robot_cleaner_queue
 queue_script: script.robot_cleaner_queue_control
 rooms:
@@ -60,7 +61,7 @@ Entity names above are examples. Use your existing **routine buttons**, not main
 
 Configure the optional telemetry entities you have. Missing values are omitted. Cleaning metrics belong to the current preset, not the complete multi-room sequence. The robot's current-room reading describes location; a room tile is marked completed only by the companion's successful routine record.
 
-A configured full-home preset uses the same companion when installed. Without a full-home preset, **Clean all rooms** uses the standard `vacuum.start` action. A selected room always requires the companion.
+A configured full-home preset uses the same companion when installed. With `require_queue: true`, every control requires the companion, and saved-preset mode requires a full-home preset for **Clean all rooms**. This prevents a missing controller from becoming a default native clean. With this setting omitted or false, standalone native controls remain available. A selected room always requires the companion.
 
 ## Manual cleaning setup
 
@@ -85,7 +86,7 @@ The visual editor exposes these settings under **Manual area appearance**. Overr
 
 Manual setup requires both the card and companion at **0.2.0 or later**. Choices apply only on Start, and native settings must be confirmed before cleaning begins. See [manual cleaning behavior and compatibility](docs/manual-cleaning.md).
 
-See [Space Hub controls and migration requirements](docs/space-hub-integration.md) before combining both dashboards with the companion.
+See [Space Hub controls and migration requirements](docs/space-hub-integration.md) and [named preset scripts for wall switches](docs/switch-presets.md) to use one controller across your dashboards and physical switches. Shared external-job controls require companion 0.2.2 or later.
 
 ## Queue behavior
 
@@ -106,6 +107,7 @@ npm ci
 npm run check
 python3 -B test/backend_queue_test.py
 python3 -B test/backend_manual_test.py
+python3 -B test/backend_controls_test.py
 python3 -m http.server 8767 --bind 127.0.0.1
 ```
 

@@ -30,7 +30,7 @@ This is a migration example, not an instruction to change a running dashboard be
 ## Control and status migration requirements
 
 - Send pause/resume/return-to-dock for a companion-owned active queue through `robot_cleaner_queue.control`, using the same `vacuum` and command. Sending native `vacuum.pause` or `vacuum.start` directly is external intervention and interrupts its ownership of the remaining sequence.
-- The current companion's pause/resume service is for an owned active queue. A wrapper must separately handle a robot job started from the app without pretending it owns a queued plan. Do not blindly redirect every external-job control to that service.
+- Companion 0.2.2 also supports pause/resume/return-to-dock for an app-started job when an explicit vacuum is supplied. It uses `mode: external` and `phase: controlling` until a fresh acknowledgement, then returns to idle without inventing or resuming an old room plan. Resume requires a confirmed unfinished paused job.
 - Queue mode needs an explicit deployment choice. If its sensor or service is unavailable, stop with a visible error. Do not fall back to a native preset or another controller after rejection, timeout, or a temporary companion failure.
 - All starts must enter the queue controller. During `preparing`, the robot can still appear docked with no active job while settings are being applied; that is not permission for a parallel legacy start.
 - Preserve checks for active, pending, attention and uncertain prior commands. Remove any claim that a quick tile can replace an unfinished docked job; the queue rejects that operation.
@@ -38,3 +38,5 @@ This is a migration example, not an instruction to change a running dashboard be
 - Keep actual room-cleaning glows based on physical cleaning telemetry and the reported room. A queue selection or robot location does not prove completed coverage.
 
 Validate the wrapper and dashboard as part of companion installation, using mocked commands first. This repository does not automatically rewrite household dashboards or legacy scripts.
+
+See [named preset scripts for switches](switch-presets.md) for zero-argument wrappers, existing input-button compatibility and an entrypoint audit. Set `require_queue: true` on a robot card participating in this shared control path.
