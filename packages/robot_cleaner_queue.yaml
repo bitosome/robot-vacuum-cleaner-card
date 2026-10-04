@@ -33,7 +33,8 @@ script:
       setup:
         description: Manual cleaning settings from robot_cleaner_queue.get_capabilities.
         selector:
-          object: {}
+          # Keep a null selector config: HA package merging drops empty mappings.
+          object: null
     sequence:
       - choose:
           - conditions: "{{ command == 'start_manual' }}"
