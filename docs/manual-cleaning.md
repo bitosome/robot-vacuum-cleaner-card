@@ -25,7 +25,7 @@ data:
 response_variable: capabilities
 ```
 
-The response contains `supported`, `modes` (`value` and `label`), option arrays `suction`, `water`, `routes`, `routes_by_mode`, `repeats`, `room_targets` (`id` and `name`), and `defaults`. An unavailable response includes `error`. Defaults use an exposed current value where safe, otherwise an available balanced/medium/standard option.
+The response contains `supported`, `modes` (`value` and `label`), option arrays `suction`, `water`, `routes`, `routes_by_mode`, `repeats`, `room_targets` (`id`, `name`, optional area `icon`), and `defaults`. An unavailable response includes `error`. Defaults use an exposed current value where safe, otherwise an available balanced/medium/standard option.
 
 The manual form excludes off, SmartPlan, custom room programs, and remembered custom water flow from fine controls. In particular, an exposed `custom_water_flow` selector does not reveal the numeric setting that the Roborock app remembers; the card cannot truthfully display or edit that number. Vacuum & mop exposes standard/fast routes when offered; deep routes are limited to the mop phase. Route is omitted for vacuum-only cleaning.
 

@@ -1,12 +1,13 @@
 export interface EntityState { state: string; attributes: Record<string, any>; last_changed?: string; last_updated?: string; }
 export interface Hass { states: Record<string, EntityState>; services?: Record<string, Record<string, unknown>>; callWS?<T = unknown>(message: Record<string, unknown>): Promise<T>; callService(domain: string, service: string, data: Record<string, unknown>): Promise<unknown>; }
+export interface AreaAppearance { name?: string; icon?: string; }
 export interface RoomConfig { id: string; name: string; preset: string; icon?: string; activity_entity?: string; }
 export interface CardConfig {
   type: string; entity: string; name?: string; rooms: RoomConfig[];
   battery_entity?: string; activity_entity?: string; status_entity?: string; cleaning_entity?: string;
   current_room_entity?: string; progress_entity?: string; area_entity?: string; time_entity?: string;
   error_entity?: string; dock_error_entity?: string; full_clean_entity?: string; last_clean_end_entity?: string;
-  queue_entity?: string; queue_script?: string;
+  queue_entity?: string; queue_script?: string; area_overrides?: Record<string, AreaAppearance>;
 }
 export const BAD = new Set(['unknown', 'unavailable', 'none', '']);
 export const QUEUE_ACTIVE = new Set(['preparing', 'starting', 'running', 'paused', 'cancelling']);
@@ -32,5 +33,17 @@ export function validateConfig(raw: CardConfig): CardConfig {
     if (raw[key] && !/^[a-z_]+\.[a-z0-9_]+$/.test(raw[key]!)) throw new Error(`Invalid ${key} entity.`);
   }
   if (raw.queue_script && !raw.queue_script.startsWith('script.')) throw new Error('queue_script must be a script entity.');
-  return { ...raw, queue_entity: raw.queue_entity ?? 'sensor.robot_cleaner_queue', queue_script: raw.queue_script ?? 'script.robot_cleaner_queue_control', rooms: raw.rooms.map(room => ({...room})) };
+  let areaOverrides: Record<string, AreaAppearance> | undefined;
+  if (raw.area_overrides !== undefined) {
+    const plainObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(value));
+    if (!plainObject(raw.area_overrides)) throw new Error('area_overrides must be an object keyed by Home Assistant area ID.');
+    areaOverrides = Object.fromEntries(Object.entries(raw.area_overrides).map(([id, appearance]) => {
+      if (!id.trim() || id !== id.trim() || !plainObject(appearance)) throw new Error('Every area override needs an area ID and appearance object.');
+      for (const key of ['name', 'icon'] as const) {
+        if (appearance[key] !== undefined && (typeof appearance[key] !== 'string' || !appearance[key]!.trim())) throw new Error(`Area override ${key} must be a non-empty string.`);
+      }
+      return [id, {...(appearance.name !== undefined ? {name: appearance.name as string} : {}), ...(appearance.icon !== undefined ? {icon: appearance.icon as string} : {})}];
+    }));
+  }
+  return { ...raw, ...(areaOverrides !== undefined ? {area_overrides: areaOverrides} : {}), queue_entity: raw.queue_entity ?? 'sensor.robot_cleaner_queue', queue_script: raw.queue_script ?? 'script.robot_cleaner_queue_control', rooms: raw.rooms.map(room => ({...room})) };
 }

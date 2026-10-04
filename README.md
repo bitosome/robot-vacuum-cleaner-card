@@ -68,9 +68,24 @@ Open the **Saved presets** pill and choose **Manual setup**. Choose a cleaning m
 
 Manual tiles use the robot's existing Home Assistant **Cleaning by area** mapping, discovered by the companion. They can differ from your saved-preset tiles, and an area can contain multiple Roborock rooms. No extra card entity configuration is needed. Preset and manual area selections remain separate.
 
+Manual tiles use their Home Assistant area's icon when one is configured, otherwise `mdi:floor-plan`. To match the room names and icons in your Space Hub cards, set `area_overrides` using the **Home Assistant area IDs** (not preset IDs or Roborock segment numbers):
+
+```yaml
+area_overrides:
+  living_room:
+    name: Living room
+    icon: mdi:sofa-outline
+  kitchen:
+    icon: mdi:stove
+```
+
+The visual editor exposes these settings under **Manual area appearance**. Overrides apply only to areas already returned by the companion; they do not add cleaning targets or change the mapped rooms. Preset tiles continue to use each entry's `rooms[].icon`. Display overrides never change the area IDs sent when cleaning starts.
+
 **Vacuum then mop** vacuums every selected area first, then mops them in the same order. **×2** repeats each area twice per pass as separate verified jobs; it may dock or service the mop between jobs. Water and mop route disappear for vacuum-only cleaning; suction disappears for mop-only cleaning. App-only numeric water flow and SmartPlan are not offered.
 
 Manual setup requires both the card and companion at **0.2.0 or later**. Choices apply only on Start, and native settings must be confirmed before cleaning begins. See [manual cleaning behavior and compatibility](docs/manual-cleaning.md).
+
+See [Space Hub controls and migration requirements](docs/space-hub-integration.md) before combining both dashboards with the companion.
 
 ## Queue behavior
 

@@ -69,8 +69,12 @@ export class RobotVacuumCleanerCard extends LitElement {
   private get selection() { return this.manual ? this.manualSelected : this.selected; }
   private get rooms(): RoomConfig[] {
     if (!this.manual) return this.config?.rooms ?? [];
-    const targets = this.caps?.room_targets ?? this.queueTargets.map(id=>({id,name:humanize(id)}));
-    return targets.map(target=>({id:target.id,name:target.name,preset:target.id,icon:'mdi:floor-plan'}));
+    if (!this.caps) return this.queueTargets.map(id=>({id,name:humanize(id),preset:id,icon:'mdi:floor-plan'}));
+    return this.caps.room_targets.map(target=>{
+      const overrides = this.config?.area_overrides;
+      const appearance = overrides && Object.prototype.hasOwnProperty.call(overrides,target.id) ? overrides[target.id] : undefined;
+      return {id:target.id,name:appearance?.name ?? target.name,preset:target.id,icon:appearance?.icon ?? target.icon ?? 'mdi:floor-plan'};
+    });
   }
   private roomAvailable(room: RoomConfig) { return this.manual ? !!this.caps?.room_targets.some(target=>target.id===room.id) : available(this.entity(room.preset),true); }
   private get manualReady() { return this.queueReady && !!this.hass?.services?.robot_cleaner_queue?.control && !!this.caps?.supported && !this.capsError; }
@@ -294,4 +298,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status, room presets and ordered cleaning with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.2.0');
+console.info('ROBOT VACUUM CLEANER CARD 0.2.1');

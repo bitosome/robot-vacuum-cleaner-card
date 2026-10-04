@@ -55,6 +55,8 @@ def room_targets(vacuum_entry, coordinator, area_registry) -> dict[str, dict]:
         if len(set(segments)) != len(segments):
             continue
         result[area_id] = {"id": area_id, "name": area.name, "segments": list(segments)}
+        if isinstance(icon := getattr(area, "icon", None), str) and icon.strip():
+            result[area_id]["icon"] = icon
     return result
 
 
@@ -99,7 +101,7 @@ def capabilities(vacuum_entry, coordinator, entries, states, area_registry) -> t
             defaults["route"] = "standard" if "standard" in valid_routes else valid_routes[0]
     result = {"supported": supported, "modes": [{"value": v, "label": LABELS[v]} for v in offered],
               "suction": suction, "water": water, "routes": routes, "routes_by_mode": routes_by_mode,
-              "repeats": [1, 2], "room_targets": [{"id": t["id"], "name": t["name"]} for t in targets.values()], "defaults": defaults}
+              "repeats": [1, 2], "room_targets": [{k: t[k] for k in ("id", "name", "icon") if k in t} for t in targets.values()], "defaults": defaults}
     if not supported:
         result["error"] = "Manual cleaning requires an available native Roborock robot, supported cleaning-mode controls, and a known current map."
     return result, selected, targets

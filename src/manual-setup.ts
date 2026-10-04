@@ -7,7 +7,7 @@ export interface ManualSetup { mode: CleaningMode; suction?: string; water?: str
 export interface ManualCapabilities {
   supported: boolean; modes: Array<{value: CleaningMode; label: string}>;
   suction: string[]; water: string[]; routes: string[]; routes_by_mode?: Partial<Record<CleaningMode,string[]>>;
-  repeats: number[]; room_targets: Array<{id:string; name:string}>; defaults?: Partial<ManualSetup>; error?: string;
+  repeats: number[]; room_targets: Array<{id:string; name:string; icon?:string}>; defaults?: Partial<ManualSetup>; error?: string;
 }
 export interface ManualStage { target: string; mode: CleaningMode; room_index: number; pass_index: number; repeat_index: number; }
 export const MODE_LABELS: Record<CleaningMode,string> = {vacuum:'Vacuum',mop:'Mop',vacuum_mop:'Vacuum & mop',vacuum_then_mop:'Vacuum then mop'};

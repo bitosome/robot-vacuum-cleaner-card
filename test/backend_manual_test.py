@@ -60,6 +60,13 @@ class ManualPlanTests(unittest.TestCase):
         self.assertEqual(self.caps["routes_by_mode"]["vacuum_mop"], ["standard", "fast"])
         self.assertNotIn("segments", str(self.caps["room_targets"]))
 
+    def test_area_icons_are_optional_metadata_without_changing_cleaning_targets(self):
+        self.areas.async_get_area = lambda area_id: NS(name=area_id.title(), icon="mdi:chair-rolling" if area_id == "office" else None)
+        caps, _, targets = manual.capabilities(self.vacuum, self.coordinator, self.entries, self.states, self.areas)
+        self.assertNotIn("icon", caps["room_targets"][0])
+        self.assertEqual(caps["room_targets"][1]["icon"], "mdi:chair-rolling")
+        self.assertEqual(targets["office"]["segments"], ["0_3"])
+
     def test_missing_wrong_device_disabled_select_cannot_provide_modes(self):
         for mutate in [lambda entry: setattr(entry, "disabled_by", "user"), lambda entry: setattr(entry, "device_id", "other"), lambda entry: setattr(entry, "unique_id", "unrelated")]:
             vacuum, coordinator, entries, states, areas, _ = fixture()
