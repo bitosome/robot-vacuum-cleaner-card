@@ -107,7 +107,7 @@
     <header class="heading">
       <span class="eyebrow">ROBOT VACUUM CLEANER CARD</span>
       <h1>A clean home, room by room.</h1>
-      <p>Choose rooms in the order you want them cleaned.</p>
+      <p>Choose an ordered room sequence, then use saved presets or your own cleaning setup.</p>
     </header>
     <div class="layout">
       <section class="stage" aria-label="Interactive robot card">
@@ -130,6 +130,9 @@
               <option value="unavailable">Unavailable</option>
               <option value="recharging">Low battery · recharging</option>
               <option value="washing">Washing the mop</option>
+              <option value="vacuum_only">Vacuum-only capabilities</option>
+              <option value="manual_unavailable">Manual setup unavailable</option>
+              <option value="manual_cleaning">Manual vacuum then mop</option>
             </select>
           </div>
           <div class="field">
@@ -146,7 +149,7 @@
         </section>
         <section class="panel">
           <h2>Try a cleaning plan</h2>
-          <p class="hint">Tap a few room tiles. Their numbers show the order. Tap again to remove a room, then <strong>start the sequence</strong>.</p>
+          <p class="hint">Tap a few room tiles. Their numbers show the order. Choose <strong>Manual setup</strong> to set a cleaning mode and settings for this run, then start. Nothing is sent while you edit.</p>
           <div class="row">
             <button class="control" id="next">Finish current room</button>
             <button class="control" id="finish">Return to dock</button>
@@ -165,6 +168,13 @@
     const paths = {
       'robot-vacuum': 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14m-4 4h8v2H8V9m1 5h6v2H9v-2Z',
       'robot-vacuum-variant': 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14m-4 4h8v2H8V9m1 5h6v2H9v-2Z',
+      // Compact local preview glyphs; production uses Home Assistant's MDI icons.
+      'vacuum': 'M14 2h3v2h-2l-2 5h2v10h3v3H4v-3h3V9h4l2-6 1-1m-5 9v8h4v-8H9Z',
+      'vacuum-outline': 'M14 2h3v2h-2l-2 5h2v10h3v3H4v-3h3V9h4l2-6 1-1m-5 9v8h4v-8H9m-3 10h10v-1H6v1Z',
+      'water-outline': 'M12 2C9 6 5 10 5 14a7 7 0 0 0 14 0c0-4-4-8-7-12m0 3.5c2.8 4 5 6.6 5 8.5a5 5 0 0 1-10 0c0-1.9 2.2-4.5 5-8.5Z',
+      'swap-horizontal': 'M16 3l4 4-4 4V8H4V6h12V3M8 13v3h12v2H8v3l-4-4 4-4Z',
+      'bookmark-outline': 'M17 3H7a2 2 0 0 0-2 2v17l7-3 7 3V5a2 2 0 0 0-2-2m0 16-5-2.2L7 19V5h10v14Z',
+      'tune-variant': 'M3 6h3V3h2v3h13v2H8v3H6V8H3V6m0 10h13v-3h2v3h3v2h-3v3h-2v-3H3v-2Z',
       'play': 'M8 5v14l11-7L8 5Z',
       'play-circle': 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m-3 5 8 5-8 5V7Z',
       'pause': 'M6 5h4v14H6V5m8 0h4v14h-4V5Z',
@@ -244,11 +254,61 @@
     let fixtureRevision = 0;
     let commandPending = false;
     let ready = false;
+    let scenario = 'ready';
+    const modeDefinitions = [
+      {value: 'vacuum', label: 'Vacuum'}, {value: 'mop', label: 'Mop'},
+      {value: 'vacuum_mop', label: 'Vacuum & mop'}, {value: 'vacuum_then_mop', label: 'Vacuum then mop'}
+    ];
+    function capabilities() {
+      if (scenario === 'manual_unavailable' || states[config.entity]?.state === 'unavailable') return {supported: false, modes: [], suction: [], water: [], routes: [], repeats: [], room_targets: [], defaults: {}, error: 'Manual cleaning settings are unavailable. Check the robot connection.'};
+      const vacuumOnly = scenario === 'vacuum_only';
+      return {supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
+        suction: ['quiet', 'balanced', 'turbo', 'max', 'max_plus'],
+        water: vacuumOnly ? [] : ['low', 'medium', 'high'],
+        routes: vacuumOnly ? [] : ['standard', 'deep', 'deep_plus', 'fast'],
+        routes_by_mode: {vacuum: [], mop: ['standard', 'deep', 'deep_plus', 'fast'], vacuum_mop: ['standard', 'fast'], vacuum_then_mop: ['standard', 'deep', 'deep_plus', 'fast']}, repeats: [1, 2],
+        room_targets: rooms.map(room => ({id: room.id, name: room.name})),
+        defaults: {mode: vacuumOnly ? 'vacuum' : 'vacuum_mop', suction: 'max', ...(vacuumOnly ? {} : {water: 'high', route: 'standard'}), repeat: 1}};
+    }
+    async function callWS(message) {
+      if (message.type !== 'call_service' || message.domain !== 'robot_cleaner_queue' || message.service !== 'get_capabilities' || message.service_data?.vacuum !== config.entity || message.return_response !== true) throw new Error('This WebSocket request is not implemented in the preview.');
+      return {response: structuredClone(capabilities())};
+    }
     const stamp = () => new Date().toISOString();
     const set = (id, state, attributes = {}) => { states[id] = {entity_id: id, state: String(state), attributes, last_changed: stamp(), last_updated: stamp()}; };
     const queue = () => states[config.queue_entity];
-    const queueAttrs = () => ({presets: [], current_index: 0, completed: 0, error: '', ...(queue()?.attributes || {})});
+    const queueAttrs = () => ({vacuum: config.entity, presets: [], current_index: 0, completed: 0, error: '', ...(queue()?.attributes || {})});
     const roomByPreset = preset => rooms.find(room => room.preset === preset);
+    const currentRoom = attrs => attrs.mode === 'manual'
+      ? rooms.find(room => room.id === attrs.stages?.[attrs.current_index]?.target)
+      : roomByPreset(attrs.presets[attrs.current_index]);
+    function manualStages(targets, setup) {
+      const stages = [];
+      const passes = setup.mode === 'vacuum_then_mop' ? ['vacuum', 'mop'] : [setup.mode];
+      passes.forEach((mode, pass_index) => (targets.length ? targets : ['']).forEach((target, room_index) => {
+        for (let repeat_index = 0; repeat_index < setup.repeat; repeat_index++) stages.push({target, mode, room_index, pass_index, repeat_index});
+      }));
+      return stages;
+    }
+    function startManual(variables) {
+      const supported = capabilities();
+      const setup = variables.setup || {};
+      const targets = variables.rooms || [];
+      if (!supported.supported || !supported.modes.some(mode => mode.value === setup.mode)) throw new Error('This cleaning mode is not available.');
+      if (setup.route !== undefined && !supported.routes_by_mode[setup.mode]?.includes(setup.route)) throw new Error('This route is not available for the selected mode.');
+      if (!supported.repeats.includes(setup.repeat)) throw new Error('Choose a supported cleaning count.');
+      for (const [key, options] of [['suction', supported.suction], ['water', supported.water], ['route', supported.routes]]) {
+        if (setup[key] !== undefined && !options.includes(setup[key])) throw new Error('A selected setting is unavailable.');
+      }
+      if (targets.some(target => !rooms.some(room => room.id === target))) throw new Error('A selected area is unavailable.');
+      const stages = manualStages(targets, setup);
+      const attrs = {vacuum: config.entity, mode: 'manual', presets: [], targets: [...targets], setup: {...setup}, stages, current_index: 0, completed: 0, error: ''};
+      set(config.queue_entity, 'running', attrs);
+      robotState('cleaning', stages[0].mode === 'mop' ? 'mopping' : 'cleaning', currentRoom(attrs)?.id);
+      set(config.progress_entity, 8, {unit_of_measurement: '%'});
+      set(config.area_entity, 2.1, {unit_of_measurement: 'm²'});
+      set(config.time_entity, 2, {unit_of_measurement: 'min'});
+    }
     function robotState(state, status = state, roomId = '') {
       set(config.entity, state, {friendly_name: 'Rover', supported_features: 12287, battery_level: Number(states[config.battery_entity]?.state || 86)});
       set(config.activity_entity, status, {friendly_name: 'Activity'});
@@ -265,8 +325,8 @@
         themes: {darkMode: document.documentElement.dataset.theme !== 'light'},
         config: {unit_system: {length: 'km', temperature: '°C', mass: 'kg', volume: 'L'}, time_zone: 'Europe/London'},
         localize: () => undefined,
-        callService,
-        services: {vacuum: {start: {}, pause: {}, return_to_base: {}, stop: {}}, button: {press: {}}, script: {turn_on: {}}, robot_cleaner_queue: {control: {}}},
+        callService, callWS,
+        services: {vacuum: {start: {}, pause: {}, return_to_base: {}, stop: {}}, button: {press: {}}, script: {turn_on: {}}, robot_cleaner_queue: {control: {}, get_capabilities: {}}},
         formatEntityState: state => state.state,
         formatEntityAttributeValue: (state, attribute) => state.attributes[attribute]
       };
@@ -285,6 +345,13 @@
         item.append(title, document.createElement('br'));
         const command = call.data.variables?.command || call.data.command;
         const chosen = call.data.variables?.presets || call.data.presets;
+        const manual = call.data.variables?.setup || call.data.setup;
+        if (manual) {
+          const targets = call.data.variables?.rooms || call.data.rooms || [];
+          item.append(`${modeDefinitions.find(mode => mode.value === manual.mode)?.label || manual.mode} · ${targets.length ? targets.map(target => rooms.find(room => room.id === target)?.name || target).join(' → ') : 'All rooms'} · ${manual.repeat}×`);
+          list.append(item);
+          continue;
+        }
         item.append(command ? `${command}${Array.isArray(chosen) ? ` · ${chosen.map(preset => roomByPreset(preset)?.name || (preset === config.full_clean_entity ? 'All rooms' : preset)).join(' → ')}` : ''}` : call.data.entity_id || 'Rover');
         list.append(item);
       }
@@ -301,21 +368,23 @@
         if ((domain === 'script' && service === 'turn_on') || (domain === 'robot_cleaner_queue' && service === 'control')) {
           const variables = domain === 'script' ? data.variables || {} : data;
           const attrs = queueAttrs();
-          if (variables.command === 'start') {
+          if (variables.command === 'start_manual') {
+            startManual(variables);
+          } else if (variables.command === 'start') {
             const presets = Array.isArray(variables.presets) ? [...variables.presets] : [];
             if (!presets.length) throw new Error('Choose at least one room.');
             if (presets.some(preset => !roomByPreset(preset) && preset !== config.full_clean_entity)) throw new Error('A selected room is not available in this preview.');
-            set(config.queue_entity, 'running', {presets, current_index: 0, completed: 0, error: ''});
+            set(config.queue_entity, 'running', {vacuum: config.entity, presets, current_index: 0, completed: 0, error: ''});
             robotState('cleaning', 'cleaning', roomByPreset(presets[0])?.id);
             set(config.progress_entity, 8, {unit_of_measurement: '%'});
             set(config.area_entity, 2.1, {unit_of_measurement: 'm²'});
             set(config.time_entity, 2, {unit_of_measurement: 'min'});
           } else if (variables.command === 'pause') {
             set(config.queue_entity, 'paused', attrs);
-            robotState('paused', 'paused', roomByPreset(attrs.presets[attrs.current_index])?.id);
+            robotState('paused', 'paused', currentRoom(attrs)?.id);
           } else if (variables.command === 'resume') {
             set(config.queue_entity, 'running', attrs);
-            robotState('cleaning', 'cleaning', roomByPreset(attrs.presets[attrs.current_index])?.id);
+            robotState('cleaning', 'cleaning', currentRoom(attrs)?.id);
           } else if (variables.command === 'cancel') {
             set(config.queue_entity, 'cancelled', {...attrs, error: ''});
           } else if (variables.command === 'return_to_dock') {
@@ -341,6 +410,7 @@
       } finally { commandPending = false; paint(); }
     }
     function setScenario(value) {
+      scenario = value;
       fixtureRevision += 1;
       commandPending = false;
       states = {};
@@ -354,7 +424,7 @@
       set(config.full_clean_entity, 'unknown', {friendly_name: 'Full cleaning'});
       set(config.queue_script, 'off', {friendly_name: 'Robot cleaning queue'});
       for (const room of rooms) set(room.preset, 'unknown', {friendly_name: `${room.name} cleaning preset`});
-      set(config.queue_entity, 'idle', {presets: [], current_index: 0, completed: 0, error: ''});
+      set(config.queue_entity, 'idle', {vacuum: config.entity, presets: [], current_index: 0, completed: 0, error: ''});
       robotState('docked', 'charging');
       if (['cleaning', 'paused', 'error', 'recharging', 'washing'].includes(value)) {
         const presets = ['button.rover_entrance', 'button.rover_kitchen', 'button.rover_living'];
@@ -384,6 +454,7 @@
         robotState('docked', 'charging');
       }
       if (value === 'washing') robotState('docked', 'washing_the_mop');
+      if (value === 'manual_cleaning') startManual({rooms: ['kitchen', 'living'], setup: {mode: 'vacuum_then_mop', suction: 'max', water: 'high', route: 'standard', repeat: 1}});
       document.querySelector('#scenario').value = value;
       paint();
     }
@@ -392,14 +463,16 @@
       const attrs = queueAttrs();
       if (queue()?.state === 'running') {
         const completed = attrs.current_index + 1;
-        if (completed >= attrs.presets.length) {
-          set(config.queue_entity, 'completed', {...attrs, completed: attrs.presets.length});
+        const count = attrs.mode === 'manual' ? attrs.stages.length : attrs.presets.length;
+        if (completed >= count) {
+          set(config.queue_entity, 'completed', {...attrs, completed: count});
           robotState('returning', 'returning_home');
           set(config.progress_entity, 100, {unit_of_measurement: '%'});
           set(config.last_clean_end_entity, stamp(), {device_class: 'timestamp'});
         } else {
           set(config.queue_entity, 'running', {...attrs, current_index: completed, completed});
-          robotState('cleaning', 'cleaning', roomByPreset(attrs.presets[completed])?.id);
+          const next = {...attrs, current_index: completed};
+          robotState('cleaning', next.mode === 'manual' && next.stages[completed].mode === 'mop' ? 'mopping' : 'cleaning', currentRoom(next)?.id);
           set(config.progress_entity, 4, {unit_of_measurement: '%'});
           set(config.area_entity, .9, {unit_of_measurement: 'm²'});
           set(config.time_entity, 1, {unit_of_measurement: 'min'});
@@ -432,7 +505,7 @@
       document.querySelector('#frame').style.setProperty('--frame-width', `${button.dataset.width}px`);
       for (const sibling of document.querySelectorAll('[data-width]')) sibling.setAttribute('aria-pressed', String(sibling === button));
     });
-    window.robotPreview = {setScenario, nextRoom, finishRun, get states() { return states; }, get calls() { return calls; }, config};
+    window.robotPreview = {setScenario, nextRoom, finishRun, capabilities, get states() { return states; }, get calls() { return calls; }, config};
     try {
       await import('../dist/robot-vacuum-cleaner-card.js');
       await customElements.whenDefined('robot-vacuum-cleaner-card');

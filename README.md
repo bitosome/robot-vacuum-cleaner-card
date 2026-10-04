@@ -1,6 +1,6 @@
 # Robot Vacuum Cleaner Card
 
-A dedicated Home Assistant robot control card with Space Hub's shared tile surfaces, typography and under-tile glow. See what the robot is doing, start a full-home clean, or select room presets in the order they should run.
+A dedicated Home Assistant robot control card with Space Hub's shared tile surfaces, typography and under-tile glow. See what the robot is doing, start a full-home clean, or choose an ordered cleaning sequence with saved presets or your own manual settings.
 
 Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap a selected room again to remove it; the remaining draft renumbers. Press **Clean 3 rooms** to start. The committed sequence runs in Home Assistant, even after the dashboard closes.
 
@@ -9,6 +9,7 @@ Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap 
 - Robot status, battery, current-preset progress, cleaning area and time when those entities are configured.
 - Contextual full clean, pause, resume and return-to-dock controls.
 - Numbered room selection with visible selected, queued, cleaning and completed states.
+- Manual **Vacuum**, **Mop**, **Vacuum & mop**, and **Vacuum then mop** modes, with supported suction, water, mop route and ×1/×2 controls.
 - Existing Roborock routines retain their suction, mopping and repetition settings.
 - A companion queue integration verifies actual successful cleaning records before moving to the next preset. Pauses, recharge breaks and mop washing do not finish a room.
 - Command acknowledgement, errors, unavailable states and interrupted-queue recovery.
@@ -20,7 +21,7 @@ Build with `npm ci && npm run build`, then copy `dist/robot-vacuum-cleaner-card.
 
 Published release assets can also be installed through HACS by adding `bitosome/robot-vacuum-cleaner-card` as a custom **Dashboard** repository. HACS installs the frontend only.
 
-For room sequencing, install the [Home Assistant queue companion](docs/queue-backend.md). This is an additional custom integration and requires an HA restart. Without it, the card can show robot state and perform full-home cleaning, but ordered room starts are disabled. It never falls back to a browser-driven queue.
+For room sequencing and manual setup, install the [Home Assistant queue companion](docs/queue-backend.md). This is an additional custom integration and requires an HA restart. Without it, the card can show robot state and perform full-home cleaning, but ordered room starts are disabled. It never falls back to a browser-driven queue.
 
 ## Configure
 
@@ -61,6 +62,16 @@ Configure the optional telemetry entities you have. Missing values are omitted. 
 
 A configured full-home preset uses the same companion when installed. Without a full-home preset, **Clean all rooms** uses the standard `vacuum.start` action. A selected room always requires the companion.
 
+## Manual cleaning setup
+
+Open the **Saved presets** pill and choose **Manual setup**. Choose a cleaning mode, adjust its available settings, and press **Use settings**. This only saves a local draft. Select areas in order and press **Clean** to apply settings and begin. Without selected areas, the whole current map is cleaned.
+
+Manual tiles use the robot's existing Home Assistant **Cleaning by area** mapping, discovered by the companion. They can differ from your saved-preset tiles, and an area can contain multiple Roborock rooms. No extra card entity configuration is needed. Preset and manual area selections remain separate.
+
+**Vacuum then mop** vacuums every selected area first, then mops them in the same order. **×2** repeats each area twice per pass as separate verified jobs; it may dock or service the mop between jobs. Water and mop route disappear for vacuum-only cleaning; suction disappears for mop-only cleaning. App-only numeric water flow and SmartPlan are not offered.
+
+Manual setup requires both the card and companion at **0.2.0 or later**. Choices apply only on Start, and native settings must be confirmed before cleaning begins. See [manual cleaning behavior and compatibility](docs/manual-cleaning.md).
+
 ## Queue behavior
 
 - Selections are a local draft until Start. Only one committed queue runs per HA instance.
@@ -79,6 +90,7 @@ See [completion, cancellation and compatibility details](docs/queue-backend.md).
 npm ci
 npm run check
 python3 -B test/backend_queue_test.py
+python3 -B test/backend_manual_test.py
 python3 -m http.server 8767 --bind 127.0.0.1
 ```
 

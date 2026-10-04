@@ -10,9 +10,9 @@ from uuid import uuid4
 import voluptuous as vol
 from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.const import EVENT_CALL_SERVICE, EVENT_HOMEASSISTANT_STOP
-from homeassistant.core import Context, HomeAssistant, ServiceCall, callback
+from homeassistant.core import Context, HomeAssistant, ServiceCall, SupportsResponse, callback
 from homeassistant.exceptions import ServiceValidationError, Unauthorized
-from homeassistant.helpers import config_validation as cv, entity_registry as er
+from homeassistant.helpers import area_registry as ar, config_validation as cv, entity_registry as er
 from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
@@ -20,14 +20,21 @@ from homeassistant.helpers.storage import Store
 from .adapter import is_competing_command, routine_matches, snapshot
 from .engine import ACTIVE, Queue, Snapshot
 from .permissions import async_require_control
+from .manual import build_plan, cached_settings, capabilities, current_map, validate_stage
 
 DOMAIN = "robot_cleaner_queue"
 _LOGGER = logging.getLogger(__name__)
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 SERVICE_SCHEMA = vol.Schema({
-    vol.Required("command"): vol.In(["start", "pause", "resume", "cancel", "return_to_dock"]),
+    vol.Required("command"): vol.In(["start", "start_manual", "pause", "resume", "cancel", "return_to_dock"]),
     vol.Optional("presets", default=[]): vol.All(cv.ensure_list, [cv.entity_id]),
     vol.Optional("vacuum", default=""): str,
+    vol.Optional("rooms", default=[]): vol.All(cv.ensure_list, [str]),
+    vol.Optional("setup"): vol.Schema({
+        vol.Required("mode"): vol.In(["vacuum", "mop", "vacuum_mop", "vacuum_then_mop"]),
+        vol.Optional("suction"): str, vol.Optional("water"): str, vol.Optional("route"): str,
+        vol.Optional("repeat", default=1): vol.All(int, vol.In([1, 2])),
+    }),
     # Accepted for card configuration compatibility; safety comes from native data.
     vol.Optional("cleaning_entity", default=""): str,
     vol.Optional("status_entity", default=""): str,
@@ -41,6 +48,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data[DOMAIN] = manager
     await manager.setup()
     hass.services.async_register(DOMAIN, "control", manager.control, schema=SERVICE_SCHEMA)
+    hass.services.async_register(DOMAIN, "get_capabilities", manager.get_capabilities,
+                                 schema=vol.Schema({vol.Required("vacuum"): cv.entity_id}),
+                                 supports_response=SupportsResponse.ONLY)
     hass.async_create_task(async_load_platform(hass, "sensor", DOMAIN, {}, config))
     return True
 
@@ -96,6 +106,26 @@ class Manager:
             raise ValueError("This Roborock model does not expose the cached cleaning records needed for safe sequencing.")
         return registry, entry, coordinator
 
+    def manual_capabilities(self, vacuum: str):
+        registry, entry, coordinator = self.resolve(vacuum)
+        caps, controls, targets = capabilities(entry, coordinator, registry.entities.values(), self.hass.states, ar.async_get(self.hass))
+        return caps, controls, targets, current_map(coordinator)[0]
+
+    async def get_capabilities(self, call: ServiceCall) -> dict:
+        try:
+            await async_require_control(self.hass.auth, call.context.user_id, [call.data["vacuum"]], POLICY_CONTROL)
+        except PermissionError as err:
+            raise Unauthorized(context=call.context, permission=POLICY_CONTROL) from err
+        try:
+            caps, controls, _, _ = self.manual_capabilities(call.data["vacuum"])
+            await async_require_control(self.hass.auth, call.context.user_id, list(controls.values()), POLICY_CONTROL)
+            return caps
+        except PermissionError as err:
+            raise Unauthorized(context=call.context, permission=POLICY_CONTROL) from err
+        except (ValueError, AttributeError, TypeError):
+            return {"supported": False, "modes": [], "suction": [], "water": [], "routes": [], "repeats": [],
+                    "room_targets": [], "defaults": {}, "error": "Manual cleaning is unavailable. Check the native Roborock integration and area mapping."}
+
     def current_snapshot(self, vacuum: str) -> Snapshot:
         _, _, coordinator = self.resolve(vacuum)
         if coordinator is not self.coordinator:
@@ -104,7 +134,9 @@ class Manager:
             self.coordinator = coordinator
             self.coordinator_unsub = coordinator.async_add_listener(self.schedule_tick)
         state = self.hass.states.get(vacuum)
-        return snapshot(coordinator, state.state if state else "unavailable")
+        current = snapshot(coordinator, state.state if state else "unavailable")
+        current.settings = cached_settings(coordinator)
+        return current
 
     @callback
     def schedule_tick(self) -> None:
@@ -117,11 +149,12 @@ class Manager:
                 raise ServiceValidationError("Home Assistant is stopping.")
             command = call.data["command"]
             vacuum = call.data.get("vacuum") or self.queue.vacuum
-            if command not in {"start", "cancel"} and not self.queue.vacuum:
+            if command not in {"start", "start_manual", "cancel"} and not self.queue.vacuum:
                 raise ServiceValidationError("No robot queue has been started.")
-            if command != "start" and self.queue.vacuum and vacuum != self.queue.vacuum:
+            if command not in {"start", "start_manual"} and self.queue.vacuum and vacuum != self.queue.vacuum:
                 raise ServiceValidationError("This command targets a different vacuum than the current queue.")
-            permission_entities = [vacuum, *(call.data["presets"] if command == "start" else self.queue.presets)]
+            permission_entities = [vacuum, *(call.data["presets"] if command == "start" else [] if command == "start_manual" else self.queue.presets),
+                                   *(self.queue.control_entities.values() if command not in {"start", "start_manual"} else [])]
             try:
                 await async_require_control(self.hass.auth, call.context.user_id, permission_entities, POLICY_CONTROL)
             except PermissionError as err:
@@ -131,7 +164,18 @@ class Manager:
                     effect = self.queue.command(command, Snapshot(), time.time())
                 else:
                     current = self.current_snapshot(vacuum)
-                    if command == "start":
+                    if command == "start_manual":
+                        if call.data["presets"]:
+                            raise ValueError("Manual cleaning cannot run preset buttons.")
+                        caps, controls, targets, map_id = self.manual_capabilities(vacuum)
+                        setup, stages = build_plan(call.data["rooms"], call.data.get("setup", {}), caps, targets, map_id)
+                        try:
+                            await async_require_control(self.hass.auth, call.context.user_id, list(controls.values()), POLICY_CONTROL)
+                        except PermissionError as err:
+                            raise Unauthorized(context=call.context, permission=POLICY_CONTROL) from err
+                        effect = self.queue.start_manual(vacuum, call.data["rooms"], setup, stages, controls, current, time.time(), uuid4().hex)
+                        self.queue.owner_user_id = call.context.user_id
+                    elif command == "start":
                         registry, entry, coordinator = self.resolve(vacuum)
                         presets = call.data["presets"]
                         for preset in presets:
@@ -149,36 +193,73 @@ class Manager:
             if effect:
                 await self.execute(effect, call.context)
 
+    def effect_valid(self, effect: tuple[str, str]) -> bool:
+        kind, target = effect
+        if self.closing:
+            return False
+        if kind == "configure":
+            return self.queue.mode == "manual" and self.queue.phase == "preparing" and self.queue.pending_command == "configure" and target == str(self.queue.current_index)
+        if kind in {"preset", "manual"}:
+            return self.queue.phase == "starting" and self.queue.pending_command == "start" and (
+                (kind == "manual" and self.queue.mode == "manual" and target == str(self.queue.current_index)) or
+                (kind == "preset" and self.queue.mode == "preset" and target == self.queue.presets[self.queue.current_index]))
+        return kind == "vacuum" and bool(self.queue.pending_command)
+
     async def execute(self, effect: tuple[str, str], parent: Context | None = None) -> None:
         kind, target = effect
-        # Saving state yields to HA. A concurrent external command or shutdown may
-        # have invalidated this effect while persistence was in progress.
-        if self.closing or (kind == "preset" and (
-            self.queue.phase != "starting" or self.queue.pending_command != "start"
-        )) or (kind == "vacuum" and not self.queue.pending_command):
+        if not self.effect_valid(effect):
             return
         user_id = parent.user_id if parent is not None else self.queue.owner_user_id
+        async def authorize():
+            await async_require_control(self.hass.auth, user_id,
+                [self.queue.vacuum, *self.queue.presets, *self.queue.control_entities.values()], POLICY_CONTROL)
         try:
-            await async_require_control(
-                self.hass.auth, user_id, [self.queue.vacuum, *self.queue.presets], POLICY_CONTROL
-            )
-        except PermissionError:
-            self.queue.attention("The initiating user can no longer control this cleaning sequence. No command was sent.")
-            await self.publish()
-            return
-        # The auth lookup yields; an external command can invalidate the effect.
-        if self.closing or (kind == "preset" and (
-            self.queue.phase != "starting" or self.queue.pending_command != "start"
-        )) or (kind == "vacuum" and not self.queue.pending_command):
-            return
-        context = Context(user_id=user_id, parent_id=parent.id if parent else None)
-        self.contexts.add(context.id)
-        # Bound bookkeeping; service events are emitted synchronously at dispatch.
-        if len(self.contexts) > 128:
-            self.contexts = {context.id}
-        try:
-            if kind == "preset":
-                # Revalidate immediately before each dispatch, including later rooms.
+            await authorize()
+            if not self.effect_valid(effect):
+                return
+            context = Context(user_id=user_id, parent_id=parent.id if parent else None)
+            self.contexts.add(context.id)
+            if len(self.contexts) > 128:
+                self.contexts = {context.id}
+            if kind in {"manual", "configure"}:
+                caps, controls, targets, map_id = self.manual_capabilities(self.queue.vacuum)
+                validate_stage(self.queue.stage, caps, targets, map_id)
+                if controls != self.queue.control_entities:
+                    raise ValueError("The native manual control entities changed.")
+                if not self.current_snapshot(self.queue.vacuum).ready:
+                    raise ValueError("The robot is no longer ready to start a manual job.")
+                if kind == "configure":
+                    # High-level mode resets lower-level settings: always set it first.
+                    for key in ("mode", "suction", "water", "route"):
+                        if key not in self.queue.stage["settings"]:
+                            continue
+                        await authorize()
+                        if not self.effect_valid(effect):
+                            return
+                        # A native-app start can appear during an awaited settings
+                        # refresh without a Home Assistant service event.
+                        if not self.current_snapshot(self.queue.vacuum).ready:
+                            raise ValueError("The robot became busy while applying manual settings.")
+                        latest_caps, latest_controls, latest_targets, latest_map = self.manual_capabilities(self.queue.vacuum)
+                        validate_stage(self.queue.stage, latest_caps, latest_targets, latest_map)
+                        if latest_controls != self.queue.control_entities:
+                            raise ValueError("Manual control entities changed during setup.")
+                        value = self.queue.stage["settings"][key]
+                        if key == "suction":
+                            await self.hass.services.async_call("vacuum", "set_fan_speed", {"entity_id": self.queue.vacuum, "fan_speed": value}, blocking=True, context=context)
+                        else:
+                            await self.hass.services.async_call("select", "select_option", {"entity_id": controls[key], "option": value}, blocking=True, context=context)
+                    # Tick uses freshly observed settings before issuing any start.
+                    return
+                current = self.current_snapshot(self.queue.vacuum)
+                if not all(current.settings.get(key) == value for key, value in self.queue.stage["settings"].items()):
+                    raise ValueError("Manual settings changed before the start command.")
+                area = self.queue.stage["target"]
+                data = {"entity_id": self.queue.vacuum}
+                if area:
+                    data["cleaning_area_id"] = [area]
+                await self.hass.services.async_call("vacuum", "clean_area" if area else "start", data, blocking=True, context=context)
+            elif kind == "preset":
                 registry, entry, coordinator = self.resolve(self.queue.vacuum)
                 state = self.hass.states.get(target)
                 if not routine_matches(registry.async_get(target), entry, coordinator) or state is None or state.state == "unavailable":
@@ -186,9 +267,11 @@ class Manager:
                 await self.hass.services.async_call("button", "press", {"entity_id": target}, blocking=True, context=context)
             else:
                 await self.hass.services.async_call("vacuum", target, {"entity_id": self.queue.vacuum}, blocking=True, context=context)
+        except PermissionError:
+            self.queue.attention("The initiating user can no longer control this cleaning sequence. No further command was sent.")
+            await self.publish()
         except Exception:
-            # Service implementations can include private payloads in exceptions.
-            # Surface a fixed message and never log raw integration responses.
+            # Raw integration errors can contain private payloads; never expose them.
             self.queue.attention("The command failed or could not be confirmed. Check the robot before retrying; no automatic retry was sent.")
             await self.publish()
             _LOGGER.warning("Robot queue command failed; queue stopped without retry")
@@ -218,7 +301,15 @@ class Manager:
                 return routine_matches(registry.async_get(entity_id), entry, coordinator)
             except ValueError:
                 return False
-        affected = is_competing_command(domain, service, data, self.queue.vacuum, is_routine)
+        def is_setting(entity_id):
+            try:
+                registry, entry, _ = self.resolve(self.queue.vacuum)
+                setting = registry.async_get(entity_id)
+                return bool(setting and setting.platform == "roborock" and setting.domain == "select"
+                            and setting.device_id == entry.device_id and setting.config_entry_id == entry.config_entry_id)
+            except ValueError:
+                return False
+        affected = is_competing_command(domain, service, data, self.queue.vacuum, is_routine, is_setting)
         if affected:
             # Set synchronously before a waiting tick can start another preset.
             self.queue.attention("Another Home Assistant control changed the robot. The queue was stopped to avoid conflicting commands.")

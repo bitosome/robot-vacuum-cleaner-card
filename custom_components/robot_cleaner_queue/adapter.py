@@ -61,15 +61,19 @@ def routine_matches(registry_entry: Any, vacuum_entry: Any, coordinator: Any) ->
     )
 
 
-def is_competing_command(domain: str, service: str, data: dict, vacuum: str, is_routine) -> bool:
+def is_competing_command(domain: str, service: str, data: dict, vacuum: str, is_routine, is_setting=lambda _entity: False) -> bool:
     """call_service fires before HA expands device/area/label/floor targets."""
     targets = data.get("entity_id", [])
     targets = [targets] if isinstance(targets, str) else (targets or [])
     ambiguous = not targets or "all" in targets or any(
         key in data for key in ("device_id", "area_id", "label_id", "floor_id")
     )
-    if domain == "vacuum" and service in {"start", "stop", "pause", "return_to_base", "clean_area", "send_command"}:
+    if domain == "vacuum" and service in {"start", "stop", "pause", "return_to_base", "clean_area", "clean_spot", "send_command", "set_fan_speed"}:
         return ambiguous or vacuum in targets
+    if domain == "roborock" and service in {"set_vacuum_zoned_cleaning", "set_vacuum_goto_position"}:
+        return ambiguous or vacuum in targets
+    if domain == "select" and service in {"select_option", "select_next", "select_previous", "select_first", "select_last"}:
+        return ambiguous or any(is_setting(eid) for eid in targets)
     if domain == "button" and service == "press":
         return ambiguous or any(is_routine(eid) for eid in targets)
     return False

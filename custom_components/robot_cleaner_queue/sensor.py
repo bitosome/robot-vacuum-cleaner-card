@@ -29,6 +29,10 @@ class QueueSensor(SensorEntity):
         return {
             "vacuum": queue.vacuum,
             "presets": list(queue.presets),
+            "mode": queue.mode,
+            "targets": list(queue.targets),
+            "setup": dict(queue.setup),
+            "stages": [{k: stage[k] for k in ("target", "mode", "room_index", "pass_index", "repeat_index")} for stage in queue.stages],
             "current_index": queue.current_index,
             "completed": queue.completed,
             "error": queue.error,

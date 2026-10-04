@@ -1,6 +1,6 @@
 # Home Assistant queue companion
 
-The card selects an ordered list of existing Roborock **routine buttons**. This companion executes it in Home Assistant, so closing the dashboard or locking the phone does not stop the sequence. Native Roborock area cleaning does not promise room order; submitting several areas in one command cannot implement an elevator-style queue.
+The card selects an ordered list of existing Roborock **routine buttons**, or a [manual cleaning plan](manual-cleaning.md) using native Home Assistant areas and robot settings. This companion executes it in Home Assistant, so closing the dashboard or locking the phone does not stop the sequence. Native Roborock area cleaning does not promise room order; submitting several areas in one command cannot implement an elevator-style queue.
 
 This first version supports **one robot and one queue per Home Assistant instance**, using the native Roborock V1 integration. Other robot platforms and Roborock protocols are not implicitly supported. Room routines must each represent the room named on its tile. A routine may contain multiple internal steps; its final cleaning record must represent the entire routine before this companion can safely chain it. Set up and verify one-room routines in the Roborock app. Their suction, mopping and repetition settings remain owned by that app.
 
@@ -56,12 +56,15 @@ The optional `cleaning_entity`, `status_entity`, `error_entity` and `last_clean_
 `sensor.robot_cleaner_queue` states:
 
 - `idle`: no queue has been started.
+- `preparing`: manual settings are being applied and awaiting fresh native readback.
 - `starting`: a start/resume command is awaiting observed acknowledgement.
 - `running`: the acknowledged routine is active or waiting to return to the dock before the next room.
 - `paused`: the queue is paused; check `pending_command` for pause acknowledgement.
 - `completed`: every selected routine reported successful completion.
 - `cancelled`: remaining rooms were cleared; the robot may still be active.
 - `attention`: execution stopped because a fault, restart, conflict or uncertain result requires review.
+
+Manual queues also expose `mode: manual`, ordered `targets` (HA area IDs), `setup` (chosen settings), and `stages` (target, cleaning mode, zero-based room/pass/repeat indices). `current_index` and `completed` count stages, while `room_index + 1` preserves the displayed area sequence. Empty targets represent whole-home cleaning. Preset queues expose `mode: preset`.
 
 Attributes: `vacuum`, ordered `presets`, zero-based `current_index`, `completed` count, `pending_command`, `error`, `run_id`, and `waiting_for_dock`, and `command_barrier_until` (UTC epoch seconds or null). The tile order shown to a person is `index + 1`. `completed` reports successful routine records; robot location alone never proves room coverage.
 
@@ -93,6 +96,7 @@ Run the offline production-code trace tests without HA or a robot:
 
 ```sh
 python3 -B test/backend_queue_test.py
+python3 -B test/backend_manual_test.py
 ```
 
 These test ordered success, low-battery/wash breaks, interrupted records, faults, missing acknowledgements, stale records, pause/resume, cancellation, return-to-dock, concurrent starts, restart behavior and routine validation. They do not prove physical operation or native HA runtime compatibility.

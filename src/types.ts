@@ -1,5 +1,5 @@
 export interface EntityState { state: string; attributes: Record<string, any>; last_changed?: string; last_updated?: string; }
-export interface Hass { states: Record<string, EntityState>; services?: Record<string, Record<string, unknown>>; callService(domain: string, service: string, data: Record<string, unknown>): Promise<unknown>; }
+export interface Hass { states: Record<string, EntityState>; services?: Record<string, Record<string, unknown>>; callWS?<T = unknown>(message: Record<string, unknown>): Promise<T>; callService(domain: string, service: string, data: Record<string, unknown>): Promise<unknown>; }
 export interface RoomConfig { id: string; name: string; preset: string; icon?: string; activity_entity?: string; }
 export interface CardConfig {
   type: string; entity: string; name?: string; rooms: RoomConfig[];
@@ -9,7 +9,7 @@ export interface CardConfig {
   queue_entity?: string; queue_script?: string;
 }
 export const BAD = new Set(['unknown', 'unavailable', 'none', '']);
-export const QUEUE_ACTIVE = new Set(['starting', 'running', 'paused', 'cancelling']);
+export const QUEUE_ACTIVE = new Set(['preparing', 'starting', 'running', 'paused', 'cancelling']);
 export function available(entity?: EntityState, button = false): boolean {
   return !!entity && entity.state !== 'unavailable' && (button || !BAD.has(entity.state));
 }

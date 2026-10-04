@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-ACTIVE = {"starting", "running", "paused"}
+ACTIVE = {"preparing", "starting", "running", "paused"}
 READY_STATUS = {"idle", "charging", "charging_complete"}
 CLEANING_STATUS = {
     "cleaning", "spot_cleaning", "segment_cleaning", "zoned_cleaning",
@@ -33,6 +33,7 @@ class Snapshot:
     connected: bool = False
     record: dict[str, Any] | None = None
     observed_at: float = 0
+    settings: dict[str, str] = field(default_factory=dict)
 
     @property
     def healthy(self) -> bool:
@@ -55,6 +56,11 @@ class Queue:
     phase: str = "idle"
     vacuum: str = ""
     presets: list[str] = field(default_factory=list)
+    mode: str = "preset"
+    targets: list[str] = field(default_factory=list)
+    setup: dict[str, Any] = field(default_factory=dict)
+    stages: list[dict[str, Any]] = field(default_factory=list)
+    control_entities: dict[str, str] = field(default_factory=dict)
     current_index: int = 0
     completed: int = 0
     error: str = ""
@@ -92,22 +98,55 @@ class Queue:
             # Clearing the UI must not permit another start on that stale state.
             self.not_before = max(self.not_before, self.command_at + ACK_SECONDS)
 
-    def start(self, vacuum: str, presets: list[str], snapshot: Snapshot, now: float, run_id: str) -> tuple[str, str]:
+    def _validate_start(self, snapshot: Snapshot, now: float) -> None:
         if self.phase in ACTIVE or self.phase == "attention" or self.pending_command:
             raise ValueError("A queue is active or needs attention. Clear it before starting another sequence.")
         if self.not_before and (now < self.not_before or snapshot.observed_at < self.not_before):
             raise ValueError("A previous command is still uncertain. Wait for a fresh robot update after its 60-second acknowledgement window, then check that the robot is idle.")
         if not snapshot.ready:
             raise ValueError("The robot must be available, idle or docked, and have no unfinished cleaning job.")
+
+    def start(self, vacuum: str, presets: list[str], snapshot: Snapshot, now: float, run_id: str) -> tuple[str, str]:
+        self._validate_start(snapshot, now)
         if not 1 <= len(presets) <= 32 or len(set(presets)) != len(presets):
             raise ValueError("Select 1–32 distinct room presets.")
+        self.mode = "preset"
+        self.targets, self.stages, self.setup, self.control_entities = [], [], {}, {}
         self.vacuum, self.presets, self.run_id = vacuum, list(presets), run_id
         self.current_index = self.completed = 0
         self.error = ""
         self.not_before = 0
         return self._dispatch(snapshot, now)
 
+    def start_manual(self, vacuum: str, targets: list[str], setup: dict, stages: list[dict],
+                     control_entities: dict[str, str], snapshot: Snapshot, now: float, run_id: str) -> tuple[str, str]:
+        self._validate_start(snapshot, now)
+        if not stages or len(stages) > 128:
+            raise ValueError("The manual cleaning plan has no supported stages or exceeds 128 stages.")
+        self.mode = "manual"
+        self.vacuum, self.presets, self.run_id = vacuum, [], run_id
+        self.targets, self.setup = list(targets), dict(setup)
+        self.stages = [dict(stage) for stage in stages]
+        self.control_entities = dict(control_entities)
+        self.current_index = self.completed = 0
+        self.error = ""
+        self.not_before = 0
+        return self._dispatch(snapshot, now)
+
+    @property
+    def stage(self) -> dict:
+        return self.stages[self.current_index] if self.mode == "manual" and self.current_index < len(self.stages) else {}
+
     def _dispatch(self, snapshot: Snapshot, now: float) -> tuple[str, str]:
+        if self.mode == "manual":
+            self.phase = "preparing"
+            self.pending_command = "configure"
+            self.command_at = now
+            self.next_pending = False
+            return "configure", str(self.current_index)
+        return self._start_job(snapshot, now)
+
+    def _start_job(self, snapshot: Snapshot, now: float) -> tuple[str, str]:
         self.phase = "starting"
         self.pending_command = "start"
         self.command_at = self.started_at = now
@@ -115,7 +154,7 @@ class Queue:
         self.seen_job = False
         self.finish_wait_at = 0
         self.next_pending = False
-        return "preset", self.presets[self.current_index]
+        return ("manual", str(self.current_index)) if self.mode == "manual" else ("preset", self.presets[self.current_index])
 
     def command(self, command: str, snapshot: Snapshot, now: float) -> tuple[str, str] | None:
         if command == "cancel":
@@ -174,6 +213,16 @@ class Queue:
         if not snapshot.healthy:
             self.attention("The robot or dock has a fault, or telemetry is unavailable. The queue is stopped for review.")
             return None
+        if self.pending_command == "configure":
+            if not snapshot.ready:
+                self.attention("The robot became busy while manual settings were being applied. No cleaning was started.")
+            elif snapshot.observed_at >= self.command_at and all(
+                snapshot.settings.get(key) == value for key, value in self.stage.get("settings", {}).items()
+            ):
+                return self._start_job(snapshot, now)
+            elif now - self.command_at >= ACK_SECONDS:
+                self.attention("The robot did not confirm the manual settings within 60 seconds. No cleaning was started.")
+            return None
         if self.pending_command:
             ack = (self.pending_command == "pause" and snapshot.vacuum == snapshot.status == "paused") or (
                 self.pending_command in {"start", "resume"} and snapshot.status in START_STATUS
@@ -223,10 +272,10 @@ class Queue:
             return None
         complete, error, reason = record.get("complete"), record.get("error"), record.get("finish_reason")
         if complete != 1 or error != 0 or (reason is not None and reason not in SUCCESS_REASONS):
-            self.attention("The routine was interrupted, failed, or did not report successful completion. No next room was started.")
+            self.attention("The cleaning job was interrupted, failed, or did not report successful completion. No next room was started.")
             return None
         self.completed += 1
-        if self.completed == len(self.presets):
+        if self.completed == (len(self.stages) if self.mode == "manual" else len(self.presets)):
             self.phase = "completed"
             return None
         self.current_index += 1
