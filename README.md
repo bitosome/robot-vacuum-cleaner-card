@@ -1,0 +1,91 @@
+# Robot Vacuum Cleaner Card
+
+A dedicated Home Assistant robot control card with Space Hub's shared tile surfaces, typography and under-tile glow. See what the robot is doing, start a full-home clean, or select room presets in the order they should run.
+
+Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap a selected room again to remove it; the remaining draft renumbers. Press **Clean 3 rooms** to start. The committed sequence runs in Home Assistant, even after the dashboard closes.
+
+## Features
+
+- Robot status, battery, current-preset progress, cleaning area and time when those entities are configured.
+- Contextual full clean, pause, resume and return-to-dock controls.
+- Numbered room selection with visible selected, queued, cleaning and completed states.
+- Existing Roborock routines retain their suction, mopping and repetition settings.
+- A companion queue integration verifies actual successful cleaning records before moving to the next preset. Pauses, recharge breaks and mop washing do not finish a room.
+- Command acknowledgement, errors, unavailable states and interrupted-queue recovery.
+- Touch and keyboard controls, a visual configuration editor, responsive layout, reduced motion and theme support.
+
+## Install the card
+
+Build with `npm ci && npm run build`, then copy `dist/robot-vacuum-cleaner-card.js` to `/config/www/robot-vacuum-cleaner-card.js`. Register `/local/robot-vacuum-cleaner-card.js` as a JavaScript module in Home Assistant's dashboard resources.
+
+Published release assets can also be installed through HACS by adding `bitosome/robot-vacuum-cleaner-card` as a custom **Dashboard** repository. HACS installs the frontend only.
+
+For room sequencing, install the [Home Assistant queue companion](docs/queue-backend.md). This is an additional custom integration and requires an HA restart. Without it, the card can show robot state and perform full-home cleaning, but ordered room starts are disabled. It never falls back to a browser-driven queue.
+
+## Configure
+
+```yaml
+type: custom:robot-vacuum-cleaner-card
+entity: vacuum.robot
+name: Robot
+battery_entity: sensor.robot_battery
+status_entity: sensor.robot_status
+cleaning_entity: binary_sensor.robot_cleaning
+current_room_entity: sensor.robot_current_room
+progress_entity: sensor.robot_cleaning_progress
+area_entity: sensor.robot_cleaning_area
+time_entity: sensor.robot_cleaning_time
+error_entity: sensor.robot_vacuum_error
+dock_error_entity: sensor.robot_dock_error
+full_clean_entity: button.robot_full_cleaning
+queue_entity: sensor.robot_cleaner_queue
+queue_script: script.robot_cleaner_queue_control
+rooms:
+  - id: kitchen
+    name: Kitchen
+    icon: mdi:stove
+    preset: button.robot_kitchen
+  - id: office
+    name: Office
+    icon: mdi:desk
+    preset: button.robot_office
+  - id: bedroom
+    name: Bedroom
+    icon: mdi:bed-king-outline
+    preset: button.robot_bedroom
+```
+
+Entity names above are examples. Use your existing **routine buttons**, not maintenance-reset buttons or area identifiers. Every room needs a unique `id`, `name` and `preset`. Optional `activity_entity` can identify an externally initiated room clean (`cleaning`, `active` or `on`); it never proves completion. The robot's `supported_features` determines available physical controls.
+
+Configure the optional telemetry entities you have. Missing values are omitted. Cleaning metrics belong to the current preset, not the complete multi-room sequence. The robot's current-room reading describes location; a room tile is marked completed only by the companion's successful routine record.
+
+A configured full-home preset uses the same companion when installed. Without a full-home preset, **Clean all rooms** uses the standard `vacuum.start` action. A selected room always requires the companion.
+
+## Queue behavior
+
+- Selections are a local draft until Start. Only one committed queue runs per HA instance.
+- The queue and current position are stored in HA; closing the browser has no effect.
+- A second Start cannot replace a running job. The card locks the committed room sequence.
+- **Return to dock** cancels remaining rooms before requesting docking. It will not interrupt mop servicing.
+- **Clear sequence** after an error or restart clears pending work without moving the robot. Check its state before selecting a new sequence.
+- HA restarts preserve the saved sequence for inspection and stop automatic progression. There is no unattended restart or automatic command retry.
+- The companion supports the native Roborock V1 coordinator, verified against HA Core 2026.9.4 / python-roborock 7.4.2. It fails closed when completion cannot be established. Other platforms, protocols and unusual multi-job routines require additional compatibility work.
+
+See [completion, cancellation and compatibility details](docs/queue-backend.md). Development checks use simulated Home Assistant states and production-code event traces; they do not claim a physical cleaning test.
+
+## Develop and preview
+
+```sh
+npm ci
+npm run check
+python3 -B test/backend_queue_test.py
+python3 -m http.server 8767 --bind 127.0.0.1
+```
+
+Open `http://127.0.0.1:8767/preview/`. The interactive preview is entirely local and never connects to a robot. It includes selection, start/pause/resume, room completion, docking, recharging, mop washing, faults and unavailable states, plus dark/light themes and phone widths.
+
+## Design provenance
+
+Space Hub Card is the design reference. Canonical tokens are vendored from its v2.0.83 commit; the shared glow helper and stacking model are reused. See [provenance](src/shared/PROVENANCE.md). There is no runtime dependency on another local checkout. `scripts/sync-design-tokens.py` updates the exact token source at an explicit commit.
+
+This is a public, reusable project. Examples contain no production configuration, household maps or credentials. MIT licensed.

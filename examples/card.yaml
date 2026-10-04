@@ -1,0 +1,27 @@
+type: custom:robot-vacuum-cleaner-card
+entity: vacuum.robot
+name: Robot
+battery_entity: sensor.robot_battery
+status_entity: sensor.robot_status
+cleaning_entity: binary_sensor.robot_cleaning
+current_room_entity: sensor.robot_current_room
+progress_entity: sensor.robot_cleaning_progress
+area_entity: sensor.robot_cleaning_area
+time_entity: sensor.robot_cleaning_time
+error_entity: sensor.robot_vacuum_error
+full_clean_entity: button.robot_full_cleaning
+queue_entity: sensor.robot_cleaner_queue
+queue_script: script.robot_cleaner_queue_control
+rooms:
+  - id: kitchen
+    name: Kitchen
+    icon: mdi:stove
+    preset: button.robot_kitchen
+  - id: office
+    name: Office
+    icon: mdi:desk
+    preset: button.robot_office
+  - id: bedroom
+    name: Bedroom
+    icon: mdi:bed-king-outline
+    preset: button.robot_bedroom

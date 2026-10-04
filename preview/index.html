@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>Robot Vacuum Cleaner Card · Interactive preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --primary-text-color: #cdd3ef;
+      --secondary-text-color: #aeb6d5;
+      --primary-color: #c5a4f4;
+      --accent-color: #c5a4f4;
+      --card-background-color: #242638;
+      --ha-card-background: #242638;
+      --primary-background-color: #10111a;
+      --secondary-background-color: #2c2e41;
+      --divider-color: rgba(174, 182, 213, .18);
+      --disabled-text-color: #788199;
+      --error-color: #f07183;
+      --success-color: #76c58a;
+      --warning-color: #efb86c;
+      --paper-item-icon-color: #b7c0dd;
+      --ha-card-border-radius: 22px;
+      --ha-font-family-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --panel-shadow-color: rgba(0, 0, 0, .18);
+      --preview-background: #0e1018;
+      --preview-panel: rgba(36, 38, 56, .66);
+      --preview-border: rgba(174, 182, 213, .15);
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --primary-text-color: #303349;
+      --secondary-text-color: #66708b;
+      --primary-color: #7554b2;
+      --accent-color: #7554b2;
+      --card-background-color: #fafaff;
+      --ha-card-background: #fafaff;
+      --primary-background-color: #ececf5;
+      --secondary-background-color: #ededf6;
+      --divider-color: rgba(77, 86, 121, .17);
+      --disabled-text-color: #9097a9;
+      --error-color: #c43d55;
+      --success-color: #357e48;
+      --warning-color: #ad6719;
+      --paper-item-icon-color: #66708b;
+      --panel-shadow-color: rgba(42, 46, 76, .08);
+      --preview-background: #f1f2f8;
+      --preview-panel: rgba(255, 255, 255, .7);
+      --preview-border: rgba(77, 86, 121, .15);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--primary-text-color);
+      background: radial-gradient(ellipse at 20% 0, rgba(129, 101, 193, .09), transparent 55%), var(--preview-background);
+      font-family: var(--ha-font-family-body);
+      -webkit-font-smoothing: antialiased;
+    }
+    button, select { font: inherit; }
+    button, select, summary { -webkit-tap-highlight-color: transparent; }
+    button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 4px; }
+    button:disabled { cursor: default; opacity: .45; }
+    .app { width: min(1120px, 100%); margin: 0 auto; padding: 38px 28px 60px; }
+    .heading { margin-bottom: 28px; }
+    .eyebrow { color: var(--primary-color); font-size: 10px; font-weight: 750; letter-spacing: .16em; }
+    h1 { font-size: clamp(23px, 4vw, 34px); font-weight: 650; line-height: 1.18; letter-spacing: -.035em; margin: 10px 0; }
+    .heading p { margin: 0; color: var(--secondary-text-color); font-size: 13px; line-height: 1.6; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 286px; gap: 36px; align-items: start; }
+    .stage { min-width: 0; }
+    .frame { width: var(--frame-width, 480px); max-width: 100%; margin-inline: auto; }
+    robot-vacuum-cleaner-card, ha-card { display: block; }
+    .controls { display: grid; gap: 16px; }
+    .panel { border: 1px solid var(--preview-border); border-radius: 18px; background: var(--preview-panel); padding: 18px; }
+    h2 { font-size: 13px; margin: 0 0 16px; font-weight: 650; }
+    label { display: block; color: var(--secondary-text-color); font-size: 11px; font-weight: 600; margin: 0 0 8px; }
+    .control { min-height: 42px; border: 1px solid var(--preview-border); border-radius: 11px; color: var(--primary-text-color); background: var(--secondary-background-color); padding: 9px 11px; font-size: 12px; cursor: pointer; }
+    select.control { width: 100%; }
+    .field + .field { margin-top: 18px; }
+    .row { display: flex; flex-wrap: wrap; gap: 7px; }
+    .row .control { flex: 1 1 auto; }
+    .control[aria-pressed="true"] { border-color: var(--primary-color); color: var(--primary-color); }
+    #theme { width: 100%; margin-top: 12px; }
+    .hint { font-size: 12px; color: var(--secondary-text-color); line-height: 1.65; margin: 0; }
+    .hint + .row { margin-top: 14px; }
+    .hint strong { color: var(--primary-text-color); font-weight: 600; }
+    .log-panel summary { font-size: 12px; cursor: pointer; color: var(--secondary-text-color); }
+    .log { margin-top: 12px; padding: 0; list-style: none; font-size: 11px; color: var(--secondary-text-color); line-height: 1.6; overflow-wrap: anywhere; }
+    .log li + li { border-top: 1px solid var(--preview-border); padding-top: 8px; margin-top: 8px; }
+    .log b { color: var(--primary-text-color); font-weight: 550; }
+    .local { font-size: 10px; color: var(--secondary-text-color); display: flex; align-items: center; gap: 6px; margin-top: 18px; }
+    .local::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--success-color); }
+    .loading { padding: 24px; border-radius: 18px; background: var(--preview-panel); color: var(--secondary-text-color); font-size: 13px; line-height: 1.6; }
+    @media (max-width: 800px) {
+      .app { padding: 26px 18px 40px; }
+      .layout { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+      .controls { width: min(480px, 100%); margin-inline: auto; }
+      .heading { max-width: 480px; margin: 0 auto 22px; }
+    }
+    @media (max-width: 380px) { .app { padding-inline: 10px; } }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="heading">
+      <span class="eyebrow">ROBOT VACUUM CLEANER CARD</span>
+      <h1>A clean home, room by room.</h1>
+      <p>Choose rooms in the order you want them cleaned.</p>
+    </header>
+    <div class="layout">
+      <section class="stage" aria-label="Interactive robot card">
+        <div class="frame" id="frame">
+          <div id="loading" class="loading" role="status">Loading the card…</div>
+          <robot-vacuum-cleaner-card id="card"></robot-vacuum-cleaner-card>
+        </div>
+      </section>
+      <aside class="controls" aria-label="Preview controls">
+        <section class="panel">
+          <h2>Explore the card</h2>
+          <div class="field">
+            <label for="scenario">Robot state</label>
+            <select class="control" id="scenario">
+              <option value="ready">Ready to clean</option>
+              <option value="cleaning">Cleaning a sequence</option>
+              <option value="paused">Paused</option>
+              <option value="returning">Returning to dock</option>
+              <option value="error">Needs attention</option>
+              <option value="unavailable">Unavailable</option>
+              <option value="recharging">Low battery · recharging</option>
+              <option value="washing">Washing the mop</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Card width</label>
+            <div class="row" aria-label="Card width">
+              <button class="control" data-width="320" aria-pressed="false">320</button>
+              <button class="control" data-width="390" aria-pressed="false">390</button>
+              <button class="control" data-width="480" aria-pressed="true">480</button>
+              <button class="control" data-width="640" aria-pressed="false">640</button>
+            </div>
+          </div>
+          <button class="control" id="theme">Switch to light theme</button>
+          <div class="local">Simulated locally · no robot connected</div>
+        </section>
+        <section class="panel">
+          <h2>Try a cleaning plan</h2>
+          <p class="hint">Tap a few room tiles. Their numbers show the order. Tap again to remove a room, then <strong>start the sequence</strong>.</p>
+          <div class="row">
+            <button class="control" id="next">Finish current room</button>
+            <button class="control" id="finish">Return to dock</button>
+          </div>
+          <p class="hint" style="margin-top: 12px">Use these preview controls to advance the simulated robot.</p>
+        </section>
+        <details class="panel log-panel">
+          <summary>Simulated commands</summary>
+          <ol class="log" id="log" aria-live="polite"><li>Card actions will appear here.</li></ol>
+        </details>
+      </aside>
+    </div>
+  </main>
+  <script type="module">
+    // This page intentionally has no HA connection. All entities and commands are fixtures.
+    const paths = {
+      'robot-vacuum': 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14m-4 4h8v2H8V9m1 5h6v2H9v-2Z',
+      'robot-vacuum-variant': 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14m-4 4h8v2H8V9m1 5h6v2H9v-2Z',
+      'play': 'M8 5v14l11-7L8 5Z',
+      'play-circle': 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m-3 5 8 5-8 5V7Z',
+      'pause': 'M6 5h4v14H6V5m8 0h4v14h-4V5Z',
+      'stop': 'M6 6h12v12H6V6Z',
+      'home': 'M12 3 2 12h3v9h6v-6h2v6h6v-9h3L12 3Z',
+      'home-import-outline': 'M12 3 2 12h3v9h14v-9h3L12 3m0 2.7 5 4.5V19H7v-8.8l5-4.5m-1 4.8v2H8v2h3v2l4-3-4-3Z',
+      'home-floor-0': 'M12 3 2 12h3v9h14v-9h3L12 3m0 2.7 5 4.5V19H7v-8.8l5-4.5Z',
+      'home-outline': 'M12 3 2 12h3v9h6v-6h2v6h6v-9h3L12 3m0 2.7 5 4.5V19h-2v-6H9v6H7v-8.8l5-4.5Z',
+      'home-clock-outline': 'M12 3 2 12h3v9h7v-2H7v-8.8l5-4.5 5 4.5v.9h2V12h3L12 3m6 10a5 5 0 1 0 0 10 5 5 0 0 0 0-10m-.5 2h1v3l2 1-.5.9-2.5-1.4V15Z',
+      'battery': 'M16 4h-2V2h-4v2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2m0 16H8V6h8v14Z',
+      'battery-high': 'M16 4h-2V2h-4v2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2m0 4H8V6h8v2Z',
+      'battery-charging': 'M16 4h-2V2h-4v2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2m-5 15v-6H8l5-7v6h3l-5 7Z',
+      'battery-low': 'M16 4h-2V2h-4v2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2m0 12H8V6h8v10Z',
+      'record-circle-outline': 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16m0 3a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z',
+      'clock-outline': 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16m-1 3v6l5 3 1-1.7-4-2.3V7h-2Z',
+      'timer-outline': 'M9 1h6v2H9V1m10 4 1.4 1.4-1.7 1.7A9 9 0 1 1 17.2 6.7L19 5m-7 2a7 7 0 1 0 0 14 7 7 0 0 0 0-14m-1 2h2v5h-2V9Z',
+      'floor-plan': 'M3 3h18v18H3V3m2 2v6h5V5H5m7 0v8H5v6h7v-4h2v4h5V5h-7Z',
+      'ruler-square': 'M3 3h5v13h13v5H3V3m2 2v2h1V5H5m0 4v2h1V9H5m0 4v2h1v-2H5m0 4v2h2v-1H6v-1H5m4 1v1h2v-1H9m4 0v1h2v-1h-2m4 0v1h2v-1h-2Z',
+      'check': 'm9 16.2-4.2-4.2-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2Z',
+      'check-circle': 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m-2 14-5-5 1.4-1.4 3.6 3.6 7.6-7.6L19 7l-9 9Z',
+      'close': 'm6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6-5.6 5.6L5 17.6l5.6-5.6L5 6.4 6.4 5Z',
+      'chevron-right': 'm9 6 6 6-6 6-1.4-1.4 4.6-4.6-4.6-4.6L9 6Z',
+      'chevron-down': 'm6 9 6 6 6-6-1.4-1.4-4.6 4.6-4.6-4.6L6 9Z',
+      'arrow-right': 'M14 5 12.6 6.4l4.6 4.6H3v2h14.2l-4.6 4.6L14 19l7-7-7-7Z',
+      'alert-circle-outline': 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16m-1 3h2v6h-2V7m0 8h2v2h-2v-2Z',
+      'alert-circle': 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m-1 5h2v6h-2V7m0 8h2v2h-2v-2Z',
+      'alert': 'M12 2 1 21h22L12 2m-1 7h2v6h-2V9m0 8h2v2h-2v-2Z',
+      'wifi-off': 'm3.3 2-1.4 1.4 3.3 3.3A21 21 0 0 0 1 9l2 2a18 18 0 0 1 4.3-2.2l2.2 2.2A14 14 0 0 0 5 13l2 2a10 10 0 0 1 4.1-1.5l2 2A6 6 0 0 0 9 17l3 3 3-3 5.6 5.6 1.4-1.4L3.3 2m8.7 3c4.1 0 8 1.4 11 4l-2 2a18 18 0 0 0-10.7-4l-2-2H12Z',
+      'door-open': 'M3 3h11v2H5v14h9v2H3V3m13-1 6 3v16l-6 2V2m2 3v15l2-.7V6.2L18 5m-1 6h2v2h-2v-2Z',
+      'door': 'M5 2h14v20h-2V4H7v18H5V2m8 10h2v2h-2v-2Z',
+      'silverware-fork-knife': 'M5 2v6H4V2H2v6a4 4 0 0 0 3 3.9V22h2V11.9A4 4 0 0 0 10 8V2H8v6H7V2H5m13 0c-3 0-5 4-5 8v3h3v9h2V2Z',
+      'sofa': 'M6 5a3 3 0 0 0-3 3v3H2v8h2v2h2v-2h12v2h2v-2h2v-8h-1V8a3 3 0 0 0-3-3H6m0 2h12a1 1 0 0 1 1 1v3h-3v4H8v-4H5V8a1 1 0 0 1 1-1m-2 6h2v4h12v-4h2v4H4v-4Z',
+      'bed': 'M3 5v6H2v10h2v-3h16v3h2V11h-1V5H3m2 2h6v4H5V7m8 0h6v4h-6V7M4 13h16v3H4v-3Z',
+      'bed-outline': 'M3 5v6H2v10h2v-3h16v3h2V11h-1V5H3m2 2h6v4H5V7m8 0h6v4h-6V7M4 13h16v3H4v-3Z',
+      'desk': 'M2 5h20v3h-1v13h-2v-6h-5V8H5v13H3V8H2V5m14 3v2h3V8h-3m0 4v1h3v-1h-3Z',
+      'stove': 'M4 2h16v20H4V2m2 2v3h12V4H6m0 6v10h12V10H6m2 2h8v6H8v-6M7 5h2v1H7V5m8 0h2v1h-2V5Z',
+      'chef-hat': 'M8 4a5 5 0 0 1 8 0 5 5 0 0 1 3 9v8H5v-8a5 5 0 0 1 3-9m4 0a3 3 0 0 0-2.8 2H7a3 3 0 0 0 0 6v4h10v-4a3 3 0 0 0 0-6h-2.2A3 3 0 0 0 12 4m-5 14v1h10v-1H7Z',
+      'format-list-numbered': 'M3 3h2v6H3V5H2V3h1m-1 8h4v3H4v1h2v2H2v-4h2v-1H2v-1m0 8h4v3H2v-1h2v-1H2v-1M8 4h14v2H8V4m0 8h14v2H8v-2m0 8h14v2H8v-2Z',
+      'playlist-play': 'M3 4h13v2H3V4m0 5h13v2H3V9m0 5h9v2H3v-2m12-1 7 4-7 4v-8Z',
+      'water': 'M12 2C9 6 5 10 5 14a7 7 0 0 0 14 0c0-4-4-8-7-12m0 3.5c2.8 4 5 6.6 5 8.5a5 5 0 0 1-10 0c0-1.9 2.2-4.5 5-8.5Z',
+      'information-outline': 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16m-1 3h2v2h-2V7m0 4h2v6h-2v-6Z'
+    };
+    class HaIcon extends HTMLElement {
+      static observedAttributes = ['icon'];
+      constructor() {
+        super();
+        this.attachShadow({mode: 'open'});
+        this.shadowRoot.innerHTML = '<style>:host{display:inline-flex;width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px);flex:0 0 auto;align-items:center;justify-content:center;line-height:0}svg{display:block;width:100%;height:100%;fill:currentColor}</style><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path></path></svg>';
+      }
+      get icon() { return this.getAttribute('icon') || ''; }
+      set icon(value) { this.setAttribute('icon', value || ''); }
+      connectedCallback() { this.paint(); }
+      attributeChangedCallback() { this.paint(); }
+      paint() { this.shadowRoot.querySelector('path').setAttribute('d', paths[this.icon.replace(/^mdi:/, '')] || paths['robot-vacuum']); }
+    }
+    customElements.define('ha-icon', HaIcon);
+    if (!customElements.get('ha-card')) customElements.define('ha-card', class extends HTMLElement {});
+
+    const roomDefinitions = [
+      ['entrance', 'Entrance', 'mdi:door-open'], ['hallway', 'Hallway', 'mdi:floor-plan'],
+      ['kitchen', 'Kitchen', 'mdi:stove'], ['dining', 'Dining area', 'mdi:silverware-fork-knife'],
+      ['living', 'Living room', 'mdi:sofa'], ['office', 'Office', 'mdi:desk'],
+      ['bedroom', 'Bedroom', 'mdi:bed'], ['guest', 'Guest room', 'mdi:bed-outline']
+    ];
+    const rooms = roomDefinitions.map(([id, name, icon]) => ({id, name, icon, preset: `button.rover_${id}`, activity_entity: `sensor.rover_${id}_activity`}));
+    const config = {
+      type: 'custom:robot-vacuum-cleaner-card', entity: 'vacuum.rover', name: 'Rover',
+      battery_entity: 'sensor.rover_battery', activity_entity: 'sensor.rover_activity', status_entity: 'sensor.rover_status',
+      cleaning_entity: 'binary_sensor.rover_cleaning', current_room_entity: 'sensor.rover_current_room',
+      progress_entity: 'sensor.rover_cleaning_progress', area_entity: 'sensor.rover_cleaned_area', time_entity: 'sensor.rover_cleaning_time',
+      error_entity: 'sensor.rover_error', dock_error_entity: 'sensor.rover_dock_error', full_clean_entity: 'button.rover_full_cleaning',
+      last_clean_end_entity: 'sensor.rover_last_clean_end', queue_entity: 'sensor.robot_cleaner_queue', queue_script: 'script.robot_cleaner_queue_control', rooms
+    };
+    const card = document.querySelector('#card');
+    const calls = [];
+    let states = {};
+    let fixtureRevision = 0;
+    let commandPending = false;
+    let ready = false;
+    const stamp = () => new Date().toISOString();
+    const set = (id, state, attributes = {}) => { states[id] = {entity_id: id, state: String(state), attributes, last_changed: stamp(), last_updated: stamp()}; };
+    const queue = () => states[config.queue_entity];
+    const queueAttrs = () => ({presets: [], current_index: 0, completed: 0, error: '', ...(queue()?.attributes || {})});
+    const roomByPreset = preset => rooms.find(room => room.preset === preset);
+    function robotState(state, status = state, roomId = '') {
+      set(config.entity, state, {friendly_name: 'Rover', supported_features: 12287, battery_level: Number(states[config.battery_entity]?.state || 86)});
+      set(config.activity_entity, status, {friendly_name: 'Activity'});
+      set(config.status_entity, status, {friendly_name: 'Robot status'});
+      set(config.cleaning_entity, state === 'cleaning' ? 'on' : 'off');
+      const room = rooms.find(item => item.id === roomId);
+      set(config.current_room_entity, room?.name || 'none');
+      for (const item of rooms) set(item.activity_entity, state === 'cleaning' && item.id === roomId ? 'cleaning' : 'idle', {friendly_name: `${item.name} cleaning`});
+    }
+    function paint() {
+      if (!ready) return;
+      card.hass = {
+        states: {...states}, language: 'en', locale: {language: 'en', number_format: 'comma_decimal', time_format: '24', date_format: 'DMY'},
+        themes: {darkMode: document.documentElement.dataset.theme !== 'light'},
+        config: {unit_system: {length: 'km', temperature: '°C', mass: 'kg', volume: 'L'}, time_zone: 'Europe/London'},
+        localize: () => undefined,
+        callService,
+        services: {vacuum: {start: {}, pause: {}, return_to_base: {}, stop: {}}, button: {press: {}}, script: {turn_on: {}}, robot_cleaner_queue: {control: {}}},
+        formatEntityState: state => state.state,
+        formatEntityAttributeValue: (state, attribute) => state.attributes[attribute]
+      };
+      const running = queue()?.state === 'running' || states[config.entity]?.state === 'cleaning';
+      document.querySelector('#next').disabled = commandPending || !running;
+      document.querySelector('#finish').disabled = commandPending || ['docked', 'unavailable'].includes(states[config.entity]?.state);
+    }
+    function log(domain, service, data) {
+      calls.push({domain, service, data: structuredClone(data), time: stamp()});
+      const list = document.querySelector('#log');
+      list.replaceChildren();
+      for (const call of calls.slice(-8).reverse()) {
+        const item = document.createElement('li');
+        const title = document.createElement('b');
+        title.textContent = `${call.domain}.${call.service}`;
+        item.append(title, document.createElement('br'));
+        const command = call.data.variables?.command || call.data.command;
+        const chosen = call.data.variables?.presets || call.data.presets;
+        item.append(command ? `${command}${Array.isArray(chosen) ? ` · ${chosen.map(preset => roomByPreset(preset)?.name || (preset === config.full_clean_entity ? 'All rooms' : preset)).join(' → ')}` : ''}` : call.data.entity_id || 'Rover');
+        list.append(item);
+      }
+    }
+    async function callService(domain, service, data = {}) {
+      if (states[config.entity]?.state === 'unavailable' && (data.variables?.command || data.command) !== 'cancel') throw new Error('The robot is unavailable.');
+      log(domain, service, data);
+      commandPending = true;
+      paint();
+      const revision = fixtureRevision;
+      await new Promise(resolve => setTimeout(resolve, 350));
+      if (revision !== fixtureRevision) return;
+      try {
+        if ((domain === 'script' && service === 'turn_on') || (domain === 'robot_cleaner_queue' && service === 'control')) {
+          const variables = domain === 'script' ? data.variables || {} : data;
+          const attrs = queueAttrs();
+          if (variables.command === 'start') {
+            const presets = Array.isArray(variables.presets) ? [...variables.presets] : [];
+            if (!presets.length) throw new Error('Choose at least one room.');
+            if (presets.some(preset => !roomByPreset(preset) && preset !== config.full_clean_entity)) throw new Error('A selected room is not available in this preview.');
+            set(config.queue_entity, 'running', {presets, current_index: 0, completed: 0, error: ''});
+            robotState('cleaning', 'cleaning', roomByPreset(presets[0])?.id);
+            set(config.progress_entity, 8, {unit_of_measurement: '%'});
+            set(config.area_entity, 2.1, {unit_of_measurement: 'm²'});
+            set(config.time_entity, 2, {unit_of_measurement: 'min'});
+          } else if (variables.command === 'pause') {
+            set(config.queue_entity, 'paused', attrs);
+            robotState('paused', 'paused', roomByPreset(attrs.presets[attrs.current_index])?.id);
+          } else if (variables.command === 'resume') {
+            set(config.queue_entity, 'running', attrs);
+            robotState('cleaning', 'cleaning', roomByPreset(attrs.presets[attrs.current_index])?.id);
+          } else if (variables.command === 'cancel') {
+            set(config.queue_entity, 'cancelled', {...attrs, error: ''});
+          } else if (variables.command === 'return_to_dock') {
+            set(config.queue_entity, 'cancelled', {...attrs, error: ''});
+            robotState('returning', 'returning_home');
+          } else throw new Error('Unknown preview command.');
+        } else if (domain === 'vacuum') {
+          if (service === 'pause') robotState('paused', 'paused');
+          else if (service === 'return_to_base') {
+            const attrs = queueAttrs();
+            if (['running', 'paused', 'starting'].includes(queue()?.state)) set(config.queue_entity, 'cancelled', attrs);
+            robotState('returning', 'returning_home');
+          } else if (service === 'stop') robotState('idle', 'idle');
+          else if (service === 'start') robotState('cleaning', 'cleaning');
+          else throw new Error('This robot action is not implemented in the preview.');
+        } else if (domain === 'button' && service === 'press') {
+          const room = roomByPreset(data.entity_id);
+          robotState('cleaning', 'cleaning', room?.id);
+          set(config.progress_entity, 5, {unit_of_measurement: '%'});
+          set(config.area_entity, 1.8, {unit_of_measurement: 'm²'});
+          set(config.time_entity, 2, {unit_of_measurement: 'min'});
+        } else throw new Error('This service is not implemented in the preview.');
+      } finally { commandPending = false; paint(); }
+    }
+    function setScenario(value) {
+      fixtureRevision += 1;
+      commandPending = false;
+      states = {};
+      set(config.battery_entity, 86, {unit_of_measurement: '%', device_class: 'battery'});
+      set(config.progress_entity, 0, {unit_of_measurement: '%'});
+      set(config.area_entity, 0, {unit_of_measurement: 'm²'});
+      set(config.time_entity, 0, {unit_of_measurement: 'min'});
+      set(config.error_entity, 'none');
+      set(config.dock_error_entity, 'none');
+      set(config.last_clean_end_entity, new Date(Date.now() - 1000 * 60 * 60 * 19).toISOString(), {device_class: 'timestamp'});
+      set(config.full_clean_entity, 'unknown', {friendly_name: 'Full cleaning'});
+      set(config.queue_script, 'off', {friendly_name: 'Robot cleaning queue'});
+      for (const room of rooms) set(room.preset, 'unknown', {friendly_name: `${room.name} cleaning preset`});
+      set(config.queue_entity, 'idle', {presets: [], current_index: 0, completed: 0, error: ''});
+      robotState('docked', 'charging');
+      if (['cleaning', 'paused', 'error', 'recharging', 'washing'].includes(value)) {
+        const presets = ['button.rover_entrance', 'button.rover_kitchen', 'button.rover_living'];
+        set(config.queue_entity, value === 'paused' ? 'paused' : value === 'error' ? 'attention' : 'running', {
+          presets, current_index: 1, completed: 1, error: value === 'error' ? 'Main brush jammed. Clear the brush, then start a new plan.' : ''
+        });
+        robotState(value === 'paused' ? 'paused' : value === 'error' ? 'error' : 'cleaning', value === 'paused' ? 'paused' : value === 'error' ? 'error' : 'cleaning', 'kitchen');
+        set(config.battery_entity, 72, {unit_of_measurement: '%', device_class: 'battery'});
+        set(config.progress_entity, 44, {unit_of_measurement: '%'});
+        set(config.area_entity, 18.4, {unit_of_measurement: 'm²'});
+        set(config.time_entity, 21, {unit_of_measurement: 'min'});
+      }
+      if (value === 'returning') {
+        set(config.queue_entity, 'completed', {presets: ['button.rover_entrance', 'button.rover_kitchen', 'button.rover_living'], current_index: 2, completed: 3, error: ''});
+        robotState('returning', 'returning_home');
+        set(config.progress_entity, 100, {unit_of_measurement: '%'});
+        set(config.area_entity, 37.6, {unit_of_measurement: 'm²'});
+        set(config.time_entity, 38, {unit_of_measurement: 'min'});
+      }
+      if (value === 'error') set(config.error_entity, 'main_brush_jammed');
+      if (value === 'unavailable') {
+        robotState('unavailable', 'unavailable');
+        for (const id of [config.battery_entity, config.progress_entity, config.area_entity, config.time_entity, config.current_room_entity, config.cleaning_entity]) set(id, 'unavailable');
+      }
+      if (value === 'recharging') {
+        set(config.battery_entity, 18, {unit_of_measurement: '%', device_class: 'battery'});
+        robotState('docked', 'charging');
+      }
+      if (value === 'washing') robotState('docked', 'washing_the_mop');
+      document.querySelector('#scenario').value = value;
+      paint();
+    }
+    function nextRoom() {
+      if (commandPending || states[config.entity]?.state !== 'cleaning') return;
+      const attrs = queueAttrs();
+      if (queue()?.state === 'running') {
+        const completed = attrs.current_index + 1;
+        if (completed >= attrs.presets.length) {
+          set(config.queue_entity, 'completed', {...attrs, completed: attrs.presets.length});
+          robotState('returning', 'returning_home');
+          set(config.progress_entity, 100, {unit_of_measurement: '%'});
+          set(config.last_clean_end_entity, stamp(), {device_class: 'timestamp'});
+        } else {
+          set(config.queue_entity, 'running', {...attrs, current_index: completed, completed});
+          robotState('cleaning', 'cleaning', roomByPreset(attrs.presets[completed])?.id);
+          set(config.progress_entity, 4, {unit_of_measurement: '%'});
+          set(config.area_entity, .9, {unit_of_measurement: 'm²'});
+          set(config.time_entity, 1, {unit_of_measurement: 'min'});
+        }
+      } else {
+        robotState('returning', 'returning_home');
+        set(config.progress_entity, 100, {unit_of_measurement: '%'});
+        set(config.last_clean_end_entity, stamp(), {device_class: 'timestamp'});
+      }
+      paint();
+    }
+    function finishRun() {
+      fixtureRevision += 1;
+      commandPending = false;
+      const attrs = queueAttrs();
+      if (['running', 'paused', 'starting'].includes(queue()?.state)) set(config.queue_entity, 'cancelled', {...attrs, error: ''});
+      robotState('docked', 'charging');
+      paint();
+    }
+    document.querySelector('#scenario').addEventListener('change', event => setScenario(event.target.value));
+    document.querySelector('#next').addEventListener('click', nextRoom);
+    document.querySelector('#finish').addEventListener('click', finishRun);
+    document.querySelector('#theme').addEventListener('click', event => {
+      const light = document.documentElement.dataset.theme !== 'light';
+      document.documentElement.dataset.theme = light ? 'light' : 'dark';
+      event.currentTarget.textContent = `Switch to ${light ? 'dark' : 'light'} theme`;
+      paint();
+    });
+    for (const button of document.querySelectorAll('[data-width]')) button.addEventListener('click', () => {
+      document.querySelector('#frame').style.setProperty('--frame-width', `${button.dataset.width}px`);
+      for (const sibling of document.querySelectorAll('[data-width]')) sibling.setAttribute('aria-pressed', String(sibling === button));
+    });
+    window.robotPreview = {setScenario, nextRoom, finishRun, get states() { return states; }, get calls() { return calls; }, config};
+    try {
+      await import('../dist/robot-vacuum-cleaner-card.js');
+      await customElements.whenDefined('robot-vacuum-cleaner-card');
+      card.setConfig(config);
+      ready = true;
+      document.querySelector('#loading').remove();
+      setScenario(new URLSearchParams(location.search).get('scenario') || 'ready');
+    } catch (error) {
+      document.querySelector('#loading').textContent = `Build the card with npm run build, then reload this preview. ${error.message}`;
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

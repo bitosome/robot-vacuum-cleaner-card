@@ -1,0 +1,75 @@
+"""Read cached Roborock V1 data; no credential access or additional device polling.
+
+Compatibility boundary: Home Assistant 2026.9.4 / python-roborock 7.4.2.
+If the native integration changes this structure, the queue fails closed.
+"""
+from __future__ import annotations
+from typing import Any
+from .engine import Snapshot
+
+
+def number(value: Any) -> int | float | None:
+    value = getattr(value, "value", value)
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def clean_record(record: Any) -> dict[str, Any] | None:
+    if record is None:
+        return None
+    return {key: number(getattr(record, key, None)) for key in ("begin", "end", "complete", "error", "finish_reason")}
+
+
+def snapshot(coordinator: Any, vacuum_state: str) -> Snapshot:
+    data = getattr(coordinator, "data", None)
+    status = getattr(data, "status", None)
+    if status is None:
+        return Snapshot()
+    job = number(getattr(status, "in_cleaning", None))
+    error = number(getattr(status, "error_code", None))
+    dock_error = number(getattr(status, "dock_error_status", None))
+    return Snapshot(
+        vacuum=vacuum_state,
+        status=getattr(status, "state_name", None) or "unavailable",
+        job="unavailable" if job is None else "on" if job else "off",
+        error="none" if error == 0 else "unavailable" if error is None else "error",
+        dock_error="ok" if dock_error in (None, 0) else "error",
+        connected=bool(getattr(coordinator, "last_update_success", False)),
+        record=clean_record(getattr(getattr(data, "clean_summary", None), "last_clean_record", None)),
+        observed_at=(getattr(coordinator, "_last_update_success_time", None).timestamp()
+                     if getattr(coordinator, "_last_update_success_time", None) is not None else 0),
+    )
+
+
+def routine_matches(registry_entry: Any, vacuum_entry: Any, coordinator: Any) -> bool:
+    """Native routine unique IDs are numeric scene IDs plus the robot's slug.
+
+    This excludes arbitrary buttons, other robots, and maintenance-reset buttons.
+    An unknown button state is valid before the first press.
+    """
+    if registry_entry is None or vacuum_entry is None:
+        return False
+    suffix = "_" + str(getattr(coordinator, "duid_slug", ""))
+    unique_id = str(getattr(registry_entry, "unique_id", ""))
+    prefix = unique_id[:-len(suffix)] if suffix != "_" and unique_id.endswith(suffix) else ""
+    return bool(
+        getattr(registry_entry, "platform", None) == "roborock"
+        and getattr(registry_entry, "domain", None) == "button"
+        and getattr(registry_entry, "device_id", None) == getattr(vacuum_entry, "device_id", None)
+        and getattr(registry_entry, "config_entry_id", None) == getattr(vacuum_entry, "config_entry_id", None)
+        and not getattr(registry_entry, "disabled_by", None)
+        and prefix.isdecimal()
+    )
+
+
+def is_competing_command(domain: str, service: str, data: dict, vacuum: str, is_routine) -> bool:
+    """call_service fires before HA expands device/area/label/floor targets."""
+    targets = data.get("entity_id", [])
+    targets = [targets] if isinstance(targets, str) else (targets or [])
+    ambiguous = not targets or "all" in targets or any(
+        key in data for key in ("device_id", "area_id", "label_id", "floor_id")
+    )
+    if domain == "vacuum" and service in {"start", "stop", "pause", "return_to_base", "clean_area", "send_command"}:
+        return ambiguous or vacuum in targets
+    if domain == "button" and service == "press":
+        return ambiguous or any(is_routine(eid) for eid in targets)
+    return False

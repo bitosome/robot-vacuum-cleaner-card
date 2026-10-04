@@ -1,0 +1,21 @@
+control:
+  name: Control cleaning queue
+  description: Start an ordered list of Roborock routines, pause, resume, clear remaining rooms, or return to dock.
+  fields:
+    command:
+      required: true
+      selector:
+        select:
+          options: [start, pause, resume, cancel, return_to_dock]
+    vacuum:
+      selector:
+        entity:
+          domain: vacuum
+          integration: roborock
+    presets:
+      description: Ordered routine button entity IDs. Required for start; one room per routine.
+      selector:
+        entity:
+          domain: button
+          integration: roborock
+          multiple: true

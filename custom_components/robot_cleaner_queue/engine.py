@@ -1,0 +1,234 @@
+"""Deterministic queue transitions. No Home Assistant or device I/O."""
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+ACTIVE = {"starting", "running", "paused"}
+READY_STATUS = {"idle", "charging", "charging_complete"}
+CLEANING_STATUS = {
+    "cleaning", "spot_cleaning", "segment_cleaning", "zoned_cleaning",
+    "robot_status_mopping", "clean_mop_cleaning", "clean_mop_mopping",
+    "segment_mopping", "segment_clean_mop_cleaning", "segment_clean_mop_mopping",
+    "zoned_mopping", "zoned_clean_mop_cleaning", "zoned_clean_mop_mopping",
+}
+START_STATUS = CLEANING_STATUS | {
+    "starting", "charger_disconnected", "going_to_target", "washing_the_mop",
+    "going_to_wash_the_mop", "back_to_dock_washing_duster", "attaching_the_mop",
+    "detaching_the_mop",
+}
+SUCCESS_REASONS = {52, 54, 55, 56, 57}
+ACK_SECONDS = 60
+FINISH_SECONDS = 180
+PREPARE_SECONDS = 600
+
+
+@dataclass
+class Snapshot:
+    vacuum: str = "unavailable"
+    status: str = "unavailable"
+    job: str = "unavailable"
+    error: str = "unavailable"
+    dock_error: str = "ok"
+    connected: bool = False
+    record: dict[str, Any] | None = None
+    observed_at: float = 0
+
+    @property
+    def healthy(self) -> bool:
+        return (
+            self.connected
+            and self.vacuum not in {"unknown", "unavailable", "error"}
+            and self.status not in {"unknown", "unavailable", "device_offline", "error", "charging_problem"}
+            and self.job in {"on", "off"}
+            and self.error == "none"
+            and self.dock_error in {"ok", "none"}
+        )
+
+    @property
+    def ready(self) -> bool:
+        return self.healthy and self.vacuum in {"docked", "idle"} and self.status in READY_STATUS and self.job == "off"
+
+
+@dataclass
+class Queue:
+    phase: str = "idle"
+    vacuum: str = ""
+    presets: list[str] = field(default_factory=list)
+    current_index: int = 0
+    completed: int = 0
+    error: str = ""
+    pending_command: str = ""
+    command_at: float = 0
+    started_at: float = 0
+    baseline_end: float = 0
+    seen_job: bool = False
+    finish_wait_at: float = 0
+    next_pending: bool = False
+    run_id: str = ""
+    not_before: float = 0
+
+    def dump(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def restore(cls, data: dict[str, Any] | None) -> Queue:
+        queue = cls(**{k: v for k, v in (data or {}).items() if k in cls.__dataclass_fields__})
+        if queue.phase in ACTIVE or queue.pending_command:
+            queue.attention("Home Assistant restarted. The saved queue was interrupted; clear it and select a new sequence when the robot is idle.")
+        return queue
+
+    def attention(self, message: str) -> None:
+        self._preserve_command_barrier()
+        self.phase = "attention"
+        self.error = message
+        self.pending_command = ""
+        self.next_pending = False
+
+    def _preserve_command_barrier(self) -> None:
+        if self.pending_command in {"start", "resume", "return_to_dock"}:
+            # A cloud command may have been accepted before telemetry catches up.
+            # Clearing the UI must not permit another start on that stale state.
+            self.not_before = max(self.not_before, self.command_at + ACK_SECONDS)
+
+    def start(self, vacuum: str, presets: list[str], snapshot: Snapshot, now: float, run_id: str) -> tuple[str, str]:
+        if self.phase in ACTIVE or self.phase == "attention" or self.pending_command:
+            raise ValueError("A queue is active or needs attention. Clear it before starting another sequence.")
+        if self.not_before and (now < self.not_before or snapshot.observed_at < self.not_before):
+            raise ValueError("A previous command is still uncertain. Wait for a fresh robot update after its 60-second acknowledgement window, then check that the robot is idle.")
+        if not snapshot.ready:
+            raise ValueError("The robot must be available, idle or docked, and have no unfinished cleaning job.")
+        if not 1 <= len(presets) <= 32 or len(set(presets)) != len(presets):
+            raise ValueError("Select 1–32 distinct room presets.")
+        self.vacuum, self.presets, self.run_id = vacuum, list(presets), run_id
+        self.current_index = self.completed = 0
+        self.error = ""
+        self.not_before = 0
+        return self._dispatch(snapshot, now)
+
+    def _dispatch(self, snapshot: Snapshot, now: float) -> tuple[str, str]:
+        self.phase = "starting"
+        self.pending_command = "start"
+        self.command_at = self.started_at = now
+        self.baseline_end = float((snapshot.record or {}).get("end") or 0)
+        self.seen_job = False
+        self.finish_wait_at = 0
+        self.next_pending = False
+        return "preset", self.presets[self.current_index]
+
+    def command(self, command: str, snapshot: Snapshot, now: float) -> tuple[str, str] | None:
+        if command == "cancel":
+            self._preserve_command_barrier()
+            self.phase = "cancelled"
+            self.pending_command = ""
+            self.next_pending = False
+            self.error = ""
+            return None  # Cancelling a queue never claims to stop the robot.
+        if command == "return_to_dock":
+            self.command("cancel", snapshot, now)
+            if snapshot.vacuum in {"docked", "returning"}:
+                return None
+            if not snapshot.healthy or not (snapshot.status in CLEANING_STATUS | {"paused", "idle"}):
+                self.attention("Queue cleared. Return to dock is unavailable while the robot is servicing or its state is uncertain.")
+                return None
+            self.pending_command = "return_to_dock"
+            self.command_at = now
+            return "vacuum", "return_to_base"
+        if command == "pause":
+            if self.phase not in {"starting", "running"} or self.pending_command:
+                raise ValueError("The queue is not ready to pause.")
+            if self.next_pending:
+                self.phase = "paused"
+                return None
+            if not snapshot.healthy or snapshot.status not in CLEANING_STATUS | {"returning_home", "docking"}:
+                raise ValueError("Pause is available while cleaning or returning; wait for mop servicing to finish.")
+            self.phase = "paused"
+            self.pending_command = "pause"
+            self.command_at = now
+            return "vacuum", "pause"
+        if command == "resume":
+            if self.phase != "paused" or self.pending_command:
+                raise ValueError("The queue is not paused.")
+            if self.next_pending:
+                if not snapshot.ready:
+                    raise ValueError("The robot is not ready for the next room.")
+                return self._dispatch(snapshot, now)
+            if not snapshot.healthy or snapshot.vacuum != "paused" or snapshot.status != "paused":
+                raise ValueError("The robot must confirm that it is paused before resuming.")
+            self.phase = "starting"
+            self.pending_command = "resume"
+            self.command_at = now
+            return "vacuum", "start"
+        raise ValueError("Unknown queue command.")
+
+    def observe(self, snapshot: Snapshot, now: float) -> tuple[str, str] | None:
+        if self.pending_command == "return_to_dock":
+            if snapshot.vacuum in {"docked", "returning"}:
+                self.pending_command = ""
+            elif not snapshot.healthy or now - self.command_at >= ACK_SECONDS:
+                self.attention("Return to dock was not confirmed. The remaining queue has been cleared; check the robot.")
+            return None
+        if self.phase not in ACTIVE:
+            return None
+        if not snapshot.healthy:
+            self.attention("The robot or dock has a fault, or telemetry is unavailable. The queue is stopped for review.")
+            return None
+        if self.pending_command:
+            ack = (self.pending_command == "pause" and snapshot.vacuum == snapshot.status == "paused") or (
+                self.pending_command in {"start", "resume"} and snapshot.status in START_STATUS
+            )
+            if ack:
+                if self.pending_command != "pause":
+                    self.phase = "running"
+                    self.seen_job = self.seen_job or snapshot.job == "on"
+                self.pending_command = ""
+            elif now - self.command_at >= ACK_SECONDS:
+                self.attention("The robot did not acknowledge the command within 60 seconds. No retry was sent.")
+            return None
+        if self.phase == "paused":
+            # App/manual resume does not silently restart an unattended queue.
+            if snapshot.vacuum != "paused" and not self.next_pending:
+                self.attention("The robot changed state outside this queue while paused. Review its current job.")
+            return None
+        if snapshot.vacuum == "paused" or snapshot.status == "paused":
+            self.phase = "paused"
+            return None
+        if self.next_pending:
+            if snapshot.job == "on":
+                self.attention("Another job started before the next queued room. The queue was stopped.")
+            elif snapshot.ready:
+                return self._dispatch(snapshot, now)
+            return None
+        if snapshot.job == "on":
+            self.seen_job = True
+            self.finish_wait_at = 0
+            return None  # Includes low-battery breaks and mop washing.
+        if not self.seen_job:
+            # A routine can acknowledge by washing its mops before in_cleaning
+            # turns on. Preparation is not completion, and never advances rooms.
+            if snapshot.status in START_STATUS and now - self.started_at < PREPARE_SECONDS:
+                return None
+            self.attention("No active cleaning job was observed after preparation. Completion cannot be confirmed.")
+            return None
+        record = snapshot.record or {}
+        end = float(record.get("end") or 0)
+        begin = float(record.get("begin") or 0)
+        fresh = end > self.baseline_end and begin >= self.started_at - 3 and end >= begin
+        if not fresh:
+            if not self.finish_wait_at:
+                self.finish_wait_at = now
+            elif now - self.finish_wait_at >= FINISH_SECONDS:
+                self.attention("The job ended without a matching completion record. No next room was started.")
+            return None
+        complete, error, reason = record.get("complete"), record.get("error"), record.get("finish_reason")
+        if complete != 1 or error != 0 or (reason is not None and reason not in SUCCESS_REASONS):
+            self.attention("The routine was interrupted, failed, or did not report successful completion. No next room was started.")
+            return None
+        self.completed += 1
+        if self.completed == len(self.presets):
+            self.phase = "completed"
+            return None
+        self.current_index += 1
+        self.next_pending = True
+        # Deliberately wait for the next observation and for dock/idle readiness.
+        return None
