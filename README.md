@@ -143,3 +143,7 @@ Dock/settings changes use the shared server controller and caller permissions, w
 The frontend's new controls require the companion's `control_version: 3`; older companions retain their previous conservative behavior. Run `python3 -B test/backend_device_test.py` alongside the other backend suites when modifying these controls.
 
 Compatibility fix in v0.3.1: discover Roborock V1 map images whose native unique IDs contain map names, while requiring the same robot device and config entry.
+
+### Hardware preset toggle
+
+Call `robot_cleaner_queue.control` with `command: toggle`, a `vacuum`, and selected `presets`. The controller atomically starts the selection when idle, or cancels all remaining stages and returns an active robot to its dock. Repeated holds during finishing do not restart cleaning. In-flight starts wait for fresh telemetry after the acknowledgement window; mop servicing is allowed to finish before docking, and an unfinished recharge break is stopped. Native dock care remains subject to robot settings, DND and dock supplies; no duplicate washing/emptying/drying commands are sent. Restart, lost telemetry or unacknowledged commands require review instead of retry. An empty preset selection rejects an idle start but can still finish an active job.

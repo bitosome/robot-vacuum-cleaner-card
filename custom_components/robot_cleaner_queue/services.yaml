@@ -6,14 +6,14 @@ control:
       required: true
       selector:
         select:
-          options: [start, start_manual, pause, resume, cancel, return_to_dock, stop]
+          options: [start, start_manual, pause, resume, cancel, return_to_dock, stop, toggle]
     vacuum:
       selector:
         entity:
           domain: vacuum
           integration: roborock
     presets:
-      description: Ordered routine button entity IDs. Required for start; one room per routine.
+      description: Ordered routine button entity IDs. Required for start and the idle branch of toggle; one room per routine.
       selector:
         entity:
           domain: button

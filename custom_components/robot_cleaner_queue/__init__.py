@@ -27,7 +27,7 @@ DOMAIN = "robot_cleaner_queue"
 _LOGGER = logging.getLogger(__name__)
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 SERVICE_SCHEMA = vol.Schema({
-    vol.Required("command"): vol.In(["start", "start_manual", "pause", "resume", "cancel", "return_to_dock", "stop"]),
+    vol.Required("command"): vol.In(["start", "start_manual", "pause", "resume", "cancel", "return_to_dock", "stop", "toggle"]),
     vol.Optional("presets", default=[]): vol.All(cv.ensure_list, [cv.entity_id]),
     vol.Optional("vacuum", default=""): str,
     vol.Optional("rooms", default=[]): vol.All(cv.ensure_list, [str]),
@@ -253,6 +253,11 @@ class Manager:
                 raise ServiceValidationError("Home Assistant is stopping.")
             command = call.data["command"]
             vacuum = call.data.get("vacuum") or self.queue.vacuum
+            if command == "toggle":
+                # Decide under the same lock as starts and stage advancement.
+                if self.queue.vacuum and vacuum != self.queue.vacuum and (self.queue.phase in ACTIVE or self.queue.pending_command):
+                    raise ServiceValidationError("Another vacuum has an active command.")
+                command = "finish" if self.queue.should_finish(self.current_snapshot(vacuum)) else "start"
             bound = self.queue.phase in ACTIVE or self.queue.phase == "attention" or bool(self.queue.pending_command)
             owned_plan = bound and self.queue.mode in {"preset", "manual"}
             standalone = command in {"pause", "resume", "return_to_dock", "stop"} and not owned_plan
@@ -271,7 +276,10 @@ class Manager:
                     effect = self.queue.command(command, Snapshot(), time.time())
                 else:
                     current = self.current_snapshot(vacuum)
-                    if command == "start_manual":
+                    if command == "finish":
+                        effect = self.queue.finish(vacuum, current, time.time(), uuid4().hex)
+                        self.queue.owner_user_id = call.context.user_id
+                    elif command == "start_manual":
                         if call.data["presets"]:
                             raise ValueError("Manual cleaning cannot run preset buttons.")
                         caps, controls, targets, map_id = self.manual_capabilities(vacuum)

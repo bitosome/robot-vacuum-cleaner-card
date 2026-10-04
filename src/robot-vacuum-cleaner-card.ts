@@ -191,7 +191,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (!this.robotReady) return 'Robot unavailable';
     if (this.fault) return this.waterEmpty && this.fault==='Water empty' ? 'Dock needs water' : 'Needs attention';
     if (this.phase === 'attention') return 'Sequence needs attention';
-    if (this.phase === 'controlling') return 'Waiting for the robot';
+    if (this.phase === 'controlling') return this.queue?.attributes.mode === 'finish' ? 'Finishing cleaning' : 'Waiting for the robot';
     if (this.phase === 'preparing') return 'Applying cleaning settings';
     if (this.request?.kind === 'start_manual') return 'Starting your clean';
     if (this.request?.kind === 'start' || this.phase === 'starting') return 'Starting your sequence';
@@ -218,7 +218,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (!this.robotReady) return 'Waiting for Home Assistant to reconnect.';
     if (this.fault) return this.waterEmpty && this.fault==='Water empty' ? 'Vacuum-only cleaning is available in Manual setup.' : this.fault;
     if (this.phase === 'attention') return this.queue?.attributes.error || 'The sequence stopped. Check the robot before starting a new plan.';
-    if (this.phase === 'controlling') return 'Confirming your command · No retry will be sent';
+    if (this.phase === 'controlling') return this.queue?.attributes.mode === 'finish' ? 'Remaining rooms cancelled · Returning to dock for care' : 'Confirming your command · No retry will be sent';
     if (this.queueActive && this.queueManual) {
       if (this.queue?.attributes.waiting_for_dock) return `Next: ${this.stageName} · Waiting for the dock`;
       const stage=this.stages[this.index];
@@ -333,4 +333,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status, room presets and ordered cleaning with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.3.1');
+console.info('ROBOT VACUUM CLEANER CARD 0.3.2');

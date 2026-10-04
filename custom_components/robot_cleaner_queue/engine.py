@@ -119,6 +119,67 @@ class Queue:
         if self.not_before and (now < self.not_before or snapshot.observed_at < self.not_before):
             raise ValueError("A previous command is still uncertain. Wait for a fresh robot update after its 60-second acknowledgement window, then check the robot.")
 
+    def should_finish(self, snapshot: Snapshot) -> bool:
+        return (self.phase in ACTIVE or bool(self.pending_command) or
+                snapshot.job == "on" or snapshot.vacuum in {"cleaning", "paused", "returning"} or
+                snapshot.status in START_STATUS - {"charger_disconnected"})
+
+    def finish(self, vacuum: str, snapshot: Snapshot, now: float, run_id: str):
+        """Cancel all stages, then let native docking perform post-clean care."""
+        if self.mode == "finish" and self.phase == "controlling":
+            return None  # Repeated holds cannot restart cleaning or duplicate docking.
+        self._preserve_command_barrier()
+        self.mode, self.phase = "finish", "controlling"
+        self.vacuum, self.run_id = vacuum, run_id
+        self.presets, self.targets, self.stages = [], [], []
+        self.setup, self.control_entities = {}, {}
+        self.current_index = self.completed = 0
+        self.next_pending = self.seen_job = False
+        self.pending_command, self.error = "", ""
+        self.started_at = now
+        return self._observe_finish(snapshot, now)
+
+    def _observe_finish(self, snapshot: Snapshot, now: float):
+        if self.phase != "controlling":
+            return None
+        if not snapshot.robot_healthy:
+            self.attention("Cleaning sequence cancelled. The robot is unavailable or has a robot fault; check it before docking.")
+            return None
+        if now - self.started_at >= 1800:
+            self.attention("Cleaning sequence cancelled, but docking did not finish within 30 minutes. Check the robot; no retry was sent.")
+            return None
+        if self.not_before and (now < self.not_before or snapshot.observed_at < self.not_before):
+            return None  # An accepted start may still arrive; never race it with home.
+        if snapshot.observed_at < self.started_at:
+            return None
+        if self.pending_command:
+            confirmed = snapshot.observed_at >= self.command_at and (
+                self.pending_command == "stop" and snapshot.job == "off" or
+                self.pending_command == "return_to_dock" and snapshot.vacuum in {"returning", "docked"})
+            if confirmed:
+                self.pending_command = ""
+            elif now - self.command_at >= ACK_SECONDS:
+                self.attention("Cleaning sequence cancelled, but the robot did not confirm finishing. Check it; no retry was sent.")
+            return None
+        servicing = snapshot.status in {"washing_the_mop", "attaching_the_mop", "detaching_the_mop", "emptying_the_bin"}
+        if servicing or snapshot.vacuum == "returning":
+            return None  # Do not interrupt dock care or issue duplicate home commands.
+        if snapshot.vacuum == "docked" and snapshot.job == "off":
+            self.phase = "cancelled"
+            return None
+        if snapshot.vacuum == "docked" and snapshot.job == "on":
+            command, service = "stop", "stop"  # End a recharge break before it can resume.
+        elif snapshot.status in CLEANING_STATUS | {"paused", "idle", "charger_disconnected"}:
+            command, service = "return_to_dock", "return_to_base"
+        else:
+            return None
+        if self.setup.get(command):
+            self.attention("The robot resumed or stopped after the finish command. The sequence is cancelled; check the robot before retrying.")
+            return None
+        self.setup[command] = True
+        self.pending_command, self.command_at = command, now
+        return "vacuum", service
+
     def external_control(self, command: str, vacuum: str, snapshot: Snapshot,
                          now: float, run_id: str) -> tuple[str, str] | None:
         """Control an existing app-started job without adopting it as a queue."""
@@ -162,7 +223,7 @@ class Queue:
         if command == "return_to_dock":
             if snapshot.vacuum in {"docked", "returning"}:
                 return False
-            if snapshot.status not in CLEANING_STATUS | {"paused", "idle"}:
+            if snapshot.status not in CLEANING_STATUS | {"paused", "idle", "charger_disconnected"}:
                 raise ValueError("Return to dock is unavailable while the robot is servicing.")
         return True
 
@@ -304,6 +365,8 @@ class Queue:
         raise ValueError("Unknown queue command.")
 
     def observe(self, snapshot: Snapshot, now: float) -> tuple[str, str] | None:
+        if self.mode == "finish":
+            return self._observe_finish(snapshot, now)
         if self.mode == "external":
             self._observe_external(snapshot, now)
             return None

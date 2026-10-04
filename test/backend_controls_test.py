@@ -137,6 +137,68 @@ class StandaloneEngineTests(unittest.TestCase):
         self.assertEqual(queue.command("resume", state("docked", "charging", "off"), 150), ("preset", "button.office"))
 
 
+class FinishEngineTests(unittest.TestCase):
+    def test_finish_clears_every_stage_and_docks_once_despite_water_fault(self):
+        q = Queue(phase="running", presets=["button.one", "button.two"], next_pending=True)
+        current = state(); current.dock_error = "water_empty"
+        self.assertTrue(q.should_finish(current))
+        self.assertEqual(q.finish("vacuum.robot", current, 100, "finish"), ("vacuum", "return_to_base"))
+        self.assertEqual((q.presets, q.stages, q.next_pending), ([], [], False))
+        self.assertIsNone(q.finish("vacuum.robot", current, 101, "repeat"))
+        q.observe(state("returning", "returning_home", observed_at=102), 102)
+        q.observe(state("docked", "washing_the_mop", "off", 103), 103)
+        self.assertEqual(q.phase, "controlling")
+        q.observe(state("docked", "charging", "off", 104), 104)
+        self.assertEqual(q.phase, "cancelled")
+        self.assertIsNone(q.observe(state(), 200))
+
+    def test_pending_start_waits_for_barrier_and_fresh_state(self):
+        q = Queue(phase="starting", pending_command="start", command_at=100)
+        self.assertIsNone(q.finish("vacuum.robot", state(observed_at=110), 110, "finish"))
+        self.assertIsNone(q.observe(state(observed_at=159), 165))
+        self.assertEqual(q.observe(state(observed_at=166), 166), ("vacuum", "return_to_base"))
+
+    def test_mid_job_wash_is_not_completion_and_resumed_cleaning_is_sent_home(self):
+        q = Queue()
+        self.assertIsNone(q.finish("vacuum.robot", state("docked", "washing_the_mop", "on"), 100, "finish"))
+        self.assertEqual(q.phase, "controlling")
+        self.assertEqual(q.observe(state(observed_at=110), 110), ("vacuum", "return_to_base"))
+
+    def test_recharge_break_stops_unfinished_native_job(self):
+        q = Queue()
+        self.assertEqual(q.finish("vacuum.robot", state("docked", "charging", "on"), 100, "finish"), ("vacuum", "stop"))
+        q.observe(state("docked", "charging", "off", 101), 101)
+        q.observe(state("docked", "charging", "off", 102), 102)
+        self.assertEqual(q.phase, "cancelled")
+
+    def test_returning_and_care_never_send_duplicate_dock_commands(self):
+        q = Queue()
+        for i, status in enumerate(["returning_home", "washing_the_mop", "emptying_the_bin"]):
+            current = state("returning" if i == 0 else "docked", status, "off", 100+i)
+            if i == 0: self.assertIsNone(q.finish("vacuum.robot", current, 100, "finish"))
+            else: self.assertIsNone(q.observe(current, 100+i))
+        self.assertEqual(q.setup, {})
+
+    def test_restart_timeout_fault_and_unexpected_resume_never_retry(self):
+        q = Queue(); q.finish("vacuum.robot", state(), 100, "finish")
+        restored = Queue.restore(q.dump())
+        self.assertEqual(restored.phase, "attention")
+        self.assertIsNone(restored.observe(state(), 170))
+        q.observe(state(observed_at=161), 161)
+        self.assertEqual(q.phase, "attention")
+        q = Queue(); q.finish("vacuum.robot", state(), 100, "finish")
+        q.observe(state("returning", "returning_home", observed_at=101), 101)
+        self.assertIsNone(q.observe(state(observed_at=102), 102))
+        self.assertEqual(q.phase, "attention")
+        q = Queue(); q.finish("vacuum.robot", Snapshot(), 100, "finish")
+        self.assertEqual(q.phase, "attention")
+
+    def test_idle_toggle_can_start_but_paused_and_preparing_must_finish(self):
+        self.assertFalse(Queue().should_finish(state("docked", "charging", "off")))
+        self.assertTrue(Queue().should_finish(state("paused", "paused")))
+        self.assertTrue(Queue(phase="preparing").should_finish(state("docked", "charging", "off")))
+
+
 class StandaloneManagerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.calls = []
@@ -153,7 +215,7 @@ class StandaloneManagerTests(unittest.IsolatedAsyncioTestCase):
         async def call(domain, service, data, **kwargs):
             self.assertTrue(self.manager.lock.locked(), "Every physical command must remain under the shared lock")
             self.assertEqual(self.manager.store.saved[-1]["pending_command"], self.manager.queue.pending_command)
-            self.assertEqual(self.manager.store.saved[-1]["mode"], "external")
+            self.assertIn(self.manager.store.saved[-1]["mode"], {"external", "finish"})
             self.calls.append((domain, service, data, kwargs["context"]))
             if getattr(self, "service_failure", False):
                 raise RuntimeError("Sensitive payload")
@@ -170,6 +232,37 @@ class StandaloneManagerTests(unittest.IsolatedAsyncioTestCase):
         context = manual_tests.FakeContext("user")
         await self.manager.control(NS(context=context, data={"command": command, "vacuum": vacuum, "presets": [], "rooms": []}))
         return context
+
+    async def test_toggle_cancels_under_lock_and_repeated_holds_send_home_once(self):
+        await self.control("toggle")
+        self.assertEqual(self.manager.queue.mode, "finish")
+        self.current.observed_at = time.time()
+        await self.manager.tick()
+        self.assertEqual([c[:2] for c in self.calls], [("vacuum", "return_to_base")])
+        await self.control("toggle")
+        self.assertEqual(len(self.calls), 1)
+        self.current = state("docked", "charging", "off", time.time())
+        await self.manager.tick()
+        await self.manager.tick()
+        self.assertEqual(self.manager.queue.phase, "cancelled")
+
+    async def test_toggle_permission_revocation_prevents_deferred_docking(self):
+        await self.control("toggle")
+        self.allowed.clear()
+        self.current.observed_at = time.time()
+        await self.manager.tick()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.manager.queue.phase, "attention")
+
+    async def test_toggle_idle_requires_valid_preset_but_finish_does_not(self):
+        self.current = state("docked", "charging", "off", time.time())
+        self.manager.resolve = lambda vacuum: (None, None, None)
+        with self.assertRaisesRegex(manual_tests.ServiceError, "Select"):
+            await self.control("toggle")
+        self.assertEqual(self.calls, [])
+        self.current = state(observed_at=time.time())
+        await self.control("toggle")
+        self.assertEqual(self.manager.queue.mode, "finish")
 
     async def test_external_pause_uses_native_service_and_original_user_context(self):
         parent = await self.control("pause")
