@@ -14,6 +14,7 @@ from uuid import uuid4
 sys.path.insert(0, str(Path(__file__).parent))
 from backend_queue_test import load, Queue, Snapshot, ready, cleaning, record, adapter, permissions
 manual = load("manual")
+device = load("device")
 NS = types.SimpleNamespace
 
 
@@ -211,6 +212,7 @@ def manager_class():
     tree = ast.parse(source.read_text())
     definition = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Manager")
     env = dict(asyncio=asyncio, time=time, uuid4=uuid4, Store=FakeStore, Queue=Queue, Snapshot=Snapshot, ACTIVE=load("engine").ACTIVE,
+               ACK_SECONDS=60, CONTROLS=device.CONTROLS, DOCK=device.DOCK, device_entities=device.device_entities, device_command=device.device_command,
                DOMAIN="robot_cleaner_queue", HomeAssistant=object, ServiceCall=object, Context=FakeContext, callback=lambda f:f,
                ar=NS(async_get=lambda hass: hass.areas), ServiceValidationError=ServiceError, Unauthorized=ServiceError,
                POLICY_CONTROL="control", async_require_control=permissions.async_require_control, _LOGGER=logging.getLogger("test"),

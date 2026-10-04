@@ -124,3 +124,20 @@ Open `http://127.0.0.1:8767/preview/`. The interactive preview is entirely local
 Space Hub Card is the design reference. Canonical tokens are vendored from its v2.0.83 commit; the shared glow helper and stacking model are reused. See [provenance](src/shared/PROVENANCE.md). There is no runtime dependency on another local checkout. `scripts/sync-design-tokens.py` updates the exact token source at an explicit commit.
 
 This is a public, reusable project. Examples contain no production configuration, household maps or credentials. MIT licensed.
+
+## Robot and dock controls (v0.3.0)
+
+Update **both** the HACS card and the queue companion, then restart Home Assistant. The existing card configuration works unchanged. The companion discovers enabled native controls by registry identity, including controls on the separate dock device. The card hides unavailable entities and unsupported features.
+
+- **Stop** stops the current cleaning and cancels the remaining sequence. **Clear sequence** only cancels future work.
+- **Find** plays the robot's locate sound.
+- **Dock** starts/stops dust emptying, mop washing and drying.
+- **Map** shows enabled HA map images, without changing maps or sending movement commands.
+- **Settings** includes voice volume, Do Not Disturb and its times, child lock and dust emptying mode.
+- **Care** shows available consumable time-left sensors and overdue reminders. It never enables entities or resets counters.
+
+An empty clean-water tank is a dock warning, not a blanket cleaning lock. **Manual setup → Vacuum** can run with this specific fault. Mopping, combined/two-pass plans and opaque app presets remain blocked until water is restored. Other faults do not receive this exception. Pause, Stop and return-to-dock have action-specific checks. Robot firmware can still reject an operation; the card never bypasses device interlocks or claims success before acknowledgement.
+
+Dock/settings changes use the shared server controller and caller permissions, wait up to 60 seconds for fresh native readback, and never retry automatically. Resolve an active/uncertain queue before changing these controls. A pending cloud command must finish its acknowledgement window before another motion command. Find is independent of cleaning.
+
+The frontend's new controls require the companion's `control_version: 3`; older companions retain their previous conservative behavior. Run `python3 -B test/backend_device_test.py` alongside the other backend suites when modifying these controls.

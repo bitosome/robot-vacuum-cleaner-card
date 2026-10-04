@@ -106,3 +106,13 @@ python3 -B test/backend_controls_test.py
 These test ordered success, low-battery/wash breaks, interrupted records, faults, missing acknowledgements, stale records, pause/resume, cancellation, return-to-dock, concurrent starts, restart behavior and routine validation. They do not prove physical operation or native HA runtime compatibility.
 
 To remove the companion, first clear its queue, remove the package include and custom component, then restart HA. Card resources and the native Roborock integration are independent. Removing this queue does not issue a robot command.
+
+### Mode-specific dock faults and auxiliary controls
+
+v0.3.0 retains the native dock fault identity. Only Roborock V1 `water_empty` (code 38, python-roborock 7.4.2) permits an explicit manual vacuum-only plan. The exception is checked at acceptance, every settings write, final start dispatch, observation and each subsequent stage. Preset contents are opaque, so presets and all mopping plans remain blocked. Other dock faults and missing robot telemetry fail closed.
+
+`control: stop` differs from `cancel`: it cancels future stages and sends `vacuum.stop`, awaiting fresh idle/docked telemetry with `in_cleaning == 0`. It does not replace a command already awaiting acknowledgement. Pause/Home do not require a healthy water tank; Resume still checks the cleaning mode.
+
+`robot_cleaner_queue.device_control` accepts `vacuum`, an allowlisted `control` and its native `value`. Registry unique IDs and config-entry ownership select the target; callers cannot pass arbitrary entity IDs. Settings/dock actions persist a `mode: device` reservation under the same queue lock, preserve the caller's permissions, and wait for fresh entity readback. Failure, timeout or restart requires review and retains the uncertainty barrier. A rejected concurrent command does not cancel an existing reservation. Read-only `get_capabilities` includes enabled/available, permission-filtered `device_entities` and `control_version: 3`.
+
+Dock starts require a docked idle robot with no unfinished job. Washing requires a healthy dock; emptying/drying may proceed with the specific water-empty warning. Turning an already-running dock action off does not require water. Native robot/dock firmware remains authoritative. `locate` plays a sound and does not adopt or advance any cleaning plan. Map images and maintenance values are read-only.

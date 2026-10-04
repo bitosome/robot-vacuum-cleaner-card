@@ -5,6 +5,7 @@ export type CleaningMode = 'vacuum'|'mop'|'vacuum_mop'|'vacuum_then_mop';
 export type CleaningSource = 'preset'|'manual';
 export interface ManualSetup { mode: CleaningMode; suction?: string; water?: string; route?: string; repeat: number; }
 export interface ManualCapabilities {
+  control_version?: number; device_entities?: Record<string,string>;
   supported: boolean; modes: Array<{value: CleaningMode; label: string}>;
   suction: string[]; water: string[]; routes: string[]; routes_by_mode?: Partial<Record<CleaningMode,string[]>>;
   repeats: number[]; room_targets: Array<{id:string; name:string; icon?:string}>; defaults?: Partial<ManualSetup>; error?: string;

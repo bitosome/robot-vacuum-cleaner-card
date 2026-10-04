@@ -130,6 +130,7 @@
               <option value="unavailable">Unavailable</option>
               <option value="recharging">Low battery · recharging</option>
               <option value="washing">Washing the mop</option>
+              <option value="water_empty">Dock water empty</option>
               <option value="vacuum_only">Vacuum-only capabilities</option>
               <option value="manual_unavailable">Manual setup unavailable</option>
               <option value="manual_cleaning">Manual vacuum then mop</option>
@@ -224,6 +225,13 @@
       "format-list-numbered": "M7,13V11H21V13H7M7,19V17H21V19H7M7,7V5H21V7H7M3,8V5H2V4H4V8H3M2,17V16H5V20H2V19H4V18.5H3V17.5H4V17H2M4.25,10A0.75,0.75 0 0,1 5,10.75C5,10.95 4.92,11.14 4.79,11.27L3.12,13H5V14H2V13.08L4,11H2V10H4.25Z",
       "playlist-play": "M3 10H14V12H3V10M3 6H14V8H3V6M3 14H10V16H3V14M16 13V21L22 17L16 13Z",
       "water": "M12,20A6,6 0 0,1 6,14C6,10 12,3.25 12,3.25C12,3.25 18,10 18,14A6,6 0 0,1 12,20Z",
+      "stop":"M6 6H18V18H6Z",
+      "volume-high":"M14 3.23V5.29C16.89 6.15 19 8.83 19 12S16.89 17.85 14 18.71V20.77C18 19.86 21 16.28 21 12S18 4.14 14 3.23M3 9V15H7L12 20V4L7 9M14 8V16C15.77 15.23 17 13.46 17 12S15.77 8.77 14 8Z",
+      "map-outline":"M20.5 3L20.34 3.03L15 5.1L9 3L3.36 4.9C3.15 4.97 3 5.15 3 5.38V20.5L3.66 20.97L9 18.9L15 21L20.64 19.1C20.85 19.03 21 18.85 21 18.62V3.5M10 5.47L14 6.87V18.53L10 17.13M5 6.46L8 5.45V17.15L5 18.31M16 6.85L19 5.69V17.54L16 18.55Z",
+      "tools":"M22.7 19L13.6 9.9C14.5 7.6 14 4.9 12.1 3C10.1 1 7.1.6 4.7 1.7L9 6L6 9L1.6 4.7C.4 7.1.9 10.1 2.9 12.1C4.8 14 7.5 14.5 9.8 13.6L18.9 22.7C19.3 23.1 19.9 23.1 20.3 22.7L22.6 20.4C23.1 20 23.1 19.3 22.7 19Z",
+      "ev-station":"M4 2H14V20H16V13H18V19C18 21 22 21 22 19V8L19 5L18 6L20 8V10H18V12H14V2M6 4H12V10H6M6 12H12V18H6Z",
+      "cog-outline":"M12 8A4 4 0 1 0 12 16A4 4 0 0 0 12 8M12 10A2 2 0 1 1 12 14A2 2 0 0 1 12 10M10 2H14L15 5L18 6L21 5L23 9L20 12L21 15L22 17L19 20L16 19L14 22H10L9 19L6 18L3 19L1 15L4 12L3 9L2 7L5 4L8 5Z",
+      "water-alert-outline":"M12 2C9 6 5 10 5 15A7 7 0 0 0 19 15C19 10 15 6 12 2M12 5C14 8 17 12 17 15A5 5 0 0 1 7 15C7 12 10 8 12 5M11 9H13V14H11M11 16H13V18H11Z",
       "information-outline": "M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z",
     };
     class HaIcon extends HTMLElement {
@@ -268,10 +276,11 @@
       {value: 'vacuum', label: 'Vacuum'}, {value: 'mop', label: 'Mop'},
       {value: 'vacuum_mop', label: 'Vacuum & mop'}, {value: 'vacuum_then_mop', label: 'Vacuum then mop'}
     ];
+    const deviceEntities = {dust_emptying:'switch.rover_empty',mop_washing:'switch.rover_wash',mop_drying:'switch.rover_dry',volume:'number.rover_volume',dnd:'switch.rover_dnd',dnd_start:'time.rover_dnd_start',dnd_end:'time.rover_dnd_end',child_lock:'switch.rover_child',empty_mode:'select.rover_empty',main_brush_time_left:'sensor.rover_brush',sensor_time_left:'sensor.rover_sensors',map_0:'image.rover_map'};
     function capabilities() {
       if (scenario === 'manual_unavailable' || states[config.entity]?.state === 'unavailable') return {supported: false, modes: [], suction: [], water: [], routes: [], repeats: [], room_targets: [], defaults: {}, error: 'Manual cleaning settings are unavailable. Check the robot connection.'};
       const vacuumOnly = scenario === 'vacuum_only';
-      return {supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
+      return {control_version:3,device_entities:deviceEntities,supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
         suction: ['quiet', 'balanced', 'turbo', 'max', 'max_plus'],
         water: vacuumOnly ? [] : ['low', 'medium', 'high'],
         routes: vacuumOnly ? [] : ['standard', 'deep', 'deep_plus', 'fast'],
@@ -284,7 +293,7 @@
       return {response: structuredClone(capabilities())};
     }
     const stamp = () => new Date().toISOString();
-    const set = (id, state, attributes = {}) => { states[id] = {entity_id: id, state: String(state), attributes, last_changed: stamp(), last_updated: stamp()}; };
+    const set = (id, state, attributes = {}) => { states[id] = {entity_id: id, state: String(state), attributes: id===config.queue_entity ? {control_version:3,...attributes}:attributes, last_changed: stamp(), last_updated: stamp()}; };
     const queue = () => states[config.queue_entity];
     const queueAttrs = () => ({vacuum: config.entity, presets: [], current_index: 0, completed: 0, error: '', ...(queue()?.attributes || {})});
     const roomByPreset = preset => rooms.find(room => room.preset === preset);
@@ -334,8 +343,8 @@
         themes: {darkMode: document.documentElement.dataset.theme !== 'light'},
         config: {unit_system: {length: 'km', temperature: '°C', mass: 'kg', volume: 'L'}, time_zone: 'Europe/London'},
         localize: () => undefined,
-        callService, callWS,
-        services: {vacuum: {start: {}, pause: {}, return_to_base: {}, stop: {}}, button: {press: {}}, script: {turn_on: {}}, robot_cleaner_queue: {control: {}, get_capabilities: {}}},
+        callService, callWS, hassUrl: path=>path.startsWith('/api/image_proxy/') ? './demo-map.svg' : path,
+        services: {vacuum: {start: {}, pause: {}, return_to_base: {}, stop: {}}, button: {press: {}}, script: {turn_on: {}}, robot_cleaner_queue: {control: {}, get_capabilities: {}, device_control:{}}},
         formatEntityState: state => state.state,
         formatEntityAttributeValue: (state, attribute) => state.attributes[attribute]
       };
@@ -374,10 +383,13 @@
       await new Promise(resolve => setTimeout(resolve, 350));
       if (revision !== fixtureRevision) return;
       try {
-        if ((domain === 'script' && service === 'turn_on') || (domain === 'robot_cleaner_queue' && service === 'control')) {
+        if (domain==='robot_cleaner_queue' && service==='device_control') {
+          if(data.control!=='locate') { const id=deviceEntities[data.control]; if(!id)throw new Error('Unsupported control');set(id,data.value,states[id].attributes); }
+        } else if ((domain === 'script' && service === 'turn_on') || (domain === 'robot_cleaner_queue' && service === 'control')) {
           const variables = domain === 'script' ? data.variables || {} : data;
           const attrs = queueAttrs();
-          if (variables.command === 'start_manual') {
+          if(variables.command==='stop') {set(config.queue_entity,'cancelled',attrs);robotState('idle','idle');}
+          else if (variables.command === 'start_manual') {
             startManual(variables);
           } else if (variables.command === 'start') {
             const presets = Array.isArray(variables.presets) ? [...variables.presets] : [];
@@ -435,6 +447,11 @@
       for (const room of rooms) set(room.preset, 'unknown', {friendly_name: `${room.name} cleaning preset`});
       set(config.queue_entity, 'idle', {vacuum: config.entity, presets: [], current_index: 0, completed: 0, error: ''});
       robotState('docked', 'charging');
+      for(const [key,id] of Object.entries(deviceEntities)) {
+        const value=id.startsWith('switch.') ? key==='mop_drying'?'on':'off' : key==='volume'?75 : key==='dnd_start'?'22:00:00':key==='dnd_end'?'08:00:00':key==='empty_mode'?'max':key==='sensor_time_left'?-12:180;
+        set(id,value,{min:0,max:100,step:1,options:['smart','light','balanced','max'],entity_picture:'/api/image_proxy/demo',friendly_name:'Ground floor',unit_of_measurement:'h'});
+      }
+      if(value==='water_empty')set(config.dock_error_entity,'water_empty');
       if (['cleaning', 'paused', 'error', 'recharging', 'washing'].includes(value)) {
         const presets = ['button.rover_entrance', 'button.rover_kitchen', 'button.rover_living'];
         set(config.queue_entity, value === 'paused' ? 'paused' : value === 'error' ? 'attention' : 'running', {

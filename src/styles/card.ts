@@ -100,5 +100,25 @@ export const cardStyles = css`
   .setup-footer { flex-shrink:0; padding:14px 24px 20px; display:grid;gap:12px;border-top:1px solid var(--divider-color,rgba(255,255,255,.1));margin-top:16px; }
   .setup-footer p { text-align:center;font-size:11px; }
   @media (max-width:360px) { .setup-body { padding:0 18px; } .setup-header { padding:18px 18px 0; } .setup-footer { padding:12px 18px 16px; } .mode-choice { padding:13px; } .setting-pill { padding:10px 12px; } }
+  .actions { flex-wrap:wrap; }
+  .utilities { display:flex;flex-wrap:wrap;gap:8px; }
+  .utilities button { display:flex;align-items:center;justify-content:center;gap:6px;flex:1; }
+  .utilities ha-icon { width:18px;height:18px;--mdc-icon-size:18px;flex-basis:18px; }
+  .water-warning { display:flex;gap:10px;align-items:flex-start;color:var(--secondary-text-color); }
+  .water-warning ha-icon { color:var(--robot-accent); }
+  .device-body { display:grid;gap:12px;padding-bottom:8px; }
+  .device-row { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border-radius:var(--tile-border-radius);background:color-mix(in srgb,var(--primary-text-color) 5%,transparent);font-size:13px;min-height:44px; }
+  .device-row small { display:block;margin-top:5px;color:var(--secondary-text-color); }
+  .device-row .setting-pill { min-width:68px; }
+  .device-row input,.device-row select { font:inherit;color:inherit;background:var(--robot-surface);border:1px solid var(--divider-color);border-radius:12px;min-height:44px;max-width:55%;padding:5px;box-sizing:border-box; }
+  .device-row input:focus-visible,.device-row select:focus-visible { outline:2px solid var(--robot-accent); }
+  .volume-row { display:block; }
+  .volume-row > span { display:flex;justify-content:space-between; }
+  .volume-row input { width:100%;max-width:100%;accent-color:var(--robot-accent);padding:0; }
+  .care-row strong { font-size:12px;text-align:right;color:var(--secondary-text-color); }
+  .care-row .overdue { color:var(--warning-color,#efb76a); }
+  .map-view { margin:0; }
+  .map-view img { display:block;width:100%;height:auto;border-radius:var(--tile-border-radius); }
+  .map-view figcaption { font-size:12px;color:var(--secondary-text-color);margin-top:10px; }
   @media (prefers-reduced-motion:reduce) { *, .glow-under { animation:none!important;transition:none!important; } }
 `;

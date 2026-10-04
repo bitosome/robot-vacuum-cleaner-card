@@ -18,7 +18,8 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 
 from .adapter import is_competing_command, routine_matches, snapshot
-from .engine import ACTIVE, Queue, Snapshot
+from .engine import ACTIVE, ACK_SECONDS, Queue, Snapshot
+from .device import CONTROLS, DOCK, device_entities, device_command
 from .permissions import async_require_control
 from .manual import build_plan, cached_settings, capabilities, current_map, validate_stage
 
@@ -26,7 +27,7 @@ DOMAIN = "robot_cleaner_queue"
 _LOGGER = logging.getLogger(__name__)
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 SERVICE_SCHEMA = vol.Schema({
-    vol.Required("command"): vol.In(["start", "start_manual", "pause", "resume", "cancel", "return_to_dock"]),
+    vol.Required("command"): vol.In(["start", "start_manual", "pause", "resume", "cancel", "return_to_dock", "stop"]),
     vol.Optional("presets", default=[]): vol.All(cv.ensure_list, [cv.entity_id]),
     vol.Optional("vacuum", default=""): str,
     vol.Optional("rooms", default=[]): vol.All(cv.ensure_list, [str]),
@@ -51,6 +52,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.services.async_register(DOMAIN, "get_capabilities", manager.get_capabilities,
                                  schema=vol.Schema({vol.Required("vacuum"): cv.entity_id}),
                                  supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "device_control", manager.device_control,
+        schema=vol.Schema({vol.Required("vacuum"): cv.entity_id,
+                           vol.Required("control"): vol.In([*CONTROLS, "locate"]),
+                           vol.Optional("value", default=""): vol.Any(str, int, float)}))
     hass.async_create_task(async_load_platform(hass, "sensor", DOMAIN, {}, config))
     return True
 
@@ -119,12 +124,111 @@ class Manager:
         try:
             caps, controls, _, _ = self.manual_capabilities(call.data["vacuum"])
             await async_require_control(self.hass.auth, call.context.user_id, list(controls.values()), POLICY_CONTROL)
+            caps["control_version"] = 3
+            caps["device_entities"] = {}
+            for key, entity_id in self.device_entities(call.data["vacuum"]).items():
+                try:
+                    await async_require_control(self.hass.auth, call.context.user_id, [entity_id],
+                                                "read" if key not in CONTROLS else POLICY_CONTROL)
+                    caps["device_entities"][key] = entity_id
+                except PermissionError:
+                    pass
             return caps
         except PermissionError as err:
             raise Unauthorized(context=call.context, permission=POLICY_CONTROL) from err
         except (ValueError, AttributeError, TypeError):
             return {"supported": False, "modes": [], "suction": [], "water": [], "routes": [], "repeats": [],
                     "room_targets": [], "defaults": {}, "error": "Manual cleaning is unavailable. Check the native Roborock integration and area mapping."}
+
+    def device_entities(self, vacuum: str) -> dict:
+        registry, entry, coordinator = self.resolve(vacuum)
+        return device_entities(entry, coordinator, registry.entities.values(), self.hass.states)
+
+    def validate_device(self, vacuum, key, value):
+        current = self.current_snapshot(vacuum)
+        self.queue._validate_command_barrier(current, time.time())
+        if self.queue.phase in ACTIVE or self.queue.phase == "attention" or self.queue.pending_command:
+            raise ValueError("Finish or clear the cleaning sequence before changing dock settings.")
+        if not current.connected or current.vacuum in {"unknown", "unavailable"}:
+            raise ValueError("The robot is unavailable.")
+        if key in DOCK and value == "on":
+            mode = "preset" if key == "mop_washing" else "vacuum"
+            if current.vacuum != "docked" or not current.ready_for(mode):
+                raise ValueError("The robot must be docked, without an unfinished job or a fault affecting this dock action.")
+        return current
+
+    async def device_control(self, call: ServiceCall) -> None:
+        async with self.lock:
+            if self.closing:
+                raise ServiceValidationError("Home Assistant is stopping.")
+            vacuum, key, value = call.data["vacuum"], call.data["control"], call.data.get("value", "")
+            reservation = None
+            try:
+                await async_require_control(self.hass.auth, call.context.user_id, [vacuum], POLICY_CONTROL)
+                if key == "locate":
+                    state = self.hass.states.get(vacuum)
+                    if state is None or state.state in {"unknown", "unavailable"} or not int(state.attributes.get("supported_features", 0)) & 512:
+                        raise ValueError("Find robot is unavailable.")
+                    await self.hass.services.async_call("vacuum", "locate", {"entity_id": vacuum}, blocking=True, context=call.context)
+                    return  # A sound has no telemetry acknowledgement and never adopts a job.
+                entity_id = self.device_entities(vacuum).get(key)
+                if not entity_id or key not in CONTROLS:
+                    raise ValueError("This native control is not available for this robot.")
+                await async_require_control(self.hass.auth, call.context.user_id, [vacuum, entity_id], POLICY_CONTROL)
+                self.validate_device(vacuum, key, value)
+                domain, service, data, expected = device_command(key, value, entity_id, self.hass.states.get(entity_id))
+                state = self.hass.states.get(entity_id)
+                if self.device_value_matches(state.state, expected, domain):
+                    return
+                self.queue = Queue(mode="device", phase="controlling", vacuum=vacuum, run_id=uuid4().hex,
+                    setup={"control": key, "value": expected, "domain": domain}, control_entities={"device": entity_id},
+                    pending_command="device", command_at=time.time(), owner_user_id=call.context.user_id)
+                reservation = self.queue.run_id
+                await self.publish()
+                # Persisted reservation blocks starts while native telemetry catches up.
+                await async_require_control(self.hass.auth, call.context.user_id, [vacuum, entity_id], POLICY_CONTROL)
+                if self.closing or self.queue.phase != "controlling" or self.queue.pending_command != "device":
+                    raise ValueError("The device command was interrupted before dispatch.")
+                if self.device_entities(vacuum).get(key) != entity_id:
+                    raise ValueError("The native control changed before dispatch.")
+                current = self.current_snapshot(vacuum)
+                if key in DOCK and value == "on" and (current.vacuum != "docked" or not current.ready_for("preset" if key == "mop_washing" else "vacuum")):
+                    raise ValueError("The robot became busy before the dock command.")
+                context = Context(user_id=call.context.user_id, parent_id=call.context.id)
+                self.contexts.add(context.id)
+                await self.hass.services.async_call(domain, service, data, blocking=True, context=context)
+            except PermissionError as err:
+                if reservation and self.queue.run_id == reservation and self.queue.pending_command:
+                    self.queue.attention("The initiating user can no longer control this device command.")
+                    await self.publish()
+                raise Unauthorized(context=call.context, permission=POLICY_CONTROL) from err
+            except ValueError as err:
+                if reservation and self.queue.run_id == reservation and self.queue.pending_command:
+                    self.queue.attention("The device command could not be confirmed. Check the robot before retrying.")
+                    await self.publish()
+                raise ServiceValidationError(str(err)) from err
+            except Exception as err:
+                if reservation and self.queue.run_id == reservation and self.queue.pending_command:
+                    self.queue.attention("The device command failed or is uncertain. No retry was sent.")
+                    await self.publish()
+                raise ServiceValidationError("The device command failed. Check the robot before retrying.") from err
+
+    @staticmethod
+    def device_value_matches(actual, expected, domain):
+        try:
+            return float(actual) == float(expected) if domain == "number" else actual == expected
+        except (TypeError, ValueError):
+            return False
+
+    def observe_device(self):
+        queue = self.queue
+        state = self.hass.states.get(queue.control_entities.get("device", ""))
+        updated = getattr(state, "last_updated", None)
+        if (state and updated and updated.timestamp() >= queue.command_at and
+                self.device_value_matches(state.state, queue.setup.get("value"), queue.setup.get("domain"))):
+            queue.phase, queue.pending_command = "idle", ""
+        elif time.time() - queue.command_at >= ACK_SECONDS:
+            queue.attention("The device did not confirm this setting within 60 seconds. No retry was sent.")
 
     def current_snapshot(self, vacuum: str) -> Snapshot:
         _, _, coordinator = self.resolve(vacuum)
@@ -151,7 +255,7 @@ class Manager:
             vacuum = call.data.get("vacuum") or self.queue.vacuum
             bound = self.queue.phase in ACTIVE or self.queue.phase == "attention" or bool(self.queue.pending_command)
             owned_plan = bound and self.queue.mode in {"preset", "manual"}
-            standalone = command in {"pause", "resume", "return_to_dock"} and not owned_plan
+            standalone = command in {"pause", "resume", "return_to_dock", "stop"} and not owned_plan
             if standalone and not call.data.get("vacuum"):
                 raise ServiceValidationError("Specify a vacuum when controlling a job outside an active queue.")
             if command not in {"start", "start_manual"} and bound and self.queue.vacuum and vacuum != self.queue.vacuum:
@@ -233,7 +337,7 @@ class Manager:
                 validate_stage(self.queue.stage, caps, targets, map_id)
                 if controls != self.queue.control_entities:
                     raise ValueError("The native manual control entities changed.")
-                if not self.current_snapshot(self.queue.vacuum).ready:
+                if not self.current_snapshot(self.queue.vacuum).ready_for(self.queue.cleaning_mode):
                     raise ValueError("The robot is no longer ready to start a manual job.")
                 if kind == "configure":
                     # High-level mode resets lower-level settings: always set it first.
@@ -245,7 +349,7 @@ class Manager:
                             return
                         # A native-app start can appear during an awaited settings
                         # refresh without a Home Assistant service event.
-                        if not self.current_snapshot(self.queue.vacuum).ready:
+                        if not self.current_snapshot(self.queue.vacuum).ready_for(self.queue.cleaning_mode):
                             raise ValueError("The robot became busy while applying manual settings.")
                         latest_caps, latest_controls, latest_targets, latest_map = self.manual_capabilities(self.queue.vacuum)
                         validate_stage(self.queue.stage, latest_caps, latest_targets, latest_map)
@@ -267,6 +371,8 @@ class Manager:
                     data["cleaning_area_id"] = [area]
                 await self.hass.services.async_call("vacuum", "clean_area" if area else "start", data, blocking=True, context=context)
             elif kind == "preset":
+                if not self.current_snapshot(self.queue.vacuum).ready:
+                    raise ValueError("The robot is no longer ready for a preset.")
                 registry, entry, coordinator = self.resolve(self.queue.vacuum)
                 state = self.hass.states.get(target)
                 if not routine_matches(registry.async_get(target), entry, coordinator) or state is None or state.state == "unavailable":
@@ -291,6 +397,10 @@ class Manager:
         if self.closing or not self.queue.vacuum or self.queue.phase not in ACTIVE and not self.queue.pending_command:
             return
         async with self.lock:
+            if self.queue.mode == "device":
+                self.observe_device()
+                await self.publish()
+                return
             try:
                 current = self.current_snapshot(self.queue.vacuum)
             except ValueError:
@@ -316,8 +426,9 @@ class Manager:
             try:
                 registry, entry, _ = self.resolve(self.queue.vacuum)
                 setting = registry.async_get(entity_id)
-                return bool(setting and setting.platform == "roborock" and setting.domain == "select"
-                            and setting.device_id == entry.device_id and setting.config_entry_id == entry.config_entry_id)
+                return bool(setting and setting.platform == "roborock" and setting.domain in {"select", "switch"}
+                            and setting.config_entry_id == entry.config_entry_id
+                            and str(setting.unique_id).endswith("_" + entry.unique_id))
             except ValueError:
                 return False
         affected = is_competing_command(domain, service, data, self.queue.vacuum, is_routine, is_setting)

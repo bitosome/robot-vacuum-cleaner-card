@@ -357,3 +357,63 @@ test('an external manual run keeps its completed plan until a new local setup is
   assert.equal(calls.length, 1); assert.equal(calls[0].data.setup.mode, 'vacuum');
   assert.deepEqual(calls[0].data.rooms, ['hall_area']);
 });
+
+const controlsFixture = {
+  ...baseCapabilities,control_version:3,device_entities:{mop_washing:'switch.rover_wash',mop_drying:'switch.rover_dry',volume:'number.rover_volume',sensor_time_left:'sensor.rover_care',map_0:'image.rover_map'}
+};
+async function deviceFixture(extra={}) {
+  return fixture({config:{dock_error_entity:'sensor.rover_dock_error'},capabilities:controlsFixture,
+    services:{robot_cleaner_queue:{control:{},get_capabilities:{},device_control:{}}},states:{
+      'vacuum.rover':entity('docked',{supported_features:FEATURES|8|512}),
+      'sensor.robot_cleaner_queue':entity('idle',{vacuum:'vacuum.rover',control_version:3}),
+      'sensor.rover_dock_error':entity('water_empty'),
+      'switch.rover_wash':entity('off'),'switch.rover_dry':entity('on'),
+      'number.rover_volume':entity('75',{min:0,max:100}),
+      'sensor.rover_care':entity('-5',{unit_of_measurement:'h'}),
+      'image.rover_map':entity('2026-01-01',{entity_picture:'/api/image_proxy/image.rover_map?token=fixture'}),...extra
+    }});
+}
+test('water-empty warning blocks presets but manual vacuum-only can start on updated companion',async()=>{
+  const {card,calls}=await deviceFixture();await settle(card);
+  assert.ok(card.shadowRoot.querySelector('[data-action="start"]').disabled);
+  assert.match(card.shadowRoot.textContent,/Choose Manual/);
+  card.source='manual';card.planEdited=true;card.setup={mode:'vacuum',repeat:1,suction:'max'};await settle(card);
+  assert.equal(card.shadowRoot.querySelector('[data-action="start"]').disabled,false);
+  card.shadowRoot.querySelector('[data-action="start"]').click();await settle(card);
+  assert.equal(calls.at(-1).data.command,'start_manual');assert.equal(calls.at(-1).data.setup.mode,'vacuum');
+});
+test('old companion cannot gain water exception and other faults still block vacuum',async()=>{
+  for(const [version,fault] of [[2,'water_empty'],[3,'duct_blockage']]){
+    const {card}=await deviceFixture({'sensor.robot_cleaner_queue':entity('idle',{vacuum:'vacuum.rover',control_version:version}),'sensor.rover_dock_error':entity(fault)});
+    card.source='manual';card.planEdited=true;card.setup={mode:'vacuum',repeat:1};await settle(card);
+    assert.ok(card.shadowRoot.querySelector('[data-action="start"]').disabled);
+  }
+});
+test('dock water fault blocks washing but keeps drying stop available and uses companion',async()=>{
+  const {card,calls}=await deviceFixture();await settle(card);
+  card.shadowRoot.querySelector('[data-panel="dock"]').click();await settle(card);
+  assert.ok(card.shadowRoot.querySelector('[data-device="mop_washing"]').disabled);
+  const dry=card.shadowRoot.querySelector('[data-device="mop_drying"]');assert.equal(dry.disabled,false);dry.click();await settle(card);
+  assert.deepEqual(calls.at(-1),{domain:'robot_cleaner_queue',action:'device_control',data:{vacuum:'vacuum.rover',control:'mop_drying',value:'off'}});
+});
+test('settings persist only changed values and Find never starts cleaning',async()=>{
+  const {card,calls}=await deviceFixture();await settle(card);
+  card.shadowRoot.querySelector('[data-action="locate"]').click();await settle(card);
+  assert.equal(calls.at(-1).data.control,'locate');
+  card.shadowRoot.querySelector('[data-panel="settings"]').click();await settle(card);
+  const input=card.shadowRoot.querySelector('[data-device="volume"]');input.value='60';input.dispatchEvent(new Event('change'));await settle(card);
+  assert.equal(calls.at(-1).data.value,60);assert.equal(calls.at(-1).data.control,'volume');
+});
+test('map shows only HA proxy images and care has no reset commands',async()=>{
+  const {card,calls}=await deviceFixture();await settle(card);
+  card.shadowRoot.querySelector('[data-panel="map"]').click();await settle(card);
+  assert.match(card.shadowRoot.querySelector('.map-view img').getAttribute('src'),/^\/api\/image_proxy\//);
+  card.closePanel();await settle(card);card.shadowRoot.querySelector('[data-panel="care"]').click();await settle(card);
+  assert.match(card.shadowRoot.textContent,/Maintenance due/);assert.equal(calls.length,0);
+});
+test('unavailable native devices disappear and Stop sends stop rather than cancel',async()=>{
+  const {card,calls}=await deviceFixture({'switch.rover_wash':entity('unavailable'),'switch.rover_dry':entity('unavailable'),'vacuum.rover':entity('cleaning',{supported_features:FEATURES|8|512}),'binary_sensor.rover_cleaning':entity('on'),'sensor.rover_status':entity('segment_cleaning')});await settle(card);
+  assert.equal(card.shadowRoot.querySelector('[data-panel="dock"]'),null);
+  card.shadowRoot.querySelector('[data-action="stop"]').click();await settle(card);
+  assert.equal(calls.at(-1).data.command,'stop');assert.equal(calls.at(-1).domain,'robot_cleaner_queue');
+});

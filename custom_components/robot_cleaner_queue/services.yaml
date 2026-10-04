@@ -6,7 +6,7 @@ control:
       required: true
       selector:
         select:
-          options: [start, start_manual, pause, resume, cancel, return_to_dock]
+          options: [start, start_manual, pause, resume, cancel, return_to_dock, stop]
     vacuum:
       selector:
         entity:
@@ -38,3 +38,23 @@ get_capabilities:
         entity:
           domain: vacuum
           integration: roborock
+
+device_control:
+  name: Control native robot and dock
+  description: Change one available native control, or find the robot. Dock and settings commands share the queue lock and wait for native readback; no automatic retries.
+  fields:
+    vacuum:
+      required: true
+      selector:
+        entity:
+          domain: vacuum
+          integration: roborock
+    control:
+      required: true
+      selector:
+        select:
+          options: [locate, dust_emptying, mop_washing, mop_drying, volume, dnd, dnd_start, dnd_end, child_lock, empty_mode]
+    value:
+      description: Switches use on/off; volume uses a number; times use HH:MM; empty_mode uses a native option. Omit for locate.
+      selector:
+        text: {}

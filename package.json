@@ -1,6 +1,6 @@
 {
   "name": "robot-vacuum-cleaner-card",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "A robot-first Home Assistant card with ordered room cleaning and Space Hub design.",
   "type": "module",
   "license": "MIT",

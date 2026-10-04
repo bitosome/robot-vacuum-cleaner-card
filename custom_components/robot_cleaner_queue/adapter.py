@@ -32,7 +32,10 @@ def snapshot(coordinator: Any, vacuum_state: str) -> Snapshot:
         status=getattr(status, "state_name", None) or "unavailable",
         job="unavailable" if job is None else "on" if job else "off",
         error="none" if error == 0 else "unavailable" if error is None else "error",
-        dock_error="ok" if dock_error in (None, 0) else "error",
+        # Native RoborockDockErrorCode.water_empty == 38 (python-roborock 7.4.2).
+        # Only this known water-only fault is eligible for vacuum-only cleaning.
+        dock_error="ok" if dock_error in (None, 0) else "water_empty" if dock_error == 38 else
+                   (getattr(getattr(status, "dock_error_status", None), "name", None) or "error"),
         connected=bool(getattr(coordinator, "last_update_success", False)),
         record=clean_record(getattr(getattr(data, "clean_summary", None), "last_clean_record", None)),
         observed_at=(getattr(coordinator, "_last_update_success_time", None).timestamp()
@@ -73,6 +76,8 @@ def is_competing_command(domain: str, service: str, data: dict, vacuum: str, is_
     if domain == "roborock" and service in {"set_vacuum_zoned_cleaning", "set_vacuum_goto_position"}:
         return ambiguous or vacuum in targets
     if domain == "select" and service in {"select_option", "select_next", "select_previous", "select_first", "select_last"}:
+        return ambiguous or any(is_setting(eid) for eid in targets)
+    if domain == "switch" and service in {"turn_on", "turn_off", "toggle"}:
         return ambiguous or any(is_setting(eid) for eid in targets)
     if domain == "button" and service == "press":
         return ambiguous or any(is_routine(eid) for eid in targets)

@@ -13,7 +13,7 @@ script:
         required: true
         selector:
           select:
-            options: [start, start_manual, pause, resume, cancel, return_to_dock]
+            options: [start, start_manual, pause, resume, cancel, return_to_dock, stop]
       vacuum:
         selector:
           entity:
