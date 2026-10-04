@@ -30,9 +30,12 @@ def device_entities(vacuum_entry, coordinator, entries, states):
         for key, (prefix, domain) in {**CONTROLS, **MAINTENANCE}.items():
             if entry.domain == domain and entry.unique_id == f"{prefix}_{slug}":
                 result[key] = entry.entity_id
-        if entry.domain == "image" and re.fullmatch(re.escape(slug) + r"_map_[0-9]+", entry.unique_id):
+        if (entry.domain == "image" and entry.device_id == vacuum_entry.device_id
+                and entry.unique_id.startswith(slug + "_map_")
+                and entry.unique_id != slug + "_map_"):
             # Include all enabled maps; no map-changing service is exposed.
-            result["map_" + entry.unique_id.rsplit("_", 1)[1]] = entry.entity_id
+            # HA V1 uses the map name (including spaces) in legacy unique IDs.
+            result["map_" + entry.entity_id] = entry.entity_id
     return result
 
 

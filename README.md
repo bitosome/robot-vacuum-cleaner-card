@@ -141,3 +141,5 @@ An empty clean-water tank is a dock warning, not a blanket cleaning lock. **Manu
 Dock/settings changes use the shared server controller and caller permissions, wait up to 60 seconds for fresh native readback, and never retry automatically. Resolve an active/uncertain queue before changing these controls. A pending cloud command must finish its acknowledgement window before another motion command. Find is independent of cleaning.
 
 The frontend's new controls require the companion's `control_version: 3`; older companions retain their previous conservative behavior. Run `python3 -B test/backend_device_test.py` alongside the other backend suites when modifying these controls.
+
+Compatibility fix in v0.3.1: discover Roborock V1 map images whose native unique IDs contain map names, while requiring the same robot device and config entry.

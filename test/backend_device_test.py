@@ -92,6 +92,16 @@ class DeviceTests(unittest.IsolatedAsyncioTestCase):
         e.disabled_by=None;e.unique_id="mop_washing_other_robot"
         self.assertNotIn("mop_washing",self.manager.device_entities("vacuum.robot"))
 
+    async def test_named_map_requires_same_robot_device_and_entry(self):
+        image=NS(entity_id="image.renamed_map",unique_id="robot1_map_Ground floor",device_id="device",config_entry_id="entry",platform="roborock",domain="image",disabled_by=None)
+        self.registry.entities[image.entity_id]=image
+        self.states[image.entity_id]=NS(state="2026-01-01",attributes={})
+        self.assertIn(image.entity_id,self.manager.device_entities("vacuum.robot").values())
+        image.device_id="different"
+        self.assertNotIn(image.entity_id,self.manager.device_entities("vacuum.robot").values())
+        image.device_id="device";image.config_entry_id="other"
+        self.assertNotIn(image.entity_id,self.manager.device_entities("vacuum.robot").values())
+
     async def test_empty_water_allows_emptying_and_drying_but_not_washing(self):
         with self.assertRaises(m.ServiceError): await self.send("mop_washing","on")
         self.assertEqual(self.calls,[])
