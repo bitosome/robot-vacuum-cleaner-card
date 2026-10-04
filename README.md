@@ -71,7 +71,7 @@ A configured full-home preset uses the same companion when installed. With `requ
 
 ## Manual cleaning setup
 
-Open the **Saved presets** pill and choose **Manual setup**. Choose a cleaning mode, adjust its available settings, and press **Use settings**. This only saves a local draft. Select areas in order and press **Clean** to apply settings and begin. Without selected areas, the whole current map is cleaned.
+Open the **Preset** pill and choose **Manual setup**. Choose a cleaning mode, adjust its available settings, and press **Use settings**. This only saves a local draft. Select areas in order and press **Clean** to apply settings and begin. Without selected areas, the whole current map is cleaned.
 
 Manual tiles use the robot's existing Home Assistant **Cleaning by area** mapping, discovered by the companion. They can differ from your saved-preset tiles, and an area can contain multiple Roborock rooms. No extra card entity configuration is needed. Preset and manual area selections remain separate.
 

@@ -1,6 +1,8 @@
 # Manual cleaning
 
-Manual setup is separate from saved Roborock app routines. Saved presets keep their app-owned settings. Manual cleaning uses the native Home Assistant vacuum and select actions; it never presses a preset button.
+Manual setup is separate from saved Roborock app routines. Preset mode keeps the settings stored in the Roborock app. Manual cleaning uses the native Home Assistant vacuum and select actions; it never presses a preset button.
+
+For example, if the Bedroom preset in the Roborock app is Vacuum then mop, **Preset → Bedroom** runs that routine. **Manual setup → Vacuum → Bedroom** vacuums the mapped Bedroom area using the settings chosen in Home Assistant. It does not invoke or edit the Bedroom routine in the app.
 
 The companion discovers the modes and values actually exposed by the selected native Roborock V1 robot. Supported choices can include **Vacuum**, **Vacuum & mop**, **Mop**, and **Vacuum then mop**, with suction, water flow, route, and one or two cleaning runs. Unsupported or unavailable options are omitted. SmartPlan, custom room programs and app-only numeric water controls are not imitated.
 

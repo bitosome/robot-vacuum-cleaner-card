@@ -280,7 +280,7 @@ export class RobotVacuumCleanerCard extends LitElement {
         <h2>${this.headline()}</h2><p class="subline">${this.subline()}</p>
         ${this.jobActive && (area || time || progress!==undefined) ? html`<div class="pills">${cleaning ? html`<span class="pill live">${icon('mdi:record-circle-outline')}Cleaning</span>`:nothing}${area?html`<span class="pill">${icon('mdi:ruler-square')}${area}</span>`:nothing}${time?html`<span class="pill">${icon('mdi:timer-outline')}${time}</span>`:nothing}${progress!==undefined?html`<span class="pill">${Math.round(progress)}%</span>`:nothing}</div>`:nothing}
         ${this.jobActive && progress!==undefined ? html`<div class="progress" role="progressbar" aria-label=${this.manual?'Current cleaning stage progress':'Current preset progress'} aria-valuenow=${Math.round(progress)} aria-valuemin="0" aria-valuemax="100"><span style=${`width:${progress}%`}></span></div>`:nothing}
-        <button class="setup-launch" data-action="setup" aria-label=${`Cleaning setup: ${this.manual ? setupSummary(this.activeSetup) : 'Saved presets'}`} ?disabled=${this.queueActive || this.blocked || this.jobActive} @click=${()=>this.openSetup()}><span><ha-icon .icon=${this.manual?'mdi:tune-variant':'mdi:bookmark-outline'}></ha-icon>${this.manual ? setupSummary(this.activeSetup) : 'Saved presets'}</span><span class="setup-edit">${icon('mdi:chevron-right')}</span></button>
+        <button class="setup-launch" data-action="setup" aria-label=${`Cleaning setup: ${this.manual ? setupSummary(this.activeSetup) : 'Preset'}`} ?disabled=${this.queueActive || this.blocked || this.jobActive} @click=${()=>this.openSetup()}><span><ha-icon .icon=${this.manual?'mdi:tune-variant':'mdi:bookmark-outline'}></ha-icon>${this.manual ? setupSummary(this.activeSetup) : 'Preset'}</span><span class="setup-edit">${icon('mdi:chevron-right')}</span></button>
         ${this.renderActions()}
       </section></div>
       ${this.phase === 'attention' ? html`<div class="note">Review the robot, then clear this sequence before choosing a new one.<button class="text-button" data-action="clear-queue" ?disabled=${this.blocked || !this.queueReady} @click=${()=>this.command('cancel')}>Clear sequence</button></div>`:nothing}
@@ -302,4 +302,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status, room presets and ordered cleaning with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.2.2');
+console.info('ROBOT VACUUM CLEANER CARD 0.2.3');
