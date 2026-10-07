@@ -49,7 +49,7 @@ Other commands:
 
 Version 0.2.2 can pause/resume/dock an app-started job with an explicit vacuum. It stores `mode: external` without presets or stages; acknowledgement returns it to idle and cannot advance an old plan. Resume requires a paused, unfinished job. Active, attention and uncertain commands cannot be bypassed by controlling a different robot.
 
-For non-start commands, pass the same `vacuum` to protect against a card configured for another robot. An `attention` queue must be cleared with `cancel` before a new queue can start. Clearing an unacknowledged start/resume preserves a safety barrier: another start requires the 60-second window to expire and a new native poll after that window confirming idle/job-off. Cancelling cannot reuse a stale docked state to send duplicate routines. Only an idle/docked robot with no unfinished job can start a new sequence. Starts cannot replace an existing queue or unfinished job.
+For non-start commands, pass the same `vacuum` to protect against a card configured for another robot. An `attention` queue must be cleared with `cancel` before a new queue can start. Clearing an unacknowledged start/resume preserves a safety barrier: another start requires that command's acknowledgement window to expire (15 minutes for a start or resume, 60 seconds for a control command) and a new native poll after that window confirming idle/job-off. The barrier lasts as long as the start it guards, because a late routine can still arrive. Cancelling cannot reuse a stale docked state to send duplicate routines. Only an idle/docked robot with no unfinished job can start a new sequence. Starts cannot replace an existing queue or unfinished job.
 
 The service accepts 1–32 distinct preset entity IDs. It verifies that each is an enabled, available native Roborock **routine** button on the selected vacuum's device and config entry. It rejects maintenance-reset buttons and arbitrary entities. An `unknown` routine button state is valid before its first press.
 
@@ -75,7 +75,7 @@ Attributes: `vacuum`, ordered `presets`, zero-based `current_index`, `completed`
 
 A normal room transition requires all of these:
 
-1. A preset was sent once and the robot acknowledged a preparing, washing or cleaning state within 60 seconds. An active job must subsequently be observed; initial mop preparation can take up to ten minutes without being mistaken for completion.
+1. A preset was sent once and the robot acknowledged a preparing, washing or cleaning state within 15 minutes. A routine pressed immediately after a finished room can take minutes to appear: the robot still has to wash or dry its mop, empty dust or top up its battery, and it ignores a routine until that servicing ends. Production traces show a routine first observed 677 seconds after the press, so the shorter window abandoned a sequence that was in fact proceeding. The command is never re-sent while this window runs. An active job must subsequently be observed; initial mop preparation can take up to a further ten minutes without being mistaken for completion.
 2. The job-active flag is now off. Pauses, mop washing and low-battery charging breaks remain part of the same job while that flag is on.
 3. The native cached cleaning record is newer than the pre-command record and began no earlier than three seconds before the command (to allow whole-second timestamps).
 4. The record explicitly says `complete == 1`, `error == 0`, and its finish reason is successful when present. Missing/unknown completion fields, a manual interruption, an unreachable area or a washing failure stop the queue.
@@ -87,7 +87,7 @@ The initiating Home Assistant user's control permission is checked on the vacuum
 
 No automatic retries are sent. Faults and lost telemetry stop progression for review. HA commands from other controls stop this queue to avoid competing writers. App/device interruption is caught by the cleaning record's completion/finish reason; changes that produce indistinguishable successful records cannot be attributed to a particular caller. A single-room routine that internally ends and starts another independent job is unsuitable for automatic chaining and must be simplified in the app.
 
-Pause/resume and return-to-dock also require observed acknowledgement within 60 seconds. Queued presets and position are persisted in HA's storage before dispatch. An HA restart or shutdown preserves the sequence for inspection and changes it to `attention`; it never resumes cleaning automatically. Clear and reselect the desired remaining rooms after checking the robot. Cancelling or docking clears progression before sending another robot action.
+Pause and return-to-dock also require observed acknowledgement within 60 seconds; a start or resume gets the 15-minute window described above. Queued presets and position are persisted in HA's storage before dispatch. An HA restart or shutdown preserves the sequence for inspection and changes it to `attention`; it never resumes cleaning automatically. Clear and reselect the desired remaining rooms after checking the robot. Cancelling or docking clears progression before sending another robot action.
 
 ## Compatibility and validation
 

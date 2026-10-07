@@ -103,8 +103,8 @@ class StandaloneEngineTests(unittest.TestCase):
         idle = state("docked", "charging", "off", observed_at=110)
         with self.assertRaises(ValueError):
             queue.start("vacuum.other", ["button.other"], idle, 120, "new")
-        idle.observed_at = 165
-        self.assertEqual(queue.start("vacuum.robot", ["button.kitchen"], idle, 165, "new"), ("preset", "button.kitchen"))
+        idle.observed_at = 1005
+        self.assertEqual(queue.start("vacuum.robot", ["button.kitchen"], idle, 1005, "new"), ("preset", "button.kitchen"))
 
 
     def test_owned_dock_cancels_future_stages_but_respects_existing_barrier(self):
@@ -122,7 +122,8 @@ class StandaloneEngineTests(unittest.TestCase):
             queue = Queue(phase="running", vacuum="vacuum.robot", presets=["button.kitchen", "button.office"],
                           pending_command=pending, command_at=100, next_pending=True)
             self.assertIsNone(queue.command("return_to_dock", state(observed_at=110), 110))
-            self.assertEqual((queue.phase, queue.pending_command, queue.not_before, queue.next_pending), ("attention", "", 160, False))
+            barrier = 1000 if pending in {"start", "resume"} else 160
+            self.assertEqual((queue.phase, queue.pending_command, queue.not_before, queue.next_pending), ("attention", "", barrier, False))
             self.assertIsNone(queue.command("return_to_dock", state(observed_at=111), 111))
             self.assertIsNone(queue.observe(state(observed_at=170), 170))
 
@@ -155,8 +156,8 @@ class FinishEngineTests(unittest.TestCase):
     def test_pending_start_waits_for_barrier_and_fresh_state(self):
         q = Queue(phase="starting", pending_command="start", command_at=100)
         self.assertIsNone(q.finish("vacuum.robot", state(observed_at=110), 110, "finish"))
-        self.assertIsNone(q.observe(state(observed_at=159), 165))
-        self.assertEqual(q.observe(state(observed_at=166), 166), ("vacuum", "return_to_base"))
+        self.assertIsNone(q.observe(state(observed_at=999), 999))
+        self.assertEqual(q.observe(state(observed_at=1005), 1005), ("vacuum", "return_to_base"))
 
     def test_mid_job_wash_is_not_completion_and_resumed_cleaning_is_sent_home(self):
         q = Queue()

@@ -20,7 +20,18 @@ START_STATUS = CLEANING_STATUS | {
 SUCCESS_REASONS = {52, 54, 55, 56, 57}
 ACK_SECONDS = 60
 FINISH_SECONDS = 180
-PREPARE_SECONDS = 600
+# A dispatched routine can take minutes to become visible. Immediately after a
+# completed room the robot may still be washing or drying its mop, emptying dust or
+# topping up its battery, and it ignores a routine until that servicing ends. A real
+# run pressed the next room's routine one second after docking and the robot was first
+# observed cleaning 677 seconds later, by which time the flat 60-second window had
+# stopped the whole sequence even though cleaning then proceeded normally.
+# Waiting is still fail-closed: the command is never re-sent and a fault, a competing
+# job or lost telemetry stops the queue at once.
+START_SECONDS = 900
+# Preparation is measured from the dispatch, and a slow start may consume the whole
+# start window before the job itself turns on.
+PREPARE_SECONDS = START_SECONDS + 600
 
 
 @dataclass
@@ -102,11 +113,22 @@ class Queue:
         self.pending_command = ""
         self.next_pending = False
 
+    def ack_window(self) -> float:
+        """How long a dispatched command may take to become observable."""
+        return START_SECONDS if self.pending_command in {"start", "resume"} else ACK_SECONDS
+
+    def ack_timeout_message(self) -> str:
+        if self.pending_command in {"start", "resume"}:
+            return ("The robot did not start the room within %d minutes. No retry was sent."
+                    % (START_SECONDS // 60))
+        return "The robot did not acknowledge the command within 60 seconds. No retry was sent."
+
     def _preserve_command_barrier(self) -> None:
         if self.pending_command in {"start", "pause", "resume", "return_to_dock", "stop", "device"}:
             # A cloud command may have been accepted before telemetry catches up.
-            # Clearing the UI must not permit another start on that stale state.
-            self.not_before = max(self.not_before, self.command_at + ACK_SECONDS)
+            # Clearing the UI must not permit another start on that stale state, so the
+            # barrier lasts as long as that command may still be acknowledged.
+            self.not_before = max(self.not_before, self.command_at + self.ack_window())
 
     def _validate_start(self, snapshot: Snapshot, now: float, mode: str = "preset") -> None:
         if self.phase in ACTIVE or self.phase == "attention" or self.pending_command:
@@ -405,8 +427,8 @@ class Queue:
                     self.phase = "running"
                     self.seen_job = self.seen_job or snapshot.job == "on"
                 self.pending_command = ""
-            elif now - self.command_at >= ACK_SECONDS:
-                self.attention("The robot did not acknowledge the command within 60 seconds. No retry was sent.")
+            elif now - self.command_at >= self.ack_window():
+                self.attention(self.ack_timeout_message())
             return None
         if self.phase == "paused":
             # App/manual resume does not silently restart an unattended queue.

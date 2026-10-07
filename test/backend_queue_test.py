@@ -74,7 +74,7 @@ class QueueTests(unittest.TestCase):
         q = self.start()
         wash = Snapshot("docked", "washing_the_mop", "off", "none", "ok", True)
         q.observe(wash, 105)
-        q.observe(wash, 701)
+        q.observe(wash, 1601)
         self.assertEqual(q.phase, "attention")
         self.assertEqual(q.completed, 0)
 
@@ -120,9 +120,29 @@ class QueueTests(unittest.TestCase):
 
     def test_missed_ack_never_retries(self):
         q = self.start()
-        self.assertIsNone(q.observe(ready(record()), 161))
+        # Docked and charging is not an acknowledgement: the dock may still be servicing.
+        self.assertIsNone(q.observe(ready(record()), 300))
+        self.assertEqual((q.phase, q.pending_command), ("starting", "start"))
+        # The start window ends without a retry ever being sent.
+        self.assertIsNone(q.observe(ready(record()), 1001))
         self.assertEqual(q.phase, "attention")
         self.assertEqual(q.completed, 0)
+
+    def test_slow_start_after_dock_servicing_is_awaited(self):
+        """A routine can first appear minutes after the press (production: 677 s)."""
+        q = self.acknowledged()
+        q.observe(Snapshot("returning", "returning_home", "off", "none", "ok", True, record()), 202)
+        self.assertEqual((q.completed, q.current_index), (1, 1))
+        self.assertEqual(q.observe(ready(record()), 205), ("preset", "button.office"))
+        # The dock services the mop while the robot sits on it, charging.
+        for timestamp in (260, 400, 700):
+            self.assertIsNone(q.observe(Snapshot("docked", "charging", "off", "none", "ok", True, record()), timestamp))
+            self.assertEqual((q.phase, q.pending_command), ("starting", "start"))
+        # 677 seconds after the press the robot begins cleaning, and the queue continues.
+        self.assertIsNone(q.observe(Snapshot("cleaning", "segment_cleaning", "on", "none", "ok", True, record()), 882))
+        self.assertEqual((q.phase, q.pending_command), ("running", ""))
+        q.observe(ready(record(205, 900)), 905)
+        self.assertEqual((q.phase, q.completed), ("completed", 2))
 
     def test_busy_robot_or_unfinished_docked_job_reject_start(self):
         for s in [cleaning(), Snapshot("docked", "charging", "on", "none", "ok", True), Snapshot()]:
@@ -187,31 +207,31 @@ class QueueTests(unittest.TestCase):
             q = self.start()
             q.command(command, ready(), 101)
             self.assertEqual(q.phase, "cancelled")
-            self.assertEqual(q.not_before, 160)
-            for timestamp in [102, 161]:
+            self.assertEqual(q.not_before, 1000)
+            for timestamp in [102, 1001]:
                 with self.assertRaises(ValueError):
                     q.start("vacuum.robot", ["button.bedroom"], ready(), timestamp, "new")
             # A late acknowledgement cannot cause the next routine to be sent.
             self.assertIsNone(q.observe(cleaning(), 110))
             fresh_but_busy = cleaning()
-            fresh_but_busy.observed_at = 165
+            fresh_but_busy.observed_at = 1005
             with self.assertRaises(ValueError):
-                q.start("vacuum.robot", ["button.bedroom"], fresh_but_busy, 170, "new")
+                q.start("vacuum.robot", ["button.bedroom"], fresh_but_busy, 1010, "new")
             fresh_ready = ready()
-            fresh_ready.observed_at = 175
-            self.assertEqual(q.start("vacuum.robot", ["button.bedroom"], fresh_ready, 180, "new"), ("preset", "button.bedroom"))
+            fresh_ready.observed_at = 1005
+            self.assertEqual(q.start("vacuum.robot", ["button.bedroom"], fresh_ready, 1010, "new"), ("preset", "button.bedroom"))
 
     def test_clear_after_start_timeout_cannot_bypass_stale_snapshot(self):
         q = self.start()
-        q.observe(ready(), 161)
+        q.observe(ready(), 1001)
         self.assertEqual(q.phase, "attention")
-        q.command("cancel", ready(), 162)
+        q.command("cancel", ready(), 1002)
         with self.assertRaises(ValueError):
-            q.start("vacuum.robot", ["button.bedroom"], ready(), 163, "new")
+            q.start("vacuum.robot", ["button.bedroom"], ready(), 1003, "new")
         restored = Queue.restore(q.dump())
-        self.assertEqual(restored.not_before, 160)
+        self.assertEqual(restored.not_before, 1000)
         with self.assertRaises(ValueError):
-            restored.start("vacuum.robot", ["button.bedroom"], ready(), 190, "new")
+            restored.start("vacuum.robot", ["button.bedroom"], ready(), 1010, "new")
 
     def test_empty_duplicate_and_excessive_sequences_rejected(self):
         for presets in [[], ["button.a", "button.a"], ["button.a%d" % n for n in range(33)]]:
