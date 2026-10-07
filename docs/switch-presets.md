@@ -60,7 +60,7 @@ Use a direct script call from that compatibility automation so errors propagate 
 
 ## Manual settings and controls
 
-An unsaved browser draft never changes the wall-switch preset. Use **Save preset** and `toggle_saved` to reuse manual settings. For a fixed manual plan, create a separate wrapper calling `robot_cleaner_queue.control` with `command: start_manual`, explicit `vacuum`, `rooms` and `setup`; use only capabilities supported by that robot. See [manual cleaning](manual-cleaning.md).
+An unsaved browser draft never changes the wall-switch preset. Use **Save preset** and `toggle_saved` to reuse manual settings. For a fixed manual plan, create a separate wrapper calling `robot_cleaner_queue.control` with `command: start_manual`, explicit `vacuum`, `rooms` and `setup`; use only capabilities supported by that robot. See [manual cleaning](https://github.com/bitosome/ha-robot-cleaner-queue/blob/main/docs/manual-cleaning.md).
 
 Route pause/resume/dock through the companion too, with an explicit vacuum. Version 0.2.2 can control an existing app-started job without adopting it as an ordered queue. Resume requires a confirmed paused, unfinished job, and every physical command waits for acknowledgement. A failed command is never retried or replaced by native `vacuum.start`.
 

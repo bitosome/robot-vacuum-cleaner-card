@@ -16,6 +16,28 @@ Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap 
 - Command acknowledgement, errors, unavailable states and interrupted-queue recovery.
 - Touch and keyboard controls, a visual configuration editor, responsive layout, reduced motion and theme support.
 
+## Requirements
+
+**The card alone** shows status and offers full clean, pause, resume and return-to-dock. Ordered room starts are disabled, and blocked outright when `require_queue: true`. To sequence rooms you also need the integration.
+
+**Required for room sequencing, manual setup and saved presets**
+
+- **[Robot Cleaner Queue](https://github.com/bitosome/ha-robot-cleaner-queue)** — add `https://github.com/bitosome/ha-robot-cleaner-queue` as a HACS **Custom repository** of category **Integration**, download it, then restart Home Assistant. The card drives the integration through `robot_cleaner_queue.control` and `get_capabilities`, and never falls back to a browser-driven queue.
+- **The native Roborock integration** with a **V1-protocol** robot, and **one routine button per room**, created in the Roborock app. Preset mode presses those routines so the app keeps its suction, mopping and repetition settings, and each routine must represent the room named on its tile.
+
+**Required for manual setup**
+
+- **Mapped Home Assistant areas.** Manual cleaning calls `vacuum.clean_area`, so an area is offered only when every Roborock room it maps to exists on the robot's current map. Map areas to rooms in the vacuum entity's settings. The read-only **Zones & areas** report in the setup sheet shows every robot room, the area that claims it, rooms no area covers yet, and mapped areas the robot no longer reports.
+
+**Optional**
+
+- Status, battery, progress, area, time, error and dock-error entities. They only affect what is displayed; safety decisions always use the native coordinator's own state, not your sensor mapping. The robot's `supported_features` decides which physical controls appear.
+
+**Compatibility**
+
+- Verified against **Home Assistant Core 2026.9.4** and python-roborock 7.4.2. Untested cores, other robot platforms and other Roborock protocols are not claimed to work; the integration fails closed rather than guessing.
+- The card and the integration are versioned and installed independently. The card detects capabilities at runtime, so an older integration keeps working, and a newer card says so when a capability response is incomplete.
+
 ## Install the card
 
 Build with `npm ci && npm run build`, then copy `dist/robot-vacuum-cleaner-card.js` to `/config/www/robot-vacuum-cleaner-card.js`. Register `/local/robot-vacuum-cleaner-card.js` as a JavaScript module in Home Assistant's dashboard resources.
@@ -28,7 +50,7 @@ To install through HACS:
 
 HACS downloads `robot-vacuum-cleaner-card.js` from the published GitHub release. The source-only default branch is hidden because its generated `dist/` directory is not committed. If adding the repository previously failed before the first release, retry after refreshing HACS.
 
-This repository ships the frontend only. For room sequencing and manual setup, install the [Robot Cleaner Queue](https://github.com/bitosome/ha-robot-cleaner-queue) integration from its own HACS repository — add `https://github.com/bitosome/ha-robot-cleaner-queue` as a **Custom repository** of category **Integration**, then restart Home Assistant. Without it, standalone controls remain available unless `require_queue: true` is configured; ordered room starts are always disabled. It never falls back to a browser-driven queue.
+This repository ships the frontend only. The [Robot Cleaner Queue](https://github.com/bitosome/ha-robot-cleaner-queue) integration is a separate install — see [Requirements](#requirements).
 
 ## Configure
 
@@ -66,15 +88,15 @@ rooms:
 
 Entity names above are examples. Use your existing **routine buttons**, not maintenance-reset buttons or area identifiers. Every room needs a unique `id`, `name` and `preset`. Optional `activity_entity` can identify an externally initiated room clean (`cleaning`, `active` or `on`); it never proves completion. The robot's `supported_features` determines available physical controls.
 
-Configure the optional telemetry entities you have. Missing values are omitted. Cleaning metrics belong to the current preset, not the complete multi-room sequence. The robot's current-room reading describes location; a room tile is marked completed only by the companion's successful routine record.
+Configure the optional telemetry entities you have. Missing values are omitted. Cleaning metrics belong to the current preset, not the complete multi-room sequence. The robot's current-room reading describes location; a room tile is marked completed only by the queue integration's successful routine record.
 
-A configured full-home preset uses the same companion when installed. With `require_queue: true`, every control requires the companion, and saved-preset mode requires a full-home preset for **Clean all rooms**. This prevents a missing controller from becoming a default native clean. With this setting omitted or false, standalone native controls remain available. A selected room always requires the companion.
+A configured full-home preset uses the same queue integration when installed. With `require_queue: true`, every control requires the integration, and saved-preset mode requires a full-home preset for **Clean all rooms**. This prevents a missing controller from becoming a default native clean. With this setting omitted or false, standalone native controls remain available. A selected room always requires the integration.
 
 ## Manual cleaning setup
 
 Open the **Preset** pill and choose **Manual setup**. Choose a cleaning mode, adjust its available settings, and press **Use settings**. This only saves a local draft. Select areas in order and press **Clean** to apply settings and begin. Without selected areas, the whole current map is cleaned.
 
-Manual tiles use the robot's existing Home Assistant **Cleaning by area** mapping, discovered by the companion. They can differ from your saved-preset tiles, and an area can contain multiple Roborock rooms. No extra card entity configuration is needed. Preset and manual area selections remain separate.
+Manual tiles use the robot's existing Home Assistant **Cleaning by area** mapping, read by the queue integration. They can differ from your saved-preset tiles, and an area can contain multiple Roborock rooms. No extra card entity configuration is needed. Preset and manual area selections remain separate.
 
 Manual tiles use their Home Assistant area's icon when one is configured, otherwise `mdi:floor-plan`. To match the room names and icons in your Space Hub cards, set `area_overrides` using the **Home Assistant area IDs** (not preset IDs or Roborock segment numbers):
 
@@ -87,7 +109,7 @@ area_overrides:
     icon: mdi:stove
 ```
 
-The visual editor exposes these settings under **Manual area appearance**. Overrides apply only to areas already returned by the companion; they do not add cleaning targets or change the mapped rooms. Preset tiles continue to use each entry's `rooms[].icon`. Display overrides never change the area IDs sent when cleaning starts.
+The visual editor exposes these settings under **Manual area appearance**. Overrides apply only to areas already returned by the integration; they do not add cleaning targets or change the mapped rooms. Preset tiles continue to use each entry's `rooms[].icon`. Display overrides never change the area IDs sent when cleaning starts.
 
 **Vacuum then mop** vacuums every selected area first, then mops them in the same order. **×2** repeats each area twice per pass as separate verified jobs; it may dock or service the mop between jobs. Water and mop route disappear for vacuum-only cleaning; suction disappears for mop-only cleaning. App-only numeric water flow and SmartPlan are not offered.
 
@@ -112,11 +134,10 @@ See [completion, cancellation and compatibility details](https://github.com/bito
 ```sh
 npm ci
 npm run check
-python3 -B test/backend_queue_test.py
-python3 -B test/backend_manual_test.py
-python3 -B test/backend_controls_test.py
 python3 -m http.server 8767 --bind 127.0.0.1
 ```
+
+`npm run check` typechecks, builds and runs the frontend tests against the shipping bundle. The backend queue suites belong to the [queue integration](https://github.com/bitosome/ha-robot-cleaner-queue) repository.
 
 Open `http://127.0.0.1:8767/preview/`. The interactive preview is entirely local and never connects to a robot. It includes selection, start/pause/resume, room completion, docking, recharging, mop washing, faults and unavailable states, plus dark/light themes and phone widths.
 
@@ -128,7 +149,7 @@ This is a public, reusable project. Examples contain no production configuration
 
 ## Robot and dock controls (v0.3.0)
 
-Update **both** the HACS card and the queue companion, then restart Home Assistant. The existing card configuration works unchanged. The companion discovers enabled native controls by registry identity, including controls on the separate dock device. The card hides unavailable entities and unsupported features.
+Update the HACS card and the [queue integration](https://github.com/bitosome/ha-robot-cleaner-queue), then restart Home Assistant. The existing card configuration works unchanged. The integration discovers enabled native controls by registry identity, including controls on the separate dock device. The card hides unavailable entities and unsupported features.
 
 - **Stop** stops the current cleaning and cancels the remaining sequence. **Clear sequence** only cancels future work.
 - **Find** plays the robot's locate sound.
@@ -141,7 +162,7 @@ An empty clean-water tank is a dock warning, not a blanket cleaning lock. **Manu
 
 Dock/settings changes use the shared server controller and caller permissions, wait up to 60 seconds for fresh native readback, and never retry automatically. Resolve an active/uncertain queue before changing these controls. A pending cloud command must finish its acknowledgement window before another motion command. Find is independent of cleaning.
 
-The frontend's new controls require the companion's `control_version: 3`; older companions retain their previous conservative behavior. Run `python3 -B test/backend_device_test.py` alongside the other backend suites when modifying these controls.
+The frontend's new controls require `control_version: 3` from the integration; older versions retain their previous conservative behavior. Run the backend suites in the [queue integration](https://github.com/bitosome/ha-robot-cleaner-queue) repository when modifying these controls.
 
 Compatibility fix in v0.3.1: discover Roborock V1 map images whose native unique IDs contain map names, while requiring the same robot device and config entry.
 
@@ -149,7 +170,7 @@ Compatibility fix in v0.3.1: discover Roborock V1 map images whose native unique
 
 Call `robot_cleaner_queue.control` with `command: toggle`, a `vacuum`, and selected `presets`. The controller atomically starts the selection when idle, or cancels all remaining stages and returns an active robot to its dock. Repeated holds during finishing do not restart cleaning. In-flight starts wait for fresh telemetry after the acknowledgement window; mop servicing is allowed to finish before docking, and an unfinished recharge break is stopped. Native dock care remains subject to robot settings, DND and dock supplies; no duplicate washing/emptying/drying commands are sent. Restart, lost telemetry or unacknowledged commands require review instead of retry. An empty preset selection rejects an idle start but can still finish an active job.
 
-### Save a reusable preset (companion 0.4.0+)
+### Save a reusable preset
 
 Choose rooms in order and optionally use Manual setup, then press **Save preset**. One preset per robot is stored in Home Assistant (`.storage/robot_cleaner_queue_presets`), survives restarts and is shared across browsers. Saving replaces the previous saved plan without changing robot settings or starting cleaning. **Load preset** restores it into the card for review and Start. App routine sequences keep Roborock's own settings; manual presets retain the selected areas, mode, suction, water, route and repeat count. Plans are checked again at execution; changed maps, missing areas, unavailable settings or missing permissions cannot silently redirect cleaning.
 
