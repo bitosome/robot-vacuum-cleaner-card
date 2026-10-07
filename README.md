@@ -12,7 +12,7 @@ Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap 
 - Manual **Vacuum**, **Mop**, **Vacuum & mop**, and **Vacuum then mop** modes, with supported suction, water, mop route and ×1/×2 controls.
 - A read-only **Zones & areas** report that shows which Roborock rooms each Home Assistant area claims, which robot rooms no area covers yet, and which mapped areas the robot no longer reports.
 - Existing Roborock routines retain their suction, mopping and repetition settings.
-- A companion queue integration verifies actual successful cleaning records before moving to the next preset. Pauses, recharge breaks and mop washing do not finish a room. A routine that begins slowly after the robot docks — while the dock is still washing or drying the mop — is waited out rather than abandoned.
+- The [queue integration](https://github.com/bitosome/ha-robot-cleaner-queue) verifies actual successful cleaning records before moving to the next preset. Pauses, recharge breaks and mop washing do not finish a room. A routine that begins slowly after the robot docks — while the dock is still washing or drying the mop — is waited out rather than abandoned.
 - Command acknowledgement, errors, unavailable states and interrupted-queue recovery.
 - Touch and keyboard controls, a visual configuration editor, responsive layout, reduced motion and theme support.
 
@@ -26,9 +26,9 @@ To install through HACS:
 2. Select **Dashboard**, add the repository, then download the latest release.
 3. Reload the browser and add **Robot Vacuum Cleaner Card** to your dashboard.
 
-HACS downloads `robot-vacuum-cleaner-card.js` from the published GitHub release. The source-only default branch is hidden because its generated `dist/` directory is not committed. HACS installs the frontend only; the separate `robot-cleaner-queue.zip` release asset contains the companion. If adding the repository previously failed before the first release, retry after refreshing HACS.
+HACS downloads `robot-vacuum-cleaner-card.js` from the published GitHub release. The source-only default branch is hidden because its generated `dist/` directory is not committed. If adding the repository previously failed before the first release, retry after refreshing HACS.
 
-For room sequencing and manual setup, install the [Home Assistant queue companion](docs/queue-backend.md). This is an additional custom integration and requires an HA restart. Without it, standalone controls remain available unless `require_queue: true` is configured; ordered room starts are always disabled. It never falls back to a browser-driven queue.
+This repository ships the frontend only. For room sequencing and manual setup, install the [Robot Cleaner Queue](https://github.com/bitosome/ha-robot-cleaner-queue) integration from its own HACS repository — add `https://github.com/bitosome/ha-robot-cleaner-queue` as a **Custom repository** of category **Integration**, then restart Home Assistant. Without it, standalone controls remain available unless `require_queue: true` is configured; ordered room starts are always disabled. It never falls back to a browser-driven queue.
 
 ## Configure
 
@@ -91,9 +91,9 @@ The visual editor exposes these settings under **Manual area appearance**. Overr
 
 **Vacuum then mop** vacuums every selected area first, then mops them in the same order. **×2** repeats each area twice per pass as separate verified jobs; it may dock or service the mop between jobs. Water and mop route disappear for vacuum-only cleaning; suction disappears for mop-only cleaning. App-only numeric water flow and SmartPlan are not offered.
 
-Manual setup requires both the card and companion at **0.2.0 or later**. Choices apply only on Start, and native settings must be confirmed before cleaning begins. See [manual cleaning behavior and compatibility](docs/manual-cleaning.md).
+Manual setup requires the [Robot Cleaner Queue](https://github.com/bitosome/ha-robot-cleaner-queue) integration. Choices apply only on Start, and native settings must be confirmed before cleaning begins. See [manual cleaning behavior and compatibility](https://github.com/bitosome/ha-robot-cleaner-queue/blob/main/docs/manual-cleaning.md).
 
-See [Space Hub controls and migration requirements](docs/space-hub-integration.md) and [named preset scripts for wall switches](docs/switch-presets.md) to use one controller across your dashboards and physical switches. Shared external-job controls require companion 0.2.2 or later.
+See [Space Hub controls and migration requirements](docs/space-hub-integration.md) and [named preset scripts for wall switches](docs/switch-presets.md) to use one controller across your dashboards and physical switches. Shared external-job controls require the queue integration.
 
 ## Queue behavior
 
@@ -103,9 +103,9 @@ See [Space Hub controls and migration requirements](docs/space-hub-integration.m
 - **Return to dock** cancels remaining rooms before requesting docking. It will not interrupt mop servicing.
 - **Clear sequence** after an error or restart clears pending work without moving the robot. Check its state before selecting a new sequence.
 - HA restarts preserve the saved sequence for inspection and stop automatic progression. There is no unattended restart or automatic command retry.
-- The companion supports the native Roborock V1 coordinator, verified against HA Core 2026.9.4 / python-roborock 7.4.2. It fails closed when completion cannot be established. Other platforms, protocols and unusual multi-job routines require additional compatibility work.
+- The queue integration supports the native Roborock V1 coordinator, verified against HA Core 2026.9.4 / python-roborock 7.4.2. It fails closed when completion cannot be established. Other platforms, protocols and unusual multi-job routines require additional compatibility work.
 
-See [completion, cancellation and compatibility details](docs/queue-backend.md). Development checks use simulated Home Assistant states and production-code event traces; they do not claim a physical cleaning test.
+See [completion, cancellation and compatibility details](https://github.com/bitosome/ha-robot-cleaner-queue/blob/main/docs/queue-backend.md). Development checks use simulated Home Assistant states and production-code event traces; they do not claim a physical cleaning test.
 
 ## Develop and preview
 
