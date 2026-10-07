@@ -187,14 +187,34 @@ export class RobotVacuumCleanerCard extends LitElement {
     this.feedback = this.selection.length ? `${this.selectedRooms.map((r,i)=>`${i+1}. ${r.name}`).join(', ')} selected.` : 'Selection cleared.';
     this.commandError = '';
   }
+  private waitingText(kind: string) {
+    return ({
+      start: 'Request sent. Waiting for the robot to start…',
+      start_manual: 'Request sent. Waiting for the robot to start…',
+      full: 'Request sent. Waiting for the robot to start…',
+      stop: 'Waiting for the robot to stop…',
+      return_to_dock: 'Waiting for the robot to reach the dock…',
+      pause: 'Waiting for the robot to pause…',
+      resume: 'Waiting for the robot to resume…',
+      cancel: 'Clearing the sequence…',
+    } as Record<string,string>)[kind] ?? 'Waiting for the robot…';
+  }
   private async command(kind: 'start'|'start_manual'|'full'|'pause'|'resume'|'return_to_dock'|'cancel'|'stop') {
-    if (!this.hass || !this.config || this.blocked || (kind !== 'cancel' && !this.robotReady)) return;
-    if (this.config.require_queue && !this.queueReady) return;
+    if (!this.hass || !this.config) return;
+    if (kind !== 'cancel' && !this.robotReady) { this.commandError = 'The robot is unavailable.'; return; }
+    // A refused press must say why. Silently returning looks like a broken button:
+    // after Stop the queue holds the previous command open until the robot confirms it.
+    if (this.blocked) {
+      this.commandError = '';
+      this.feedback = this.request ? this.waitingText(this.request.kind) : 'Waiting for the robot to confirm the previous command.';
+      return;
+    }
+    if (this.config.require_queue && !this.queueReady) { this.commandError = 'The robot cleaner queue is not available yet.'; return; }
     if (kind === 'full' && this.config.require_queue && !this.config.full_clean_entity) return;
     if ((kind === 'start' || kind === 'start_manual' || kind === 'full') && !this.canStart) return;
     if (kind === 'start' && (!this.queueReady || !this.selection.length || this.selectedRooms.some(room => !available(this.entity(room.preset),true)))) return;
     if (kind === 'start_manual' && (!this.manualReady || this.selectedRooms.some(room=>!this.roomAvailable(room)) || this.selectedRooms.length!==this.manualSelected.length)) return;
-    this.commandError = ''; this.feedback = kind === 'start' || kind === 'full' ? 'Request sent. Waiting for the robot…' : 'Waiting for the robot…';
+    this.commandError = ''; this.feedback = this.waitingText(kind);
     this.request = {kind,since:Date.now()};
     this.requestTimer = setTimeout(() => {
       if (!this.request) return;
@@ -370,4 +390,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status, room presets and ordered cleaning with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.5.0');
+console.info('ROBOT VACUUM CLEANER CARD 0.5.1');

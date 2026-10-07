@@ -124,6 +124,7 @@ See [Space Hub controls and migration requirements](docs/space-hub-integration.m
 - A second Start cannot replace a running job. The card locks the committed room sequence.
 - **Return to dock** cancels remaining rooms before requesting docking. It will not interrupt mop servicing.
 - **Clear sequence** after an error or restart clears pending work without moving the robot. Check its state before selecting a new sequence.
+- While a command is being confirmed, the movement controls are disabled and the card names the confirmation it is waiting for. After **Stop** this can take up to a minute, because the robot must first report the job as finished; the robot is already idle while that shows.
 - HA restarts preserve the saved sequence for inspection and stop automatic progression. There is no unattended restart or automatic command retry.
 - The queue integration supports the native Roborock V1 coordinator, verified against HA Core 2026.9.4 / python-roborock 7.4.2. It fails closed when completion cannot be established. Other platforms, protocols and unusual multi-job routines require additional compatibility work.
 

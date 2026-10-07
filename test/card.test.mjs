@@ -242,6 +242,31 @@ test('Return to dock uses the queue return_to_dock command rather than cancellat
   assert.deepEqual(calls, [{ domain: 'script', action: 'turn_on', data: { entity_id: 'script.robot_queue_control', variables: { command: 'return_to_dock', vacuum: 'vacuum.robot' } } }]);
 });
 
+test('a command still being confirmed explains itself and blocks a second one', async () => {
+  const { card, calls } = await fixture({ states: {
+    'vacuum.robot': entity('cleaning', { supported_features: FEATURES }),
+    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.robot', presets: ['button.robot_living_room'], current_index: 0, completed: 0 }),
+  } });
+  button(card, 'dock').click(); await settle(card);
+  // The old failure mode: the button went dim and every further press vanished silently.
+  assert.match(root(card).textContent, /Waiting for the robot to reach the dock/);
+  assert.equal(button(card, 'dock').disabled, true);
+  assert.equal(calls.length, 1);
+  await changeStates(card, { 'vacuum.robot': entity('returning', { supported_features: FEATURES }) });
+  assert.doesNotMatch(root(card).textContent, /Waiting for the robot to reach the dock/);
+  assert.equal(calls.length, 1);
+});
+
+test('stop says which confirmation it is waiting for', async () => {
+  const { card, calls } = await fixture({ states: {
+    'vacuum.robot': entity('cleaning', { supported_features: 8192 | 4 | 8 | 16 }),
+    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.robot', control_version: 4, presets: ['button.robot_living_room'], current_index: 0, completed: 0 }),
+  } });
+  button(card, 'stop').click(); await settle(card);
+  assert.match(root(card).textContent, /Waiting for the robot to stop/);
+  assert.equal(calls.length, 1);
+});
+
 test('returning robot does not offer a duplicate Return to dock action', async () => {
   const { card } = await fixture({ states: { 'vacuum.robot': entity('returning', { supported_features: FEATURES }) } });
   assert.equal(button(card, 'dock'), null); assert.equal(button(card, 'start'), null);
