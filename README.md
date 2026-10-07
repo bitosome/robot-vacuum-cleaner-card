@@ -10,6 +10,7 @@ Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap 
 - Contextual full clean, pause, resume and return-to-dock controls.
 - Numbered room selection with visible selected, queued, cleaning and completed states.
 - Manual **Vacuum**, **Mop**, **Vacuum & mop**, and **Vacuum then mop** modes, with supported suction, water, mop route and ×1/×2 controls.
+- A read-only **Zones & areas** report that shows which Roborock rooms each Home Assistant area claims, which robot rooms no area covers yet, and which mapped areas the robot no longer reports.
 - Existing Roborock routines retain their suction, mopping and repetition settings.
 - A companion queue integration verifies actual successful cleaning records before moving to the next preset. Pauses, recharge breaks and mop washing do not finish a room. A routine that begins slowly after the robot docks — while the dock is still washing or drying the mop — is waited out rather than abandoned.
 - Command acknowledgement, errors, unavailable states and interrupted-queue recovery.

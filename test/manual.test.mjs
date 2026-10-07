@@ -458,3 +458,51 @@ test('failed save is shown and never starts cleaning',async()=>{
   assert.match(root(card).textContent,/Storage unavailable/);
   assert.doesNotMatch(root(card).textContent,/Preset saved in Home Assistant/);
 });
+
+const zoneCapabilities = () => ({...structuredClone(baseCapabilities),
+  robot_maps: [{flag:0,name:'Ground floor'},{flag:1,name:'Upstairs'}],
+  robot_rooms: [
+    {id:'0_1',segment:1,name:'Kitchen',floor:'Ground floor',area_id:'kitchen_area',area_name:'Kitchen'},
+    {id:'0_2',segment:2,name:'Dining area',floor:'Ground floor',area_id:'kitchen_area',area_name:'Kitchen'},
+    {id:'0_3',segment:3,name:'Office',floor:'Ground floor',area_id:'hall_area',area_name:'Hall'},
+    {id:'1_2',segment:2,name:null,floor:'Upstairs',area_id:null,area_name:null},
+  ],
+  unmapped_areas: [{id:'sauna',name:'Sauna',segments:['0_9']}], rooms_complete: true});
+
+test('the setup sheet shows which robot rooms each area claims',async()=>{
+  const {card}=await fixture({capabilities:zoneCapabilities()});
+  await selectManual(card);
+  const report=root(card).querySelector('.zone-report');
+  assert.ok(report,'Expected the zones report');
+  assert.match(report.textContent,/4 robot rooms/);
+  assert.match(report.textContent,/2 floors/);
+  const groups=[...report.querySelectorAll('.zone-groups li')].map(row=>[row.querySelector('.zone-area').textContent,row.querySelector('.zone-rooms').textContent]);
+  assert.deepEqual(groups,[['Kitchen','Kitchen, Dining area'],['Hall','Office']]);
+  assert.match(report.textContent,/No Home Assistant area: Room 2 \(Upstairs\)/);
+  assert.match(report.textContent,/The robot no longer reports: Sauna/);
+});
+
+test('the zones report never starts or changes cleaning',async()=>{
+  const {card,calls}=await fixture({capabilities:zoneCapabilities()});
+  await selectManual(card);
+  assert.equal(calls.length,0);
+  const report=root(card).querySelector('.zone-report');
+  report.querySelector('summary').click(); await settle(card);
+  assert.equal(calls.length,0);
+});
+
+test('a companion without the report renders no zones section',async()=>{
+  const {card}=await fixture();
+  await selectManual(card);
+  assert.equal(root(card).querySelector('.zone-report'),null);
+});
+
+test('an unreadable floor is never reported as a missing area',async()=>{
+  // The companion suppresses stale-area claims when it cannot read every floor.
+  const {card}=await fixture({capabilities:{...zoneCapabilities(),rooms_complete:false,robot_maps:[{flag:0,name:null}],unmapped_areas:[]}});
+  await selectManual(card);
+  const report=root(card).querySelector('.zone-report');
+  assert.match(report.textContent,/Only the floor the robot is on could be read/);
+  assert.doesNotMatch(report.textContent,/The robot no longer reports/);
+  assert.doesNotMatch(report.textContent,/floors/);
+});

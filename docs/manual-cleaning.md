@@ -27,7 +27,16 @@ data:
 response_variable: capabilities
 ```
 
-The response contains `supported`, `modes` (`value` and `label`), option arrays `suction`, `water`, `routes`, `routes_by_mode`, `repeats`, `room_targets` (`id`, `name`, optional area `icon`), and `defaults`. An unavailable response includes `error`. Defaults use an exposed current value where safe, otherwise an available balanced/medium/standard option.
+The response contains `supported`, `modes` (`value` and `label`), option arrays `suction`, `water`, `routes`, `routes_by_mode`, `repeats`, `room_targets` (`id`, `name`, optional area `icon`), and `defaults`. An unavailable response includes `error`.
+
+It also returns a read-only zone report, because the Roborock app names every room while Home Assistant areas group them into real rooms:
+
+- `robot_maps`: `flag` and map `name` for every floor the robot reports.
+- `robot_rooms`: `id` (`map_segment`), `segment`, the app's `name` when it has one, `floor`, and the `area_id`/`area_name` that claims it, or `null` when no Home Assistant area does.
+- `unmapped_areas`: areas whose mapped rooms the robot no longer reports, with their `segments`.
+- `rooms_complete`: whether every floor was readable. When it is false only the current floor was seen, so `unmapped_areas` stays empty rather than calling the other floor's areas stale.
+
+The report never writes configuration, never creates areas and never switches maps. One area may cover several robot rooms: a `Kitchen` area mapped to `0_12` and `0_13` cleans both, and the report shows which app rooms those are. Rooms the app names but no area claims are listed so they can be mapped deliberately in Home Assistant rather than silently disappearing from manual tiles. Defaults use an exposed current value where safe, otherwise an available balanced/medium/standard option.
 
 The manual form excludes off, SmartPlan, custom room programs, and remembered custom water flow from fine controls. In particular, an exposed `custom_water_flow` selector does not reveal the numeric setting that the Roborock app remembers; the card cannot truthfully display or edit that number. Vacuum & mop exposes standard/fast routes when offered; deep routes are limited to the mop phase. Route is omitted for vacuum-only cleaning.
 

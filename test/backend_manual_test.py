@@ -119,6 +119,73 @@ class ManualPlanTests(unittest.TestCase):
         self.assertEqual([m["value"] for m in caps["modes"]], ["vacuum"])
 
 
+def room(name=None, segment=1):
+    return NS(segment_id=segment, name=name)
+
+
+class RoomReportTests(unittest.TestCase):
+    """The report is read-only: it explains the mapping and never writes configuration."""
+
+    def fixture(self):
+        vacuum, coordinator, entries, states, areas, _ = fixture()
+        coordinator.properties_api.home = NS(
+            current_map_data=NS(map_flag=0, rooms=[room(segment=n) for n in [1, 2, 3]]),
+            home_map_info={
+                0: NS(map_flag=0, name="Ground floor", rooms=[room("Kitchen", 1), room("Dining area", 2), room("Office", 3)]),
+                1: NS(map_flag=1, name="Upstairs", rooms=[room("Bedroom", 1), room(None, 2)]),
+            })
+        return vacuum, coordinator, entries, states, areas
+
+    def report(self):
+        vacuum, coordinator, entries, states, areas = self.fixture()
+        return manual.capabilities(vacuum, coordinator, entries, states, areas)[0]
+
+    def test_app_names_are_reported_against_the_areas_that_claim_them(self):
+        caps = self.report()
+        self.assertTrue(caps["rooms_complete"])
+        self.assertEqual([m["name"] for m in caps["robot_maps"]], ["Ground floor", "Upstairs"])
+        rooms = {(r["floor"], r["name"]): (r["id"], r["area_id"], r["area_name"]) for r in caps["robot_rooms"]}
+        # One Home Assistant area can cover several finer Roborock rooms.
+        self.assertEqual(rooms[("Ground floor", "Kitchen")], ("0_1", "kitchen", "Kitchen"))
+        self.assertEqual(rooms[("Ground floor", "Dining area")], ("0_2", "kitchen", "Kitchen"))
+        self.assertEqual(rooms[("Ground floor", "Office")], ("0_3", "office", "Office"))
+        self.assertEqual(rooms[("Upstairs", "Bedroom")], ("1_1", "upstairs", "Upstairs"))
+
+    def test_robot_room_without_an_area_is_reported_unassigned(self):
+        caps = self.report()
+        unassigned = [r for r in caps["robot_rooms"] if r["area_id"] is None]
+        self.assertEqual([(r["id"], r["name"]) for r in unassigned], [("1_2", None)])
+
+    def test_area_pointing_at_a_room_the_robot_dropped_is_flagged(self):
+        caps = self.report()
+        self.assertEqual([a["id"] for a in caps["unmapped_areas"]], ["stale"])
+        self.assertEqual(caps["unmapped_areas"][0]["segments"], ["0_99"])
+
+    def test_area_removed_from_the_registry_is_not_claimed_as_coverage(self):
+        vacuum, coordinator, entries, states, _ = self.fixture()
+        missing = NS(async_get_area=lambda area_id: None if area_id == "kitchen" else NS(name=area_id.title()))
+        caps = manual.capabilities(vacuum, coordinator, entries, states, missing)[0]
+        kitchen = [r for r in caps["robot_rooms"] if r["id"] in {"0_1", "0_2"}]
+        self.assertEqual([r["area_id"] for r in kitchen], [None, None])
+
+    def test_single_map_cache_reports_rooms_but_never_calls_an_area_stale(self):
+        vacuum, coordinator, entries, states, areas, _ = fixture()
+        caps = manual.capabilities(vacuum, coordinator, entries, states, areas)[0]
+        self.assertFalse(caps["rooms_complete"])
+        self.assertEqual([r["id"] for r in caps["robot_rooms"]], ["0_1", "0_2", "0_3"])
+        self.assertEqual([r["name"] for r in caps["robot_rooms"]], [None, None, None])
+        self.assertEqual([r["area_id"] for r in caps["robot_rooms"]], ["kitchen", "kitchen", "office"])
+        self.assertEqual(caps["unmapped_areas"], [])
+
+    def test_unavailable_robot_reports_no_invented_rooms(self):
+        vacuum, coordinator, entries, states, areas, _ = fixture()
+        coordinator.properties_api.home = NS()
+        caps = manual.capabilities(vacuum, coordinator, entries, states, areas)[0]
+        self.assertEqual(caps["robot_rooms"], [])
+        self.assertEqual(caps["robot_maps"], [])
+        self.assertFalse(caps["rooms_complete"])
+
+
 class CompetingCommandTests(unittest.TestCase):
     def test_native_spot_zone_and_go_to_stop_queue_but_read_only_services_do_not(self):
         for domain, service in [("vacuum", "clean_spot"), ("roborock", "set_vacuum_zoned_cleaning"), ("roborock", "set_vacuum_goto_position")]:

@@ -42,11 +42,91 @@ def current_map(coordinator) -> tuple[int | None, set[str]]:
     return flag, segments
 
 
+def area_mapping(vacuum_entry) -> dict:
+    """Home Assistant stores the vacuum's area mapping in the entity registry options."""
+    mapping = getattr(vacuum_entry, "options", {}).get("vacuum", {}).get("area_mapping", {})
+    return mapping if isinstance(mapping, dict) else {}
+
+
+def _rooms(map_info, flag) -> list[dict]:
+    result = []
+    for room in getattr(map_info, "rooms", None) or []:
+        segment = getattr(room, "segment_id", None)
+        if not isinstance(segment, int) or isinstance(segment, bool):
+            continue
+        label = getattr(room, "name", None)
+        result.append({"id": f"{flag}_{segment}", "segment": segment,
+                       "name": label.strip() if isinstance(label, str) and label.strip() else None})
+    return result
+
+
+def home_maps(coordinator) -> tuple[list[dict], bool]:
+    """Every map the robot reports, with the room names owned by the Roborock app.
+
+    `home_map_info` carries all maps; older cached structures expose only the current
+    map, which is still reported so a mapping can be reviewed without inventing rooms.
+    The flag says whether every map was readable, because only then can an area be
+    called stale.
+    """
+    home = getattr(getattr(coordinator, "properties_api", None), "home", None)
+    info = getattr(home, "home_map_info", None)
+    if isinstance(info, dict) and info:
+        maps = []
+        for flag, map_info in info.items():
+            if not isinstance(flag, int) or isinstance(flag, bool):
+                continue
+            label = getattr(map_info, "name", None)
+            maps.append({"flag": flag, "name": label.strip() if isinstance(label, str) and label.strip() else None,
+                         "rooms": _rooms(map_info, flag)})
+        return maps, True
+    info = getattr(home, "current_map_data", None)
+    flag = getattr(info, "map_flag", None)
+    if not isinstance(flag, int) or isinstance(flag, bool):
+        return [], False
+    return [{"flag": flag, "name": None, "rooms": _rooms(info, flag)}], False
+
+
+def room_report(vacuum_entry, coordinator, area_registry) -> dict:
+    """Read-only view of the robot's rooms and the areas that claim them.
+
+    Reports the Roborock app's own names next to the Home Assistant areas, so an
+    operator can see how the robot's finer segmentation is grouped into real rooms,
+    which robot rooms no area covers, and which areas point at rooms the robot no
+    longer reports. It never writes configuration.
+    """
+    maps, complete = home_maps(coordinator)
+    known = {room["id"] for entry in maps for room in entry["rooms"]}
+    mapping = area_mapping(vacuum_entry)
+    owners: dict[str, str] = {}
+    for area_id, segments in mapping.items():
+        if not isinstance(segments, list):
+            continue
+        for segment in segments:
+            if isinstance(segment, str) and segment not in owners:
+                owners[segment] = area_id
+    rooms = []
+    for entry in maps:
+        for room in entry["rooms"]:
+            area_id = owners.get(room["id"])
+            area = area_registry.async_get_area(area_id) if area_id else None
+            rooms.append({**room, "floor": entry["name"],
+                          "area_id": area_id if area is not None else None,
+                          "area_name": area.name if area is not None else None})
+    areas = []
+    for area_id, segments in mapping.items():
+        if not complete or not isinstance(segments, list) or not segments:
+            continue
+        area = area_registry.async_get_area(area_id)
+        if area is not None and not set(segments) <= known:
+            areas.append({"id": area_id, "name": area.name,
+                          "segments": [s for s in segments if isinstance(s, str)]})
+    return {"maps": [{"flag": e["flag"], "name": e["name"]} for e in maps], "rooms": rooms,
+            "unmapped_areas": areas, "complete": complete}
+
+
 def room_targets(vacuum_entry, coordinator, area_registry) -> dict[str, dict]:
     _, known = current_map(coordinator)
-    mapping = getattr(vacuum_entry, "options", {}).get("vacuum", {}).get("area_mapping", {})
-    if not isinstance(mapping, dict):
-        return {}
+    mapping = area_mapping(vacuum_entry)
     result = {}
     for area_id, segments in mapping.items():
         area = area_registry.async_get_area(area_id)
@@ -102,6 +182,11 @@ def capabilities(vacuum_entry, coordinator, entries, states, area_registry) -> t
     result = {"supported": supported, "modes": [{"value": v, "label": LABELS[v]} for v in offered],
               "suction": suction, "water": water, "routes": routes, "routes_by_mode": routes_by_mode,
               "repeats": [1, 2], "room_targets": [{k: t[k] for k in ("id", "name", "icon") if k in t} for t in targets.values()], "defaults": defaults}
+    report = room_report(vacuum_entry, coordinator, area_registry)
+    result["robot_maps"] = report["maps"]
+    result["robot_rooms"] = report["rooms"]
+    result["unmapped_areas"] = report["unmapped_areas"]
+    result["rooms_complete"] = report["complete"]
     if not supported:
         result["error"] = "Manual cleaning requires an available native Roborock robot, supported cleaning-mode controls, and a known current map."
     return result, selected, targets

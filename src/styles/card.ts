@@ -99,6 +99,14 @@ export const cardStyles = css`
   .setup-description h3 { font-size:17px;margin:14px 0 8px; }
   .setup-message { padding:14px 0 24px; }
   .setup-footnote { padding-top:2px; }
+  .zone-report { margin:14px 0 4px; border:1px solid var(--divider-color,rgba(255,255,255,.1)); border-radius:14px; padding:12px 14px; }
+  .zone-report > summary { display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;justify-content:space-between;cursor:pointer;font-size:13px;font-weight:500; }
+  .zone-count { font-size:11px;font-weight:400;color:var(--secondary-text-color,#acb1cc); }
+  .zone-groups { list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px; }
+  .zone-groups li { display:flex;gap:10px;align-items:baseline;justify-content:space-between;font-size:12px; }
+  .zone-area { font-weight:500; }
+  .zone-rooms { color:var(--secondary-text-color,#acb1cc);text-align:right; }
+  .zone-note { margin:10px 0 0;font-size:12px;line-height:1.5;color:var(--secondary-text-color,#acb1cc); }
   .setup-footer { flex-shrink:0; padding:14px 24px 20px; display:grid;gap:12px;border-top:1px solid var(--divider-color,rgba(255,255,255,.1));margin-top:16px; }
   .setup-footer p { text-align:center;font-size:11px; }
   @media (max-width:360px) { .setup-body { padding:0 18px; } .setup-header { padding:18px 18px 0; } .setup-footer { padding:12px 18px 16px; } .mode-choice { padding:13px; } .setting-pill { padding:10px 12px; } }
