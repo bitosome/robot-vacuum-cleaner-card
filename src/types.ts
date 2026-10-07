@@ -27,6 +27,7 @@ export function validateConfig(raw: CardConfig): CardConfig {
   const ids = new Set<string>(); const presets = new Set<string>();
   raw.rooms.forEach(room => {
     if (!room.id || !room.name || !/^button\.[a-z0-9_]+$/.test(room.preset)) throw new Error('Every room needs an id, name and button preset entity.');
+    if (room.activity_entity && !/^[a-z_]+\.[a-z0-9_]+$/.test(room.activity_entity)) throw new Error(`Invalid activity entity for ${room.name}.`);
     if (ids.has(room.id) || presets.has(room.preset)) throw new Error('Room IDs and preset entities must be unique.');
     ids.add(room.id); presets.add(room.preset);
   });

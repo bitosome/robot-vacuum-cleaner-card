@@ -59,7 +59,13 @@ export class RobotVacuumCleanerCard extends LitElement {
   private get completed() { return Math.max(0,Number(this.queue?.attributes.completed) || 0); }
   private get robotReady() { return available(this.vacuum); }
   private get jobActive() { return this.entity(this.config?.cleaning_entity)?.state === 'on' || ['cleaning','paused','returning'].includes(this.vacuum?.state ?? ''); }
-  private get blocked() { return this.savingPreset || this.deviceSending || this.phase === 'controlling' || !!this.request || !!this.queue?.attributes.pending_command; }
+  /** The integration's own uncertainty window, so the card cannot unlock early. */
+  private get barrierActive() {
+    const raw = this.queue?.attributes.command_barrier_until;
+    const seconds = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+    return Number.isFinite(seconds) && seconds * 1000 > Date.now() + 500;
+  }
+  private get blocked() { return this.savingPreset || this.deviceSending || this.phase === 'controlling' || !!this.request || !!this.queue?.attributes.pending_command || this.barrierActive; }
   private get waterEmpty() { return this.entity(this.config?.dock_error_entity)?.state === 'water_empty'; }
   private get modernController() { return Number(this.queue?.attributes.control_version) >= 3; }
   private get waterAllowed() { return this.waterEmpty && ((this.modernController && this.manual && this.activeSetup.mode==='vacuum') || (Number(this.queue?.attributes.control_version)>=4 && !this.manual)); }
@@ -112,7 +118,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   private async savePreset() {
     if (!this.canSavePreset || !this.hass || !this.config) return;
     const plan = this.manual
-      ? {source:'manual',presets:[],rooms:[...this.manualSelected],setup:{...this.setup}}
+      ? {source:'manual',presets:[],rooms:[...this.manualSelected],setup:this.caps?normalizeSetup(this.caps,this.setup):{...this.setup}}
       : {source:'preset',presets:this.selectedRooms.length ? this.selectedRooms.map(room=>room.preset) : this.config.full_clean_entity ? [this.config.full_clean_entity] : [],rooms:[],setup:{}};
     if (plan.source==='preset' && !plan.presets.length) { this.commandError='Choose rooms before saving a preset.'; return; }
     this.savingPreset=true; this.commandError=''; this.presetFeedback='';
@@ -216,11 +222,15 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (kind === 'start_manual' && (!this.manualReady || this.selectedRooms.some(room=>!this.roomAvailable(room)) || this.selectedRooms.length!==this.manualSelected.length)) return;
     this.commandError = ''; this.feedback = this.waitingText(kind);
     this.request = {kind,since:Date.now()};
+    clearTimeout(this.requestTimer);
+    const pendingRequest = this.request;
+    // Long enough not to contradict the integration's own 60-second window, and tied to
+    // this request so a stale timer can never abort a newer command's confirmation.
     this.requestTimer = setTimeout(() => {
-      if (!this.request) return;
+      if (this.request !== pendingRequest) return;
       this.request = undefined; this.feedback = '';
       this.commandError = 'The robot has not confirmed this command. Check its state before trying again.';
-    },45000);
+    },90000);
     try {
       if (kind === 'start_manual') {
         await this.hass.callService('robot_cleaner_queue','control',{command:'start_manual',vacuum:this.config.entity,rooms:[...this.manualSelected],setup:normalizeSetup(this.caps!,this.setup)});
@@ -371,7 +381,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       ${this.renderUtilities()}
       ${this.phase === 'attention' ? html`<div class="note">Review the robot, then clear this sequence before choosing a new one.<button class="text-button" data-action="clear-queue" ?disabled=${this.blocked || !this.queueReady} @click=${()=>this.command('cancel')}>Clear sequence</button></div>`:nothing}
       ${this.commandError ? html`<div class="error" role="alert">${this.commandError}<button class="text-button" @click=${()=>this.commandError=''}>Dismiss</button></div>`:nothing}
-      ${this.request ? html`<div class="note" role="status">${this.feedback}</div>`:nothing}
+      ${this.request ? html`<div class="note">${this.feedback}</div>`:nothing}
       ${!this.queueReady && (this.rooms.length || this.config?.require_queue) ? html`<div class="note">${this.config?.require_queue ? 'The shared cleaning controller is unavailable. Controls will return when it reconnects.' : 'Install and configure the Home Assistant queue companion to clean rooms in order. Full-home cleaning remains available when the robot is ready.'}</div>`:nothing}
       ${this.hass.services?.robot_cleaner_queue?.save_preset ? html`<section class="surface hero" aria-label="Reusable preset"><div class="section-heading preset-heading"><h3>Preset</h3><div class="pills preset-buttons">${this.savedPreset ? html`<button class="text-button" data-action="load-preset" ?disabled=${this.blocked||this.queueActive||this.jobActive} @click=${()=>this.loadPreset()}>Load preset</button>`:nothing}<button class="action" data-action="save-preset" ?disabled=${!this.canSavePreset} @click=${()=>this.savePreset()}>${icon('mdi:content-save-outline')}${this.savingPreset?'Saving…':'Save preset'}</button></div></div><p class="hint">Save this room order and setup for the card and wall switch. Saving replaces the previous preset without starting cleaning.</p>${this.presetFeedback ? html`<p class="hint" role="status">${this.presetFeedback}</p>`:nothing}</section>`:nothing}
       <section class="room-section" aria-label="Rooms"><div class="section-heading"><h3>${this.queueActive?'Cleaning sequence':this.manual?'Choose your areas':'Choose your rooms'}</h3>${this.selection.length && !this.queueActive?html`<button class="text-button" ?disabled=${this.blocked} @click=${()=>{this.planEdited=true;this.setSelection([]);this.feedback='Selection cleared.';}}>Clear selection</button>`:nothing}</div>
@@ -390,4 +400,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status, room presets and ordered cleaning with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.5.1');
+console.info('ROBOT VACUUM CLEANER CARD 0.5.2');

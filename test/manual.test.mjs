@@ -506,3 +506,19 @@ test('an unreadable floor is never reported as a missing area',async()=>{
   assert.doesNotMatch(report.textContent,/The robot no longer reports/);
   assert.doesNotMatch(report.textContent,/floors/);
 });
+
+test('a saved manual preset stores the same normalized setup that start would send',async()=>{
+  const { card, calls } = await fixture({ services: { robot_cleaner_queue: { control: {}, get_capabilities: {}, save_preset: {} } } });
+  await selectManual(card);
+  await click(card, mode(card, 'mop'));
+  await click(card, setting(card, 'water', 'high'));
+  await click(card, setting(card, 'route', 'fast'));
+  await apply(card);
+  await click(card, action(card, 'save-preset'));
+  const saved = calls.find(call => call.action === 'save_preset');
+  assert.ok(saved, 'Expected a save_preset call');
+  assert.deepEqual(Object.keys(saved.data.setup).sort(), ['mode', 'repeat', 'route', 'water']);
+  assert.equal(saved.data.setup.mode, 'mop');
+  assert.equal('suction' in saved.data.setup, false);
+});
+

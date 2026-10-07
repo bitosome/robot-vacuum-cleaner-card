@@ -472,3 +472,15 @@ test('a rejected shared external command is shown without native fallback',async
   assert.equal(calls.length,1);assert.equal(calls[0].domain,'robot_cleaner_queue');
   assert.match(root(card).querySelector('[role="alert"]').textContent,/unfinished job/);
 });
+test('the integration command barrier keeps the movement controls locked', async () => {
+  const barrier = Math.floor(Date.now() / 1000) + 600;
+  const { card, calls } = await fixture({ states: {
+    'vacuum.robot': entity('cleaning', { supported_features: FEATURES }),
+    'sensor.robot_queue': entity('cancelled', { vacuum: 'vacuum.robot', command_barrier_until: barrier }),
+  } });
+  assert.equal(button(card, 'dock').disabled, true);
+  button(card, 'dock').click(); await settle(card);
+  assert.equal(calls.length, 0);
+  await changeStates(card, { 'sensor.robot_queue': entity('cancelled', { vacuum: 'vacuum.robot' }) });
+  assert.equal(button(card, 'dock').disabled, false);
+});
