@@ -320,7 +320,7 @@ test('manual count shows the current room repeat rather than the vacuum/mop phas
   assert.match(root(card).querySelector('.subline').textContent, /Run 1 of 2/);
 });
 
-test('an external manual run keeps its completed plan until a new local setup is applied', async () => {
+test('an external completed run releases room tiles for the next plan', async () => {
   const attrs = {
     vacuum: 'vacuum.rover', mode: 'manual', presets: [], targets: ['kitchen_area'],
     setup: {mode: 'vacuum_then_mop', suction: 'max', water: 'high', route: 'deep', repeat: 1},
@@ -341,9 +341,9 @@ test('an external manual run keeps its completed plan until a new local setup is
     'sensor.robot_cleaner_queue': entity('completed', {...attrs, completed: 2}),
   });
   assert.ok(room(card, 'kitchen_area')); assert.ok(!room(card, 'kitchen_preset'));
-  assert.match(room(card, 'kitchen_area').textContent, /Completed/);
-  assert.match(root(card).querySelector('[data-room-editor="kitchen_area"] summary').textContent, /Vacuum then mop/);
-  assert.match(root(card).querySelector('h2').textContent, /Your rooms are clean/);
+  assert.match(room(card, 'kitchen_area').textContent, /Tap to select/);
+  assert.doesNotMatch(root(card).querySelector('[data-room-editor="kitchen_area"] summary').textContent, /then mop/);
+  assert.match(root(card).querySelector('h2').textContent, /Ready to clean/);
   await openSetup(card); await click(card, mode(card, 'vacuum')); await apply(card);
   assert.match(root(card).querySelector('[data-room-editor="kitchen_area"] summary').textContent, /Vacuum/);
   assert.doesNotMatch(root(card).querySelector('[data-room-editor="kitchen_area"] summary').textContent, /then mop/);

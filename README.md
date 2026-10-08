@@ -180,3 +180,17 @@ If a room-start response fails, the card explains that the queue is observing th
 robot without sending another start. A confirmed late start can continue normally.
 An unresolved outcome still stops for review after the original deadline. Saving
 or preloading a plan never starts or resumes the interrupted sequence.
+
+
+### Recovering from a stopped sequence
+
+With queue v0.10.1 (execution_version 3), a historical stopped run is shown separately
+from the robot's current state. When fresh robot telemetry confirms readiness, Start
+runs the currently selected plan without requiring a separate clear step. The saved
+plan is preloaded and remains editable. Clear stopped sequence only dismisses history;
+it never moves the robot or changes the saved plan, and works while the robot is offline.
+
+Current faults, unavailable telemetry and unresolved commands still show their reason.
+Controls for a later app-started cleaning job do not resume the old sequence. Known
+Roborock mop/wash states omitted by HA's activity mapping use a fresh, connected
+backend observation for display; unavailable and error states remain authoritative.

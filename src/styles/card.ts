@@ -30,6 +30,12 @@ export const cardStyles = css`
   .pill.live { color:color-mix(in srgb,var(--status-active-color) 65%,var(--primary-text-color) 35%); background:color-mix(in srgb,var(--status-active-color) 12%,transparent); }
   .progress { height:5px; border-radius:999px; overflow:hidden; background:color-mix(in srgb,var(--primary-text-color) 12%,transparent); margin-top:18px; }
   .progress > span { display:block; height:100%; background:var(--status-active-color); border-radius:inherit; transition:width .3s; }
+  .recovery-note { margin-top:18px; padding:14px; border-radius:var(--tile-border-radius); background:color-mix(in srgb,var(--primary-text-color) 5%,transparent); font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+  .recovery-heading { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 12px; margin-bottom:6px; }
+  .recovery-heading span,.recovery-hint { color:var(--secondary-text-color); }
+  .recovery-note button { display:flex; align-items:center; gap:7px; margin:8px 0 4px; }
+  .recovery-note .primary { width:100%; }
+  .recovery-note ha-icon { width:18px; height:18px; --mdc-icon-size:18px; flex-basis:18px; }
   .actions { display:flex; gap:8px; margin-top:20px; }
   .action { border:0; border-radius:999px; min-height:46px; display:flex; justify-content:center; align-items:center; gap:8px; padding:10px 16px; font-size:14px; font-weight:700; line-height:1.2; background:color-mix(in srgb,var(--primary-text-color) 8%,transparent); }
   .primary { flex:1; color:var(--primary-background-color,#181a27); background:var(--robot-accent); }

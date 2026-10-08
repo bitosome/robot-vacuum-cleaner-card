@@ -117,7 +117,7 @@ test('attention details appear once instead of repeating the backend error in bo
   const message='The robot did not confirm the cleaning command.';
   const {card}=await fixture({phase:'attention',attrs:{error:message,floor_cleaning_complete:false}});
   assert.equal(root(card).textContent.split(message).length-1,1);
-  assert.match(subline(card),/Review the details below/);
+  assert.match(subline(card),/Clear the stopped sequence/);
 });
 
 test('charging between passes does not claim the battery needs recharging',async()=>{

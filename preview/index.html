@@ -131,6 +131,8 @@
               <option value="final_settling">Rooms clean · settling at dock</option>
               <option value="completed_drying">Complete · passive mop drying</option>
               <option value="uncertain_start">Start request awaiting confirmation</option>
+              <option value="stopped_ready">Previous sequence stopped · ready again</option>
+              <option value="stopped_waiting">Previous sequence stopped · awaiting update</option>
               <option value="error">Needs attention</option>
               <option value="unavailable">Unavailable</option>
               <option value="recharging">Low battery · recharging</option>
@@ -290,7 +292,7 @@
     function capabilities() {
       if (scenario === 'manual_unavailable' || states[config.entity]?.state === 'unavailable') return {supported: false, modes: [], suction: [], water: [], routes: [], repeats: [], room_targets: [], defaults: {}, error: 'Manual cleaning settings are unavailable. Check the robot connection.'};
       const vacuumOnly = scenario === 'vacuum_only';
-      return {preferences,saved_plan_revision:savedPreset?.revision??0,saved_preset:savedPreset,current_map:0,control_version:5,device_entities:deviceEntities,supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
+      return {preferences,saved_plan_revision:savedPreset?.revision??0,saved_preset:savedPreset,current_map:0,control_version:5,execution_version:3,device_entities:deviceEntities,supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
         suction: ['quiet', 'balanced', 'turbo', 'max', 'max_plus'],
         water: vacuumOnly ? [] : ['low', 'medium', 'high'],
         routes: vacuumOnly ? [] : ['standard', 'deep', 'deep_plus', 'fast'],
@@ -305,7 +307,7 @@
       return {response: structuredClone(capabilities())};
     }
     const stamp = () => new Date().toISOString();
-    const set = (id, state, attributes = {}) => { states[id] = {entity_id: id, state: String(state), attributes: id===config.queue_entity ? {control_version:5,...attributes}:attributes, last_changed: stamp(), last_updated: stamp()}; };
+    const set = (id, state, attributes = {}) => { states[id] = {entity_id: id, state: String(state), attributes: id===config.queue_entity ? {control_version:5,execution_version:3,...attributes}:attributes, last_changed: stamp(), last_updated: stamp()}; };
     const queue = () => states[config.queue_entity];
     const queueAttrs = () => ({vacuum: config.entity, presets: [], current_index: 0, completed: 0, error: '', ...(queue()?.attributes || {})});
     const roomByPreset = preset => rooms.find(room => room.preset === preset);
@@ -511,6 +513,11 @@
       if (value==='uncertain_start') {
         startManual({rooms:[{id:'0_3',...capabilities().defaults},{id:'0_5',...capabilities().defaults}]});
         set(config.queue_entity,'starting',{...queueAttrs(),start_uncertain:true,command_failure:{operation:'start',category:'timeout'}});
+        robotState('docked','charging');
+      }
+      if (['stopped_ready','stopped_waiting'].includes(value)) {
+        startManual({rooms:[{id:'0_1',mode:'vacuum_then_mop',suction:'max',water:'high',route:'standard',repeat:1},{id:'0_3',mode:'vacuum_then_mop',suction:'max',water:'high',route:'standard',repeat:1}]});
+        set(config.queue_entity,'attention',{...queueAttrs(),run_id:'previous-run',current_index:3,completed:3,pending_command:'',recovery_ready:value==='stopped_ready',recovery_reason:value==='stopped_ready'?'':'Wait for a fresh robot update before starting a new action.',command_barrier_until:Date.now()/1000-60,error:'The previous room start could not be confirmed. No automatic retry was sent.'});
         robotState('docked','charging');
       }
       if (value === 'error') set(config.error_entity, 'main_brush_jammed');

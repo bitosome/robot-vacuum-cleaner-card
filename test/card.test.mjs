@@ -411,15 +411,16 @@ test('Select all keeps settings edited inline before selection', async () => {
   assert.deepEqual(calls[0].data.rooms,[{id:'0_1',...ROOM_DEFAULTS},{id:'0_2',mode:'vacuum',suction:'balanced',repeat:1},{id:'0_3',...ROOM_DEFAULTS}]);
 });
 
-test('attention requires clearing the old sequence before starting another', async () => {
+test('legacy attention offers prominent clearing instead of a disabled start', async () => {
   const { card, calls } = await fixture({ states: {
     'sensor.robot_queue': entity('attention', { vacuum: 'vacuum.robot', control_version: 5, mode: 'manual', presets: [], targets: ['0_1'],
       stages: [{ target: '0_1', mode: 'vacuum_mop', room_index: 0, pass_index: 0, repeat_index: 0 }], setup: {}, current_index: 0, completed: 0,
       error: 'Completion was not confirmed' }),
   } });
-  assert.equal(button(card, 'start').disabled, true);
+  assert.equal(button(card, 'start'), null);
   assert.match(root(card).textContent, /not confirmed/);
-  assert.match(root(card).querySelector('.subline').textContent, /Review the details below/);
+  assert.equal(button(card,'clear-queue').classList.contains('primary'),true);
+  assert.match(root(card).querySelector('.subline').textContent, /Clear the stopped sequence/);
   button(card, 'clear-queue').click(); await settle(card);
   assert.deepEqual(calls, [{ domain: 'robot_cleaner_queue', action: 'control', data: { command: 'cancel', vacuum: 'vacuum.robot' } }]);
   await changeStates(card, { 'sensor.robot_queue': entity('cancelled', { vacuum: 'vacuum.robot', control_version: 5, presets: [], targets: [], completed: 0 }) });
@@ -568,4 +569,147 @@ test('a sequence that needs attention can always be cleared', async () => {
   assert.equal(clear.disabled, false);
   clear.click(); await settle(card);
   assert.deepEqual(calls.map(call => call.data.command), ['cancel']);
+});
+
+
+const stoppedQueue = (extra={}) => entity('attention', {
+  vacuum:'vacuum.robot', control_version:5, execution_version:3, mode:'manual', run_id:'previous-run',
+  targets:['0_1'], setup:{rooms:[{id:'0_1',name:'Living room',setup:ROOM_DEFAULTS}]},
+  stages:[{target:'0_1',mode:'vacuum_mop',room_index:0,pass_index:0,repeat_index:0}],
+  current_index:0, completed:0, error:'Previous cleaning command was not confirmed.',
+  pending_command:'', recovery_ready:true, recovery_reason:'', command_barrier_until:0, ...extra,
+});
+
+test('a recovered stopped run preloads the saved plan and starts a new explicit run without mandatory clearing',async()=>{
+  const capabilities=roomCapabilities();
+  capabilities.saved_preset={source:'rooms',map_id:0,revision:3,setup:{},rooms:[{id:'0_2',...ROOM_DEFAULTS}]};
+  const {card,calls}=await fixture({capabilities,states:{'sensor.robot_queue':stoppedQueue()}});
+  assert.equal(button(card,'start').disabled,false);
+  assert.equal(room(card,'0_2').getAttribute('aria-pressed'),'true');
+  assert.match(root(card).querySelector('h2').textContent,/Ready to clean/);
+  assert.match(root(card).querySelector('.recovery-note').textContent,/Previous sequence stopped/);
+  assert.equal(calls.length,0,'No retry may be sent merely because recovery becomes ready');
+  button(card,'start').click();await settle(card);
+  assert.deepEqual(calls.map(call=>call.data.command),['start_manual']);
+  assert.deepEqual(calls[0].data.rooms,[{id:'0_2',...ROOM_DEFAULTS}]);
+});
+
+test('a stopped run immediately releases per-room editors and stale pending attributes do not lock local plans',async()=>{
+  const {card,calls}=await fixture({states:{'sensor.robot_queue':stoppedQueue({recovery_ready:false,pending_command:'start',recovery_reason:'Waiting for a fresh robot update.'})}});
+  const field=root(card).querySelector('[data-room-editor="0_1"] [data-room-setting="mode"]');
+  assert.equal(field.disabled,false);
+  field.value='vacuum';field.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
+  await tap(card,'0_1');
+  assert.equal(room(card,'0_1').getAttribute('aria-pressed'),'true');
+  assert.equal(button(card,'save-preset').disabled,false);
+  assert.equal(button(card,'start'),null);
+  assert.match(root(card).querySelector('.subline').textContent,/Waiting for a fresh robot update/);
+  assert.equal(button(card,'clear-queue').disabled,false);
+  assert.equal(calls.length,0);
+});
+
+test('a successful clear is acknowledged without waiting for a new HA state event',async()=>{
+  let finish;
+  const {card,calls}=await fixture({states:{'sensor.robot_queue':stoppedQueue({recovery_ready:false})},service:()=>new Promise(resolve=>{finish=resolve;})});
+  button(card,'clear-queue').click();await settle(card);
+  assert.equal(button(card,'clear-queue').disabled,true);
+  button(card,'clear-queue').click();await settle(card);
+  assert.equal(calls.length,1);
+  finish();await settle(card);
+  assert.equal(card.request,undefined);
+  assert.equal(button(card,'clear-queue').disabled,false);
+  assert.deepEqual(calls.map(call=>[call.domain,call.data.command]),[['robot_cleaner_queue','cancel']]);
+});
+
+test('old attention telemetry cannot acknowledge or swallow a rejected new start',async()=>{
+  let reject;
+  const {card}=await fixture({states:{'sensor.robot_queue':stoppedQueue()},service:()=>new Promise((_resolve,fail)=>{reject=fail;})});
+  await tap(card,'0_1');button(card,'start').click();await settle(card);
+  await changeStates(card,{'sensor.robot_queue':stoppedQueue({robot_observed_at:Date.now()/1000})});
+  assert.equal(card.request?.kind,'start_manual');
+  reject(Error('The dock is not ready for mopping.'));await settle(card);
+  assert.equal(card.request,undefined);
+  assert.match(root(card).querySelector('[role="alert"]').textContent,/dock is not ready/);
+});
+
+test('a new run failure acknowledges only its new run id',async()=>{
+  const {card}=await fixture({states:{'sensor.robot_queue':stoppedQueue()}});
+  await tap(card,'0_1');button(card,'start').click();await settle(card);
+  assert.equal(card.request?.kind,'start_manual');
+  await changeStates(card,{'sensor.robot_queue':stoppedQueue({run_id:'new-run',error:'New command failed.',recovery_ready:false})});
+  assert.equal(card.request,undefined);
+  assert.match(root(card).querySelector('.recovery-note').textContent,/New command failed/);
+});
+
+test('a reported recovery never bypasses a live dispatch barrier',async()=>{
+  const {card,calls}=await fixture({states:{'sensor.robot_queue':stoppedQueue({command_barrier_until:Math.floor(Date.now()/1000)+180})}});
+  await tap(card,'0_1');
+  assert.equal(button(card,'start').disabled,true);
+  assert.match(button(card,'start').textContent,/Waiting 3 min/);
+  button(card,'start').click();await settle(card);assert.equal(calls.length,0);
+  assert.equal(button(card,'clear-queue').disabled,false);
+});
+
+test('recovered attention permits available dock and settings controls with water policy intact',async()=>{
+  const capabilities=roomCapabilities();
+  capabilities.device_entities={dust_emptying:'switch.robot_emptying',mop_washing:'switch.robot_washing',volume:'number.robot_volume'};
+  const {card,calls}=await fixture({capabilities,services:{robot_cleaner_queue:{control:{},get_capabilities:{},device_control:{}}},states:{
+    'sensor.robot_queue':stoppedQueue(),
+    'switch.robot_emptying':entity('off'),'switch.robot_washing':entity('off'),'number.robot_volume':entity('50',{min:0,max:100}),
+    'sensor.robot_dock_error':entity('water_empty'),
+  }});
+  root(card).querySelector('[data-panel="dock"]').click();await settle(card);
+  const empty=root(card).querySelector('[data-device="dust_emptying"]');
+  const wash=root(card).querySelector('[data-device="mop_washing"]');
+  assert.equal(empty.disabled,false);
+  assert.equal(wash.disabled,true);
+  empty.click();await settle(card);
+  assert.deepEqual(calls.map(call=>call.data.control),['dust_emptying']);
+});
+
+
+for (const [nativeStatus,activity,title] of [
+  ['washing_the_mop','docked','Washing mops'],
+  ['washing_the_mop_2','docked','Washing mops'],
+  ['air_drying_stopping','docked','Finishing mop drying'],
+  ['segment_mopping','cleaning','Cleaning in progress'],
+  ['back_to_dock_washing_duster','returning','Returning to dock'],
+]) test(`fresh normalized ${nativeStatus} does not look offline when HA omits its vacuum mapping`,async()=>{
+  const {card,calls}=await fixture({states:{
+    'vacuum.robot':entity('unknown',{supported_features:FEATURES}),
+    'sensor.robot_status':entity(nativeStatus),
+    'sensor.robot_queue':stoppedQueue({recovery_ready:false,robot_connected:true,robot_activity:activity,robot_observed_at:Date.now()/1000}),
+  }});
+  assert.equal(root(card).querySelector('h2').textContent,title);
+  assert.doesNotMatch(root(card).querySelector('.subline').textContent,/reconnect/);
+  assert.equal(calls.length,0);
+});
+
+for (const [native,attrs] of [
+  ['unavailable',{}],
+  ['unknown',{robot_connected:false}],
+  ['unknown',{robot_observed_at:Date.now()/1000-120}],
+  ['unknown',{execution_version:2}],
+  ['unknown',{execution_version:undefined}],
+  ['unknown',{robot_activity:'invented'}],
+]) test(`normalized status never hides ${native} with ${JSON.stringify(Object.keys(attrs))}`,async()=>{
+  const {card}=await fixture({states:{
+    'vacuum.robot':entity(native,{supported_features:FEATURES}),
+    'sensor.robot_queue':stoppedQueue({robot_connected:true,robot_activity:'docked',robot_observed_at:Date.now()/1000,...attrs}),
+  }});
+  assert.equal(root(card).querySelector('h2').textContent,'Robot unavailable');
+  assert.equal(button(card,'clear-queue').disabled,false);
+});
+
+test('historical attention does not remove controls for an external active cleaning job',async()=>{
+  const {card,calls}=await fixture({states:{
+    'vacuum.robot':entity('cleaning',{supported_features:FEATURES|8}),
+    'binary_sensor.robot_cleaning':entity('on'),
+    'sensor.robot_status':entity('segment_cleaning'),
+    'sensor.robot_queue':stoppedQueue({recovery_ready:false,recovery_reason:'A cleaning job is active.'}),
+  }});
+  for(const action of ['pause','dock','stop']) assert.equal(button(card,action).disabled,false);
+  assert.equal(button(card,'start'),null);
+  button(card,'dock').click();await settle(card);
+  assert.deepEqual(calls.map(call=>call.data.command),['return_to_dock']);
 });
