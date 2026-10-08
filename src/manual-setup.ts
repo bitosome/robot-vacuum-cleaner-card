@@ -7,13 +7,14 @@ export type CleaningSource = 'preset'|'manual'|'rooms';
 export interface ManualSetup { mode: CleaningMode; suction?: string; water?: string; route?: string; repeat: number; }
 /** One room of a saved plan, in the flat shape the queue service accepts. */
 export interface SavedRoom { id: string; mode?: CleaningMode; suction?: string; water?: string; route?: string; repeat?: number; }
-export interface SavedPreset { source: CleaningSource; presets: string[]; rooms: Array<string|SavedRoom>; setup: ManualSetup; map_id?: number; }
+export interface SavedPreset { revision?: number; source: CleaningSource; presets: string[]; rooms: Array<string|SavedRoom>; setup: ManualSetup; map_id?: number; }
 export interface RobotRoom { id: string; name?: string|null; segment?: number; floor?: string|null; area_id?: string|null; area_name?: string|null; }
 export interface RobotMap { flag: number; name?: string|null; }
 export interface UnmappedArea { id: string; name: string; segments: string[]; }
 export interface RoomPreferences { revision: number; defaults: Partial<ManualSetup>; rooms: Record<string,ManualSetup>; }
 export interface ManualCapabilities {
   preferences?: RoomPreferences;
+  saved_plan_revision?: number;
   saved_preset?: SavedPreset; current_map?: number;
   control_version?: number; device_entities?: Record<string,string>;
   supported: boolean; modes: Array<{value: CleaningMode; label: string}>;

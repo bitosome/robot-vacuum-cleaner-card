@@ -36,8 +36,12 @@ export const cardStyles = css`
   .secondary { color:var(--secondary-text-color); }
   .room-section { padding:6px 4px 3px; }
   .section-heading { display:flex; align-items:center; justify-content:space-between; min-height:40px; margin-bottom:4px; gap:8px; }
-  .preset-heading { flex-wrap:wrap; }
-  .preset-buttons { margin-top:0; }
+  .plan-bar { padding:0 4px; }
+  .plan-toolbar { display:flex; align-items:center; gap:4px; min-height:44px; }
+  .plan-label { flex:1; min-width:0; color:var(--secondary-text-color); font-size:12px; }
+  .plan-toolbar .action { min-height:44px; padding:9px 12px; font-size:12px; }
+  .plan-toolbar .text-button { padding:8px; }
+  .plan-bar .hint { margin:4px 0 0; }
   .section-heading h3 { font-size:14px; font-weight:700; margin:0; }
   .text-button { border:0; padding:10px; min-height:44px; background:transparent; color:var(--robot-accent); font-size:12px; font-weight:650; }
   .hint { font-size:12px; line-height:1.4; color:var(--secondary-text-color); margin-bottom:14px; }

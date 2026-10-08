@@ -442,17 +442,18 @@ test('save manual preset persists order and settings without a cleaning command'
   assert.equal(calls.length,1); assert.equal(calls[0].action,'save_preset');
   assert.deepEqual(calls[0].data.rooms,['kitchen_area','living_area']);
   assert.equal(calls[0].data.setup.mode,'vacuum');
-  assert.match(root(card).textContent,/Plan saved in Home Assistant/);
+  assert.match(root(card).textContent,/Plan saved for the wall switch/);
 });
 
 test('a fresh card loads a server-saved preset without starting cleaning',async()=>{
   const plan={source:'manual',presets:[],rooms:['kitchen_area','living_area'],setup:{mode:'vacuum',suction:'max',repeat:2},map_id:0};
   const {card,calls}=await fixture({capabilities:{...baseCapabilities,current_map:0,saved_preset:plan},
     states:{'sensor.robot_cleaner_queue':entity('idle',{control_version:4})},services:{robot_cleaner_queue:{control:{},get_capabilities:{},save_preset:{}}}});
-  await click(card,action(card,'load-preset'));
   assert.equal(calls.length,0);
   assert.deepEqual(card.manualSelected,['kitchen_area','living_area']);
-  assert.deepEqual(card.setup,plan.setup);
+  assert.deepEqual(card.planCommonSetup,plan.setup);
+  await click(card,action(card,'start'));
+  assert.deepEqual(calls[0].data.setup,plan.setup);
   assert.equal(card.source,'manual');
 });
 
@@ -642,7 +643,7 @@ test('saving a room plan stores it and a freshly loaded card restores the same p
   const restored = await roomFixture({services: {robot_cleaner_queue: {control: {}, get_capabilities: {}, save_preset: {}}},
     capabilities: {...roomCapabilities(),
       saved_preset: {source: 'rooms', presets: [], rooms: saved.data.rooms, setup: saved.data.setup, map_id: 0}}});
-  await click(restored.card, action(restored.card, 'load-preset'));
+  assert.equal(action(restored.card,'save-preset').disabled,true);
   assert.equal(room(restored.card, '0_12').querySelector('.order')?.textContent.trim(), '1');
   assert.equal(room(restored.card, '0_5').querySelector('.order')?.textContent.trim(), '2');
   await click(restored.card, action(restored.card, 'start'));
@@ -723,6 +724,9 @@ const manualQueue = (phase, extra = {}) => entity(phase, {
 test('the acknowledgement window never freezes room editing', async () => {
   const { card, calls } = await roomFixture({ states: {
     'sensor.robot_cleaner_queue': manualQueue('cancelled', { command_barrier_until: barrierAt(4) }) } });
+  // A finished sequence stays dismissable while waiting for acknowledgement.
+  assert.ok(action(card, 'clear-queue'));
+  assert.equal(action(card, 'clear-queue').disabled, false);
   // Tiles stay tappable and the selection can still be changed.
   assert.equal(room(card, '0_5').disabled, false);
   await click(card, room(card, '0_5'));
@@ -731,7 +735,14 @@ test('the acknowledgement window never freezes room editing', async () => {
   await openSetup(card);
   assert.ok(root(card).querySelector('[data-room-setting="mode"]'));
   await apply(card);
-  // A finished sequence stays dismissable, and clearing never waits for the window.
+  // Once a fresh draft is selected, the old finished-sequence notice is hidden.
+  assert.equal(action(card, 'clear-queue'), null);
+  assert.equal(calls.length, 0);
+});
+
+test('a finished sequence can be cleared during the acknowledgement window', async () => {
+  const { card, calls } = await roomFixture({ states: {
+    'sensor.robot_cleaner_queue': manualQueue('cancelled', { command_barrier_until: barrierAt(4) }) } });
   const clear = action(card, 'clear-queue');
   assert.ok(clear, 'A terminal sequence can be dismissed during the window');
   assert.equal(clear.disabled, false);
@@ -857,4 +868,33 @@ test('failed preference save keeps the draft and does not report success',async(
   assert.equal(card.setup.suction,'quiet');
   assert.match(root(card).textContent,/Storage unavailable/);
   assert.doesNotMatch(root(card).textContent,/Room settings saved for everyone/);
+});
+
+test('a map update during capability loading queues a fresh read instead of leaving old rooms',async()=>{
+  const original={...roomCapabilities(),device_entities:{selected_map:'select.rover_map'}};
+  const {card}=await roomFixture({capabilities:original,states:{'select.rover_map':entity('Ground floor')}});
+  let resolveOld, reads=0;
+  const newer={...original,current_map:1};
+  card.hass={...card.hass,callWS:async()=>{
+    reads++; if(reads===1) return new Promise(resolve=>{resolveOld=resolve;});
+    return {response:structuredClone(newer)};
+  }};
+  await settle(card);
+  const pending=card.readCapabilities();
+  card.hass={...card.hass,states:{...card.hass.states,'select.rover_map':entity('Loft')}};
+  await settle(card);
+  resolveOld({response:structuredClone(original)}); await pending; await settle(card);
+  assert.equal(reads,2); assert.equal(card.caps.current_map,1);
+  assert.ok(room(card,'1_1')); assert.equal(room(card,'0_12'),null);
+});
+test('a pending old-robot plan save cannot put errors into a reconfigured card',async()=>{
+  let rejectSave;
+  const {card}=await roomFixture({services:{robot_cleaner_queue:{control:{},get_capabilities:{},save_preset:{}}},
+    service:()=>new Promise((_,reject)=>{rejectSave=reject;})});
+  await click(card,room(card,'0_12'));
+  action(card,'save-preset').click(); await settle(card);
+  card.setConfig({...baseConfig,entity:'vacuum.other'}); await settle(card);
+  rejectSave(new Error('Old robot failed')); await settle(card);
+  assert.equal(card.commandError,''); assert.equal(card.savingPreset,false);
+  assert.equal(card.config.entity,'vacuum.other');
 });

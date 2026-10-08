@@ -1,4 +1,5 @@
 import {html, nothing} from 'lit';
+import {live} from 'lit/directives/live.js';
 import {available, humanize, numeric, type Hass} from './types';
 export type DevicePanel = 'dock'|'map'|'settings'|'care'|'status';
 const titles = {dock:'Dock',map:'Home map',settings:'Robot settings',care:'Care & maintenance',status:'Robot details'};
@@ -34,10 +35,10 @@ export function renderDevicePanel(model:{panel:DevicePanel;hass:Hass;entities:Re
         const disabled=model.busy || (dock && !on && (!model.robotDocked || model.fault || (key==='mop_washing' && model.waterEmpty)));
         return html`<div class="device-row"><div><span>${label}</span>${dock ? html`<small>${on?'Running':'Idle'}</small>`:nothing}</div><button class="setting-pill ${on?'chosen':''}" data-device=${key} aria-label=${`${label}: ${on?'on':'off'}`} aria-pressed=${on?'true':'false'} ?disabled=${disabled} @click=${()=>model.send(key,on?'off':'on')}>${dock ? on?'Stop':'Start' : on?'On':'Off'}</button></div>`;
       }
-      if(key==='volume') return html`<label class="device-row volume-row"><span>${label}<strong>${value}%</strong></span><input data-device="volume" aria-label="Voice volume" type="range" min=${state.attributes.min??0} max=${state.attributes.max??100} step=${state.attributes.step??1} .value=${value} ?disabled=${model.busy} @change=${(event:Event)=>model.send(key,Number((event.target as HTMLInputElement).value))}></label>`;
-      if(entities[key].startsWith('time.')) return html`<label class="device-row"><span>${label}</span><input type="time" data-device=${key} .value=${value.slice(0,5)} ?disabled=${model.busy} @change=${(event:Event)=>model.send(key,(event.target as HTMLInputElement).value)}></label>`;
+      if(key==='volume') return html`<label class="device-row volume-row"><span>${label}<strong>${value}%</strong></span><input data-device="volume" aria-label="Voice volume" type="range" min=${state.attributes.min??0} max=${state.attributes.max??100} step=${state.attributes.step??1} .value=${live(value)} ?disabled=${model.busy} @change=${(event:Event)=>model.send(key,Number((event.target as HTMLInputElement).value))}></label>`;
+      if(entities[key].startsWith('time.')) return html`<label class="device-row"><span>${label}</span><input type="time" data-device=${key} .value=${live(value.slice(0,5))} ?disabled=${model.busy} @change=${(event:Event)=>model.send(key,(event.target as HTMLInputElement).value)}></label>`;
       const options=(state.attributes.options??[]).filter((v:string)=>!['unknown','unavailable'].includes(v));
-      return options.length>1 ? html`<label class="device-row"><span>${label}</span><select data-device=${key} .value=${value} ?disabled=${model.busy || key==='selected_map'&&!model.robotDocked} @change=${(event:Event)=>model.send(key,(event.target as HTMLSelectElement).value)}>${options.map((option:string)=>html`<option .value=${option} ?selected=${option===value}>${humanize(option)}</option>`)}</select></label>`:nothing;
+      return options.length>1 ? html`<label class="device-row"><span>${label}</span><select data-device=${key} .value=${live(value)} ?disabled=${model.busy || key==='selected_map'&&!model.robotDocked} @change=${(event:Event)=>model.send(key,(event.target as HTMLSelectElement).value)}>${options.map((option:string)=>html`<option .value=${option} .selected=${live(option===value)}>${humanize(option)}</option>`)}</select></label>`:nothing;
     })}
     ${!keys.length ? html`<p class="note">No available controls in this section.</p>`:nothing}
     ${panel==='care' ? html`<p class="hint">Usage-based reminders from the robot. Service the parts before resetting their counters in the Roborock app.</p>`:nothing}

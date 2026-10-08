@@ -268,7 +268,10 @@
     const card = document.querySelector('#card');
     const calls = [];
     let states = {};
-    let savedPreset;
+    let savedPreset={source:'rooms',revision:1,map_id:0,presets:[],setup:{},rooms:[
+      {id:'0_1',mode:'vacuum',suction:'max_plus',repeat:2},
+      {id:'0_2',mode:'mop',water:'high',route:'deep',repeat:1}
+    ]};
     let fixtureRevision = 0;
     let commandPending = false;
     let ready = false;
@@ -282,7 +285,7 @@
     function capabilities() {
       if (scenario === 'manual_unavailable' || states[config.entity]?.state === 'unavailable') return {supported: false, modes: [], suction: [], water: [], routes: [], repeats: [], room_targets: [], defaults: {}, error: 'Manual cleaning settings are unavailable. Check the robot connection.'};
       const vacuumOnly = scenario === 'vacuum_only';
-      return {preferences,saved_preset:savedPreset,current_map:0,control_version:5,device_entities:deviceEntities,supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
+      return {preferences,saved_plan_revision:savedPreset?.revision??0,saved_preset:savedPreset,current_map:0,control_version:5,device_entities:deviceEntities,supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
         suction: ['quiet', 'balanced', 'turbo', 'max', 'max_plus'],
         water: vacuumOnly ? [] : ['low', 'medium', 'high'],
         routes: vacuumOnly ? [] : ['standard', 'deep', 'deep_plus', 'fast'],
@@ -396,7 +399,12 @@
         states[config.queue_entity].attributes.preferences_revisions={[config.entity]:preferences.revision};
         log(domain,service,data);paint();return;
       }
-      if (domain==='robot_cleaner_queue' && service==='save_preset') { savedPreset=structuredClone({...data,map_id:0});log(domain,service,data);return; }
+      if (domain==='robot_cleaner_queue' && service==='save_preset') {
+        if(data.revision!==undefined && data.revision!==(savedPreset?.revision??0)) throw new Error('Plan changed elsewhere. Reload before saving.');
+        savedPreset=structuredClone({...data,map_id:0,revision:(savedPreset?.revision??0)+1});
+        states[config.queue_entity].attributes.saved_plan_revisions={[config.entity]:savedPreset.revision};
+        log(domain,service,data);paint();return;
+      }
       if (states[config.entity]?.state === 'unavailable' && (data.variables?.command || data.command) !== 'cancel') throw new Error('The robot is unavailable.');
       log(domain, service, data);
       commandPending = true;

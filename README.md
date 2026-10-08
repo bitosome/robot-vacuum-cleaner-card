@@ -150,3 +150,18 @@ removes a room override when you save. Other floors retain their preferences.
 **Save plan** remains separate: it freezes the selected room order and settings for
 the wall switch. Updating preferences never alters that saved sequence or an active
 clean, and saving either kind of data never starts the robot.
+
+### Saved plan on opening the card
+
+The saved wall-switch plan preloads automatically when the robot is available and
+no sequence is active. Its room order and effective cleaning settings are restored
+without starting a clean. **Save plan** becomes available only when that plan
+changes; reverting the change disables it again. **Reload** discards plan edits
+and restores the shared saved plan. The compact plan row replaces the large tile.
+
+Loaded plan settings are separate from shared defaults/room preferences. Reading
+or reloading a plan never replaces unrelated preferences. With companion v0.9.1,
+other dashboards refresh when a plan is saved; a locally changed draft is preserved
+and a conflicting save is rejected until reloaded. Unavailable rooms/maps or options
+are reported for review rather than silently substituted. Active sequences keep
+their own frozen settings and are never started by loading a plan.
