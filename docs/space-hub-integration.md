@@ -8,7 +8,7 @@ Reuse the same `mdi:` icon names from the Space Hub room headers in preset `room
 
 ## Route quick cleaning through one controller
 
-Once the queue companion is installed, a quick room-preset tile can use the same queue service as the robot card:
+Once the queue integration is installed, a quick room tile can use the same controller as the robot card:
 
 ```yaml
 tap_action:
@@ -31,7 +31,7 @@ This is a migration example, not an instruction to change a running dashboard be
 
 - Send pause/resume/return-to-dock for a companion-owned active queue through `robot_cleaner_queue.control`, using the same `vacuum` and command. Sending native `vacuum.pause` or `vacuum.start` directly is external intervention and interrupts its ownership of the remaining sequence.
 - Companion 0.2.2 also supports pause/resume/return-to-dock for an app-started job when an explicit vacuum is supplied. It uses `mode: external` and `phase: controlling` until a fresh acknowledgement, then returns to idle without inventing or resuming an old room plan. Resume requires a confirmed unfinished paused job.
-- Queue mode needs an explicit deployment choice. If its sensor or service is unavailable, stop with a visible error. Do not fall back to a native preset or another controller after rejection, timeout, or a temporary companion failure.
+- Queue mode needs an explicit deployment choice. If its sensor or service is unavailable, stop with a visible error. Do not fall back to a routine, another controller or a native whole-home start after rejection, timeout, or a temporary integration failure.
 - All starts must enter the queue controller. During `preparing`, the robot can still appear docked with no active job while settings are being applied; that is not permission for a parallel legacy start.
 - Preserve checks for active, pending, attention and uncertain prior commands. Remove any claim that a quick tile can replace an unfinished docked job; the queue rejects that operation.
 - Read pending/current sequence context from the queue sensor for companion-owned runs. Legacy request helpers may clear between jobs and cannot represent the complete plan.

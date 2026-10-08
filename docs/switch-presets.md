@@ -16,32 +16,46 @@ script:
           vacuum: vacuum.robot
 ```
 
-Idle starts the saved plan; another hold cancels remaining stages and returns to dock for native care. Repeated holds while finishing do not restart cleaning. Optional `presets` provide a fallback app routine only before the first save. A saved plan that is no longer valid is rejected, never replaced by the fallback. Saving itself never starts cleaning. Existing input-button compatibility automations can call this same script without a firmware flash.
+Idle starts the saved plan; another hold cancels remaining stages and returns to dock for native care. Repeated holds while finishing do not restart cleaning. A saved plan that is no longer valid is rejected rather than replaced; routines are no longer a fallback. Saving itself never starts cleaning. Existing input-button compatibility automations can call this same script without a firmware flash.
 
-## Fixed app-routine scripts
+## Fixed room-plan scripts
+
+Use a named Home Assistant script for a plan a switch should always run, rather than relying on the saved preset:
+
+```yaml
+script:
+  robot_clean_downstairs:
+    sequence:
+      - action: robot_cleaner_queue.control
+        data:
+          command: start_manual
+          vacuum: vacuum.robot
+          rooms:
+            - {id: "0_12", mode: vacuum_mop, suction: max, water: high, route: standard}
+            - {id: "0_13", mode: mop, water: medium, route: deep}
+            - {id: "0_5", mode: vacuum, suction: turbo, repeat: 2}
+```
+
+Room ids come from `robot_cleaner_queue.get_capabilities` (`robot_rooms` for the current map), and the mode, suction, water, route and repeat values must be ones that same response offers. A switch that only accepts a service and an entity calls such a script with `script.turn_on`; the plan runs through the same controller as the robot card, so it keeps the queue's busy and uncertainty checks. Substitute your own vacuum and room ids.
 
 
-Use a named Home Assistant script for each saved cleaning preset. A switch that only accepts a service and an entity can then call `script.turn_on`. The script sends the saved Roborock routine button to the same controller as the robot card, preserving its app settings and the queue's busy/uncertainty checks.
-
-This requires companion **0.2.2 or later**. Install and check the companion before switching existing callers. These examples are generic; substitute your own vacuum and routine button entities.
-
-## A zero-argument preset script
+## A zero-argument room script
 
 ```yaml
 script:
   robot_clean_office:
-    alias: Clean Office preset
+    alias: Clean Office
     mode: single
     sequence:
       - action: robot_cleaner_queue.control
         data:
-          command: start
+          command: start_manual
           vacuum: vacuum.robot
-          presets:
-            - button.robot_office
+          rooms:
+            - {id: "0_4", mode: vacuum_mop, suction: max, water: high}
 ```
 
-For a full-home preset, create `script.robot_clean_full_home` with the same structure and the full-home routine button. Put `script:` at package level; in an existing `scripts.yaml`, use only its entries. Never duplicate a top-level `script:` mapping.
+For a whole-home script, list every room the companion reports for the current map in `rooms`; omitting the field is not a shortcut, because a plan is always an explicit room list. Put `script:` at package level; in an existing `scripts.yaml`, use only its entries. Never duplicate a top-level `script:` mapping.
 
 The SwitchMan hold-action fields can now be:
 
@@ -64,10 +78,10 @@ An unsaved browser draft never changes the wall-switch preset. Use **Save preset
 
 Route pause/resume/dock through the companion too, with an explicit vacuum. Version 0.2.2 can control an existing app-started job without adopting it as an ordered queue. Resume requires a confirmed paused, unfinished job, and every physical command waits for acknowledgement. A failed command is never retried or replaced by native `vacuum.start`.
 
-Set `require_queue: true` in the robot card when all controls must use this shared controller. Missing controller state disables controls instead of falling back to a default clean. In saved-preset mode, configure `full_clean_entity` for the full-home button; manual whole-home cleaning remains available through Manual setup.
+Set `require_queue: true` in the robot card when all controls must use this shared controller. Missing controller state disables controls instead of falling back to a default clean. The card’s **Clean all rooms** action plans every room the companion reports for the current map, in tile order, with the settings chosen in the setup sheet.
 
 ## Audit before migration
 
-Inspect loaded packages, scripts, automations, scenes, dashboard actions and ESPHome hold/click configuration. Replace managed direct routine-button presses, `vacuum.start`, old helper toggles and scripts that permit replacement with a shared wrapper or direct queue call. Preserve working aliases by routing them into that same path.
+Inspect loaded packages, scripts, automations, scenes, dashboard actions and ESPHome hold/click configuration. Replace managed direct routine-button presses, `vacuum.start`, old helper toggles and scripts that permit replacement with a shared wrapper or a direct room-plan call. Preserve working aliases by routing them into that same path.
 
 Keep historical backups as history; do not deploy old dashboard snapshots over a fresh live export. Native HA entity controls and the Roborock app remain external controls. The companion detects conflicting HA commands and stops sequence progression; it cannot remove every native control surface or identify every app action from telemetry alone.
