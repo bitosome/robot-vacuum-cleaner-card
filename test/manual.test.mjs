@@ -76,19 +76,20 @@ const setting = (card, key, value) => root(card).querySelector(`[data-setting="$
 const room = (card, value) => root(card).querySelector(`[data-room="${value}"]`);
 async function click(card, element) { assert.ok(element, 'Expected control to be rendered'); element.click(); await settle(card); }
 async function openSetup(card) { await click(card, action(card, 'setup')); }
-async function selectManual(card) { await openSetup(card); await click(card, action(card, 'manual')); }
+// The sheet now opens straight into the plan settings; there is no source tab left.
+async function selectManual(card) { await openSetup(card); }
 async function apply(card) { await click(card, action(card, 'apply-setup')); }
 async function patchStates(card, patch) { card.hass = {...card.hass, states: {...card.hass.states, ...patch}}; await settle(card); }
 afterEach(() => { for (const element of [...document.body.children]) element.remove(); });
 after(async () => { await browser.happyDOM.abort(); browser.close(); });
 
-test('saved presets stay the default and manual capabilities use a read-only response request', async () => {
-  const {card, calls, reads} = await fixture();
-  assert.ok(room(card, 'living_preset')); assert.equal(room(card, 'living_area'), null);
-  await selectManual(card);
+test('capabilities are read once and room tiles come from the robot', async () => {
+  const {card, calls, reads} = await roomFixture();
+  assert.ok(room(card, '0_12'));
+  assert.ok(!room(card, 'living_preset'), 'Routine tiles are not a tile model any more');
   assert.equal(calls.length, 0);
-  assert.ok(reads.length > 0);
   assert.deepEqual(reads[0], {type: 'call_service', domain: 'robot_cleaner_queue', service: 'get_capabilities', service_data: {vacuum: 'vacuum.rover'}, return_response: true});
+  await openSetup(card);
   for (const value of ['vacuum', 'mop', 'vacuum_mop', 'vacuum_then_mop']) assert.ok(mode(card, value));
 });
 
@@ -124,26 +125,26 @@ test('manual whole-home cleaning uses empty area targets instead of the full-cle
   assert.equal(calls[0].data.setup.mode, 'vacuum_mop');
 });
 
-test('cancelled setup edits leave the saved-preset selection and behavior intact', async () => {
-  const {card, calls} = await fixture();
-  await click(card, room(card, 'living_preset')); await selectManual(card);
-  await click(card, mode(card, 'mop')); await click(card, action(card, 'close-setup'));
-  assert.ok(room(card, 'living_preset')); assert.equal(room(card, 'living_area'), null);
-  assert.equal(room(card, 'living_preset').getAttribute('aria-pressed'), 'true');
+test('cancelled setup edits leave the plan and its settings untouched', async () => {
+  const {card, calls} = await roomFixture();
+  await click(card, room(card, '0_12'));
+  await openSetup(card);
+  await click(card, mode(card, 'mop'));
+  await click(card, action(card, 'close-setup'));
+  assert.equal(room(card, '0_12').getAttribute('aria-pressed'), 'true');
   await click(card, action(card, 'start'));
-  assert.equal(calls[0].data.command, 'start'); assert.deepEqual(calls[0].data.presets, ['button.rover_living']);
+  assert.deepEqual(calls[0].data.rooms, [{id: '0_12', ...DEFAULT_ROOM}]);
 });
 
-test('preset order and native-area order are independent drafts', async () => {
-  const {card, calls} = await fixture();
-  await click(card, room(card, 'kitchen_preset')); await selectManual(card); await apply(card);
+test('one draft exists: the ordered rooms keep their order across sheet edits', async () => {
+  const {card, calls} = await fixture({states: {'sensor.robot_cleaner_queue': entity('idle', {vacuum: 'vacuum.rover', control_version: 4})}});
   await click(card, room(card, 'hall_area')); await click(card, room(card, 'living_area'));
-  await openSetup(card); await click(card, action(card, 'presets')); await apply(card);
-  assert.equal(room(card, 'kitchen_preset').querySelector('.order')?.textContent.trim(), '1');
-  await selectManual(card); await apply(card);
+  await openSetup(card); await click(card, setting(card, 'suction', 'max')); await apply(card);
   assert.equal(room(card, 'hall_area').querySelector('.order')?.textContent.trim(), '1');
   assert.equal(room(card, 'living_area').querySelector('.order')?.textContent.trim(), '2');
-  assert.equal(calls.length, 0);
+  await click(card, action(card, 'start'));
+  assert.deepEqual(calls[0].data.rooms, ['hall_area', 'living_area']);
+  assert.equal(calls[0].data.setup.suction, 'max');
 });
 
 test('vacuum hides water and mop-route controls and omits them from the command', async () => {
@@ -208,18 +209,18 @@ test('capability service errors are visible and send no robot action', async () 
   assert.equal(calls.length, 0);
 });
 
-test('old companion without capability support keeps preset cleaning available', async () => {
+test('an old companion without room support keeps whole-home cleaning available', async () => {
   const {card, calls} = await fixture({services: {robot_cleaner_queue: {control: {}}}});
   await openSetup(card);
-  const manual = action(card, 'manual');
-  if (manual && !manual.disabled) await click(card, manual);
   assert.match(root(card).textContent, /updated.*companion/i);
   assert.equal(action(card, 'apply-setup').disabled, true);
   assert.equal(root(card).querySelector('[data-mode]'), null);
   assert.equal(calls.length, 0);
   await click(card, action(card, 'close-setup'));
-  await click(card, room(card, 'living_preset')); await click(card, action(card, 'start'));
-  assert.equal(calls[0].data.command, 'start');
+  assert.ok(!room(card, 'living_preset'), 'No routine tiles without the robot rooms');
+  assert.equal(action(card, 'start').disabled, false);
+  await click(card, action(card, 'start'));
+  assert.deepEqual(calls, [{domain: 'vacuum', action: 'start', data: {entity_id: 'vacuum.rover'}}]);
 });
 
 test('ordinary entity updates preserve a configured manual draft and room order', async () => {
@@ -344,7 +345,7 @@ test('an external manual run keeps its completed plan until a new local setup is
     'sensor.rover_status': entity('charging'),
     'sensor.robot_cleaner_queue': entity('completed', {...attrs, completed: 2}),
   });
-  assert.ok(room(card, 'kitchen_area')); assert.equal(room(card, 'kitchen_preset'), null);
+  assert.ok(room(card, 'kitchen_area')); assert.ok(!room(card, 'kitchen_preset'));
   assert.match(room(card, 'kitchen_area').textContent, /Completed/);
   assert.match(action(card, 'setup').textContent, /Vacuum then mop/);
   assert.match(root(card).querySelector('h2').textContent, /Your rooms are clean/);
@@ -419,14 +420,22 @@ test('unavailable native devices disappear and Stop sends stop rather than cance
 });
 
 
-test('version 4 allows Roborock presets with missing water without altering app settings',async()=>{
-  const {card,calls}=await deviceFixture({'sensor.robot_cleaner_queue':entity('idle',{vacuum:'vacuum.rover',control_version:4})});
-  await click(card,room(card,'kitchen_preset'));
+test('an empty water tank blocks a mopping plan and allows a vacuum-only first room',async()=>{
+  const {card,calls}=await roomFixture({states:{'sensor.rover_dock_error':entity('water_empty')},
+    config:{dock_error_entity:'sensor.rover_dock_error'}});
+  // Every room defaults to vacuum and mop, so the all-rooms plan must not start.
+  assert.match(root(card).textContent,/Mopping needs water/);
+  assert.equal(action(card,'start').disabled,true);
+  await click(card,action(card,'start'));
+  assert.equal(calls.length,0);
+  // A first room that only vacuums is allowed through the same exception.
+  await click(card,room(card,'0_12'));
+  await openSetup(card);
+  await click(card,roomMode(card,'0_12','vacuum'));
+  await apply(card);
   assert.equal(action(card,'start').disabled,false);
   await click(card,action(card,'start'));
-  assert.equal(calls.at(-1).data.command,'start');
-  assert.deepEqual(calls.at(-1).data.presets,['button.rover_kitchen']);
-  assert.equal(calls.at(-1).data.setup,undefined);
+  assert.deepEqual(calls[0].data.rooms,[{id:'0_12',mode:'vacuum',suction:'balanced',repeat:1}]);
 });
 
 test('save manual preset persists order and settings without a cleaning command',async()=>{
@@ -548,8 +557,8 @@ const DEFAULT_ROOM = {mode: 'vacuum_mop', suction: 'balanced', water: 'medium', 
 test('room tiles come from the robot map, not from configured preset rooms', async () => {
   const {card, calls} = await roomFixture();
   for (const id of ['0_12', '0_13', '0_5']) assert.ok(room(card, id), `Expected a tile for ${id}`);
-  assert.equal(room(card, 'living_preset'), null, 'Routine tiles must not be offered once the robot reports rooms');
-  assert.equal(room(card, '1_1'), null, 'Only the current floor is offered');
+  assert.ok(!room(card, 'living_preset'), 'Routine tiles must not be offered once the robot reports rooms');
+  assert.ok(!room(card, '1_1'), 'Only the current floor is offered');
   assert.match(room(card, '0_12').textContent, /Kitchen/);
   assert.match(room(card, '0_5').textContent, /Hallway/);
   assert.equal(calls.length, 0);
@@ -629,7 +638,7 @@ test('saving a room plan stores it and a freshly loaded card restores the same p
     {id: '0_12', ...DEFAULT_ROOM},
     {id: '0_5', mode: 'vacuum', suction: 'balanced', repeat: 1},
   ]);
-  assert.equal(saved.data.presets.length, 0);
+  assert.equal(saved.data.presets, undefined);
   // The wall-switch path reads the same plan back from the companion.
   const restored = await roomFixture({services: {robot_cleaner_queue: {control: {}, get_capabilities: {}, save_preset: {}}},
     capabilities: {...roomCapabilities(),
@@ -651,19 +660,32 @@ test('a saved room plan that no longer matches the robot is refused, not guessed
   assert.match(action(card, 'start').textContent, /Clean all rooms/, 'A refused plan selects nothing');
 });
 
-test('without robot rooms the card degrades to the configured preset rooms', async () => {
-  const {card, calls} = await fixture();
-  assert.ok(room(card, 'living_preset'), 'Legacy preset tiles stay available without robot rooms');
-  await click(card, room(card, 'living_preset')); await click(card, action(card, 'start'));
-  assert.equal(calls[0].data.command, 'start');
-  assert.deepEqual(calls[0].data.presets, ['button.rover_living']);
+test('legacy room presets load without error and are never started', async () => {
+  const {card, calls} = await fixture({states: {'sensor.robot_cleaner_queue': entity('idle', {vacuum: 'vacuum.rover', control_version: 4})}});
+  // The configuration still lists routine rooms; they are read and ignored.
+  assert.ok(!room(card, 'living_preset'));
+  assert.ok(room(card, 'living_area'), 'Home Assistant mapped areas remain the fallback plan');
+  await click(card, room(card, 'living_area'));
+  await click(card, action(card, 'start'));
+  assert.equal(calls[0].data.command, 'start_manual');
+  assert.deepEqual(calls[0].data.rooms, ['living_area']);
+  assert.equal(calls.some(call => ['button', 'script'].includes(call.domain)), false);
 });
 
-test('a card without rooms still loads and explains what to do', async () => {
+test('a card without configured rooms still loads and plans the mapped areas', async () => {
   const {card, calls} = await fixture({config: {rooms: []}});
-  assert.equal(room(card, 'living_preset'), null);
-  assert.match(root(card).textContent, /room presets in the card editor|robot’s own rooms/i);
-  // With no rooms to sequence the card still offers the whole-home clean.
+  assert.ok(!room(card, 'living_preset'));
+  assert.ok(room(card, 'living_area'), 'The mapped areas remain the fallback plan');
+  await click(card, room(card, 'living_area'));
+  await click(card, action(card, 'start'));
+  assert.equal(calls[0].data.command, 'start_manual');
+  assert.deepEqual(calls[0].data.rooms, ['living_area']);
+});
+
+test('a robot with no rooms and no mapped areas says what is needed', async () => {
+  const {card, calls} = await fixture({capabilities: {...structuredClone(baseCapabilities), room_targets: []}});
+  assert.equal(card.shadowRoot.querySelector('[data-room]'), null);
+  assert.match(root(card).textContent, /update it or clean the whole home/i);
   assert.match(action(card, 'start').textContent, /Clean all rooms/);
   assert.equal(calls.length, 0);
 });
@@ -675,7 +697,7 @@ test('a companion that rejects per-room plans says what has to change', async ()
   await click(card, room(card, '0_12'));
   await click(card, action(card, 'start'));
   assert.equal(calls.length, 1);
-  assert.match(root(card).querySelector('[role="alert"]').textContent, /must be updated to accept per-room plans/);
+  assert.match(root(card).querySelector('[role="alert"]').textContent, /room contract \(control_version 5 or newer\)/);
   assert.equal(room(card, '0_12').getAttribute('aria-pressed'), 'true', 'The plan stays selected for retry');
 });
 
@@ -685,5 +707,5 @@ test('saving a plan a companion cannot store explains itself too', async () => {
     service: async () => { throw new Error("extra keys not allowed @ data['rooms'][0]['mode']"); }});
   await click(card, room(card, '0_12'));
   await click(card, action(card, 'save-preset'));
-  assert.match(root(card).textContent, /must be updated to accept per-room plans/);
+  assert.match(root(card).textContent, /room contract \(control_version 5 or newer\)/);
 });

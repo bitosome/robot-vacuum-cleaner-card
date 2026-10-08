@@ -1,12 +1,12 @@
 # Robot Vacuum Cleaner Card
 
-A dedicated Home Assistant robot control card with Space Hub's shared tile surfaces, typography and under-tile glow. See what the robot is doing, start a full-home clean, or choose an ordered cleaning sequence with saved presets or your own manual settings.
+A dedicated Home Assistant robot control card with Space Hub's shared tile surfaces, typography and under-tile glow. See what the robot is doing, clean every room on the robot's current map, or choose an ordered sequence of its rooms with settings per room.
 
 Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap a selected room again to remove it; the remaining draft renumbers. Press **Clean 3 rooms** to start. The committed sequence runs in Home Assistant, even after the dashboard closes.
 
 ## Features
 
-- Robot status, battery, current-preset progress, cleaning area and time when those entities are configured.
+- Robot status, battery, current-room progress, cleaning area and time when those entities are configured.
 - Contextual full clean, pause, resume and return-to-dock controls.
 - Numbered room selection with visible selected, queued, cleaning and completed states.
 - Manual **Vacuum**, **Mop**, **Vacuum & mop**, and **Vacuum then mop** modes, with supported suction, water, mop route and ×1/×2 controls.
@@ -20,10 +20,10 @@ Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap 
 
 **The card alone** shows status and offers full clean, pause, resume and return-to-dock. Ordered room starts are disabled, and blocked outright when `require_queue: true`. To sequence rooms you also need the integration.
 
-**Required for room sequencing, manual setup and saved presets**
+**Required for room sequencing and saved plans**
 
 - **[Robot Cleaner Queue](https://github.com/bitosome/ha-robot-cleaner-queue)** — add `https://github.com/bitosome/ha-robot-cleaner-queue` as a HACS **Custom repository** of category **Integration**, download it, then restart Home Assistant. The card drives the integration through `robot_cleaner_queue.control` and `get_capabilities`, and never falls back to a browser-driven queue.
-- **The native Roborock integration** with a **V1-protocol** robot. Rooms, their names and their floor come from the robot's own map, so nothing has to be mirrored in a Roborock app routine. The companion must accept per-room plans: per-room cleaning and saving a room plan need the version that carries the room contract, and an older companion keeps the legacy routine path working with no room plans.
+- **The native Roborock integration** with a **V1-protocol** robot. Rooms, their names and their floor come from the robot's own map, so nothing has to be mirrored in a Roborock app routine — this card never presses one. The companion must carry the room contract (`control_version` 5 or newer) to accept per-room plans; an older one leaves the card with whole-home cleaning only.
 
 **Required for manual setup**
 
@@ -67,7 +67,6 @@ area_entity: sensor.robot_cleaning_area
 time_entity: sensor.robot_cleaning_time
 error_entity: sensor.robot_vacuum_error
 dock_error_entity: sensor.robot_dock_error
-full_clean_entity: button.robot_full_cleaning
 require_queue: true
 queue_entity: sensor.robot_cleaner_queue
 queue_script: script.robot_cleaner_queue_control
@@ -90,17 +89,17 @@ rooms:
     preset: button.robot_kitchen
 ```
 
-Entity names above are examples. `rooms` is **optional and legacy**: it is only used when the queue companion cannot report the robot's own rooms, and each entry then needs an `id`, a `name` and a Roborock routine `preset` button. With a current companion the tiles come from the robot's map, so `rooms` can be left out entirely. Optional `activity_entity` can identify an externally initiated room clean (`cleaning`, `active` or `on`); it never proves completion. The robot's `supported_features` determines available physical controls. `area_overrides` styles a tile by the Home Assistant area id a room is mapped to, or by the robot room id (`0_12`) when it has none.
+Entity names above are examples. `rooms` and `full_clean_entity` are **read but unused**: routine buttons are no longer part of any plan, so a configuration that still carries them keeps loading and simply ignores them. Without robot rooms the card falls back to Home Assistant's mapped areas (`room_targets`), which is the only other plan the companion can run. Optional `activity_entity` can identify an externally initiated room clean (`cleaning`, `active` or `on`); it never proves completion. The robot's `supported_features` determines available physical controls. `area_overrides` styles a tile by the Home Assistant area id a room is mapped to, or by the robot room id (`0_12`) when it has none.
 
 Configure the optional telemetry entities you have. Missing values are omitted. Cleaning metrics belong to the current job, not the complete multi-room sequence. The robot's current-room reading describes location; a room tile is marked completed only by the queue integration's verified cleaning record.
 
-A configured full-home preset uses the same queue integration when installed. With `require_queue: true`, every control requires the integration, and saved-preset mode requires a full-home preset for **Clean all rooms**. This prevents a missing controller from becoming a default native clean. With this setting omitted or false, standalone native controls remain available. A selected room always requires the integration.
+**Clean all rooms** plans every room the companion reports for the robot's current map through the same queue integration. With `require_queue: true`, every control requires the integration, so a missing controller can never become a default native clean. With this setting omitted or false, a standalone whole-home start through the robot's own `vacuum.start` remains available when the robot supports it. A plan with rooms always requires the integration.
 
 ## Manual cleaning setup
 
 Open **Cleaning setup** to choose the settings every room starts from: mode, suction, water, mop route and cleaning count. The same sheet lists the rooms you have selected so any of them can be given its own mode and settings; a room left alone follows the defaults, and **Use the default settings** returns a customised room to them. Nothing is applied until you press **Use settings**, and nothing is sent to the robot until you press Start. A vacuum room never offers water or a mop route, and a mop room never offers suction.
 
-Manual tiles use the robot's existing Home Assistant **Cleaning by area** mapping, read by the queue integration. They can differ from your saved-preset tiles, and an area can contain multiple Roborock rooms. No extra card entity configuration is needed. Preset and manual area selections remain separate.
+Without robot rooms the card falls back to Home Assistant's **Cleaning by area** mapping, read by the queue integration. An area can contain several Roborock rooms, so that fallback is coarser than the robot's own map. No extra card entity configuration is needed.
 
 Manual tiles use their Home Assistant area's icon when one is configured, otherwise `mdi:floor-plan`. To match the room names and icons in your Space Hub cards, set `area_overrides` using the **Home Assistant area IDs** (not preset IDs or Roborock segment numbers):
 

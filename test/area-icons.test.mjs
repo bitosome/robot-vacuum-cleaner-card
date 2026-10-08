@@ -20,16 +20,17 @@ const states = {
   'button.robot_lounge':state('unknown'),
 };
 async function settle(element) { for(let index=0;index<6;index++){await element.updateComplete;await Promise.resolve();} }
-async function fixture(config={}) {
+async function fixture(config={},caps={}) {
   const calls=[];const card=document.createElement('robot-vacuum-cleaner-card');
   card.setConfig({...structuredClone(baseConfig),...config});
-  card.hass={states,services:{robot_cleaner_queue:{control:{},get_capabilities:{}}},async callWS(){return {response:structuredClone(capabilities)};},async callService(domain,service,data){calls.push({domain,service,data:structuredClone(data)});}};
+  card.hass={states,services:{robot_cleaner_queue:{control:{},get_capabilities:{}}},async callWS(){return {response:{...structuredClone(capabilities),...structuredClone(caps)}};},async callService(domain,service,data){calls.push({domain,service,data:structuredClone(data)});}};
   document.body.append(card);await settle(card);return {card,calls};
 }
 const action=(element,value)=>element.shadowRoot.querySelector(`[data-action="${value}"]`);
 const room=(card,id)=>card.shadowRoot.querySelector(`[data-room="${id}"]`);
 async function click(card,element){assert.ok(element);element.click();await settle(card);}
-async function manual(card){await click(card,action(card,'setup'));await click(card,action(card,'manual'));await click(card,action(card,'apply-setup'));}
+// The setup sheet opens straight into the plan settings now; there is no source tab.
+async function manual(card){await click(card,action(card,'setup'));await click(card,action(card,'apply-setup'));}
 async function change(editor,label,value){const input=editor.shadowRoot.querySelector(`[aria-label="${label}"]`);assert.ok(input);input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));await settle(editor);}
 afterEach(()=>{for(const node of [...document.body.children])node.remove();});
 after(async()=>{await browser.happyDOM.abort();browser.close();});
@@ -38,13 +39,11 @@ test('manual area appearance changes display without adding targets or changing 
   const original={living_area:{name:'Lounge',icon:'mdi:sofa-outline'},unmapped_area:{name:'Not mapped',icon:'mdi:bed'}};
   const {card,calls}=await fixture({area_overrides:original});
   original.living_area.name='Mutated input';original.living_area.icon='mdi:alert';
-  assert.equal(room(card,'preset_lounge').querySelector('ha-icon').icon,'mdi:sofa-outline');
-  await manual(card);
   assert.match(room(card,'living_area').textContent,/Lounge/);
   assert.equal(room(card,'living_area').querySelector('ha-icon').icon,'mdi:sofa-outline');
   assert.equal(room(card,'kitchen_area').querySelector('ha-icon').icon,'mdi:stove');
   assert.equal(room(card,'hall_area').querySelector('ha-icon').icon,'mdi:floor-plan');
-  assert.equal(room(card,'unmapped_area'),null);assert.equal(room(card,'preset_lounge'),null);
+  assert.ok(!room(card,'unmapped_area'));assert.ok(!room(card,'preset_lounge'),'Routine rooms are not tiles');
   assert.equal(calls.length,0);
   await click(card,room(card,'kitchen_area'));await click(card,room(card,'living_area'));
   await click(card,action(card,'start'));
@@ -54,9 +53,22 @@ test('manual area appearance changes display without adding targets or changing 
 
 test('appearance labels remain escaped text',async()=>{
   const label='<img src=x onerror="alert(1)">';
-  const {card}=await fixture({area_overrides:{living_area:{name:label}}});await manual(card);
+  const {card}=await fixture({area_overrides:{living_area:{name:label}}});
   assert.equal(room(card,'living_area').querySelector('.room-name').textContent,label);
   assert.equal(card.shadowRoot.querySelector('img'),null);
+});
+
+test('robot rooms take their appearance from the area they are mapped to',async()=>{
+  // The companion reports the robot's rooms, so they become the tile model.
+  const {card,calls}=await fixture({area_overrides:{living_area:{name:'Lounge',icon:'mdi:sofa-outline'},'0_13':{name:'Landing',icon:'mdi:stairs'}}},
+    {current_map:0,robot_rooms:[{id:'0_12',segment:12,name:'Living room',area_id:'living_area'},{id:'0_13',segment:13,name:'Upstairs hall',area_id:null}]});
+  assert.match(room(card,'0_12').textContent,/Lounge/);
+  assert.equal(room(card,'0_12').querySelector('ha-icon').icon,'mdi:sofa-outline');
+  assert.match(room(card,'0_13').textContent,/Landing/);
+  assert.ok(!room(card,'living_area'),'The mapped area is not a separate tile');
+  await click(card,room(card,'0_12'));await click(card,action(card,'start'));
+  assert.deepEqual(calls[0].data.rooms.map(room=>room.id),['0_12']);
+  assert.equal(calls[0].data.command,'start_manual');
 });
 
 test('area overrides reject invalid maps, entries and optional display values',()=>{

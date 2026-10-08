@@ -11,16 +11,35 @@ for (const key of ['window', 'document', 'HTMLElement', 'Element', 'ShadowRoot',
 await import('../dist/robot-vacuum-cleaner-card.js');
 
 const FEATURES = 8192 | 4 | 16;
+// Legacy configuration: still read without error, no longer a tile model.
 const roomDefinitions = [
   { id: 'living', name: 'Living room', preset: 'button.robot_living_room' },
   { id: 'kitchen', name: 'Kitchen', preset: 'button.robot_kitchen' },
   { id: 'hall', name: 'Hall', preset: 'button.robot_hall' },
 ];
+// The robot's own map is what the tiles come from now: living -> 0_1, and so on.
+const ROOM_DEFAULTS = { mode: 'vacuum_mop', suction: 'balanced', water: 'medium', route: 'standard', repeat: 1 };
+const roomCapabilities = () => ({
+  supported: true, current_map: 0, area_cleaning: true, rooms_complete: true,
+  modes: [{ value: 'vacuum', label: 'Vacuum' }, { value: 'mop', label: 'Mop' },
+          { value: 'vacuum_mop', label: 'Vacuum & mop' }, { value: 'vacuum_then_mop', label: 'Vacuum then mop' }],
+  suction: ['quiet', 'balanced', 'turbo', 'max', 'max_plus'], water: ['low', 'medium', 'high'],
+  routes: ['standard', 'deep', 'deep_plus', 'fast'],
+  routes_by_mode: { vacuum: [], vacuum_mop: ['standard', 'fast'], mop: ['standard', 'deep', 'deep_plus', 'fast'], vacuum_then_mop: ['standard', 'deep', 'deep_plus', 'fast'] },
+  repeats: [1, 2], room_targets: [{ id: 'living_area', name: 'Living room' }, { id: 'kitchen_area', name: 'Kitchen' }],
+  defaults: { ...ROOM_DEFAULTS },
+  robot_maps: [{ flag: 0, name: 'Ground floor' }],
+  robot_rooms: [
+    { id: '0_1', segment: 1, name: 'Living room', floor: 'Ground floor', area_id: null },
+    { id: '0_2', segment: 2, name: 'Kitchen', floor: 'Ground floor', area_id: null },
+    { id: '0_3', segment: 3, name: 'Hall', floor: 'Ground floor', area_id: null },
+  ],
+});
 const entity = (state, attributes = {}) => ({ state, attributes });
 function initialStates() {
   return {
     'vacuum.robot': entity('docked', { friendly_name: 'Robot', supported_features: FEATURES, battery_level: 84 }),
-    'sensor.robot_queue': entity('idle', { vacuum: 'vacuum.robot', presets: [], current_index: 0, completed: 0 }),
+    'sensor.robot_queue': entity('idle', { vacuum: 'vacuum.robot', control_version: 5, mode: 'preset', presets: [], targets: [], stages: [], setup: {}, current_index: 0, completed: 0 }),
     'script.robot_queue_control': entity('off'),
     'button.robot_all_rooms': entity('unknown'),
     'button.robot_living_room': entity('unknown'),
@@ -45,17 +64,19 @@ function config(overrides = {}) {
   };
 }
 async function settle(element) {
-  await element.updateComplete;
-  await Promise.resolve();
+  // Commands await the service before they set their error, so allow a few turns.
+  for (let round = 0; round < 3; round++) { await element.updateComplete; await Promise.resolve(); }
   await element.updateComplete;
 }
-async function fixture({ states = {}, overrides = {}, service, services } = {}) {
+async function fixture({ states = {}, overrides = {}, service, services, capabilities } = {}) {
   const calls = [];
+  let caps = structuredClone(capabilities ?? roomCapabilities());
   const card = document.createElement('robot-vacuum-cleaner-card');
   card.setConfig(config(overrides));
   card.hass = {
-    services,
+    services: services ?? { robot_cleaner_queue: { control: {}, get_capabilities: {}, save_preset: {} } },
     states: { ...initialStates(), ...states },
+    async callWS() { return { response: structuredClone(caps) }; },
     async callService(domain, action, data) {
       calls.push({ domain, action, data: structuredClone(data) });
       return service?.(domain, action, data);
@@ -63,13 +84,20 @@ async function fixture({ states = {}, overrides = {}, service, services } = {}) 
   };
   document.body.append(card);
   await settle(card);
-  return { card, calls };
+  return { card, calls, setCapabilities(value) { caps = structuredClone(value); } };
 }
 const root = card => card.shadowRoot;
 const button = (card, action) => root(card).querySelector(`[data-action="${action}"]`);
 const room = (card, id) => root(card).querySelector(`[data-room="${id}"]`);
 const order = (card, id) => room(card, id).querySelector('.order')?.textContent.trim();
 async function tap(card, id) { room(card, id).click(); await settle(card); }
+const textButton = (card, text) => [...root(card).querySelectorAll('button')].find(node => node.textContent.trim() === text);
+async function clickText(card, text) {
+  const target = textButton(card, text);
+  assert.ok(target, `Expected a "${text}" button`);
+  target.click();
+  await settle(card);
+}
 async function changeStates(card, patch) {
   card.hass = { ...card.hass, states: { ...card.hass.states, ...patch } };
   await settle(card);
@@ -81,47 +109,45 @@ after(async () => { await browser.happyDOM.abort(); browser.close(); });
 
 test('room taps choose an ordered sequence without starting the robot', async () => {
   const { card, calls } = await fixture();
-  await tap(card, 'hall'); await tap(card, 'living'); await tap(card, 'kitchen');
-  assert.equal(order(card, 'hall'), '1');
-  assert.equal(order(card, 'living'), '2');
-  assert.equal(order(card, 'kitchen'), '3');
-  assert.equal(room(card, 'living').getAttribute('aria-pressed'), 'true');
-  assert.match(room(card, 'kitchen').getAttribute('aria-label'), /position 3/);
+  await tap(card, '0_3'); await tap(card, '0_1'); await tap(card, '0_2');
+  assert.equal(order(card, '0_3'), '1');
+  assert.equal(order(card, '0_1'), '2');
+  assert.equal(order(card, '0_2'), '3');
+  assert.equal(room(card, '0_1').getAttribute('aria-pressed'), 'true');
+  assert.match(room(card, '0_2').getAttribute('aria-label'), /position 3/);
   assert.equal(calls.length, 0);
   assert.match(button(card, 'start').textContent, /Clean 3 rooms/);
 });
 
 test('deselecting a room reindexes the remaining sequence; reselecting appends it', async () => {
   const { card } = await fixture();
-  await tap(card, 'hall'); await tap(card, 'living'); await tap(card, 'kitchen');
-  await tap(card, 'living');
-  assert.equal(order(card, 'living'), undefined);
-  assert.equal(order(card, 'hall'), '1');
-  assert.equal(order(card, 'kitchen'), '2');
-  await tap(card, 'living');
-  assert.equal(order(card, 'living'), '3');
+  await tap(card, '0_3'); await tap(card, '0_1'); await tap(card, '0_2');
+  await tap(card, '0_1');
+  assert.equal(order(card, '0_1'), undefined);
+  assert.equal(order(card, '0_3'), '1');
+  assert.equal(order(card, '0_2'), '2');
+  await tap(card, '0_1');
+  assert.equal(order(card, '0_1'), '3');
 });
 
 test('ordinary Home Assistant updates preserve the draft room order', async () => {
   const { card } = await fixture();
-  await tap(card, 'kitchen'); await tap(card, 'hall');
+  await tap(card, '0_2'); await tap(card, '0_3');
   await changeStates(card, { 'vacuum.robot': entity('docked', { supported_features: FEATURES, battery_level: 85 }) });
-  assert.equal(order(card, 'kitchen'), '1'); assert.equal(order(card, 'hall'), '2');
+  assert.equal(order(card, '0_2'), '1'); assert.equal(order(card, '0_3'), '2');
   assert.match(root(card).querySelector('.battery').textContent, /85%/);
 });
 
-test('Start sends the ordered preset buttons and vacuum to the persistent queue', async () => {
+test('Start sends the ordered rooms with the settings each one runs with', async () => {
   const { card, calls } = await fixture();
-  await tap(card, 'hall'); await tap(card, 'living');
+  await tap(card, '0_3'); await tap(card, '0_1');
   button(card, 'start').click(); await settle(card);
-  assert.deepEqual(calls, [{ domain: 'script', action: 'turn_on', data: {
-    entity_id: 'script.robot_queue_control', variables: {
-      command: 'start', vacuum: 'vacuum.robot',
-      presets: ['button.robot_hall', 'button.robot_living_room'],
-      cleaning_entity: 'binary_sensor.robot_cleaning', status_entity: 'sensor.robot_status',
-      error_entity: 'sensor.robot_error', last_clean_end_entity: 'sensor.robot_last_clean_end',
-    },
-  } }]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].domain, 'robot_cleaner_queue'); assert.equal(calls[0].action, 'control');
+  assert.deepEqual(calls[0].data, { command: 'start_manual', vacuum: 'vacuum.robot',
+    rooms: [{ id: '0_3', ...ROOM_DEFAULTS }, { id: '0_1', ...ROOM_DEFAULTS }], setup: { ...ROOM_DEFAULTS } });
+  assert.equal(calls[0].data.presets, undefined);
+  assert.equal(calls.some(call => call.domain === 'button' || call.domain === 'script'), false);
   // A successful service call is not physical acknowledgement.
   assert.equal(button(card, 'start').disabled, true);
   button(card, 'start').click(); await settle(card);
@@ -132,80 +158,95 @@ test('Start sends the ordered preset buttons and vacuum to the persistent queue'
 
 test('backend acknowledgement shows and locks the committed order', async () => {
   const { card, calls } = await fixture();
-  await tap(card, 'hall'); await tap(card, 'kitchen');
+  await tap(card, '0_3'); await tap(card, '0_2');
   button(card, 'start').click(); await settle(card);
   await changeStates(card, {
-    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.robot', presets: ['button.robot_hall', 'button.robot_kitchen'], current_index: 0, completed: 0 }),
+    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.robot', control_version: 5, mode: 'manual', presets: [],
+      targets: ['0_3', '0_2'], stages: [{ target: '0_3', mode: 'vacuum_mop', room_index: 0, pass_index: 0, repeat_index: 0 }],
+      setup: { rooms: [{ id: '0_3', name: 'Hall', setup: { ...ROOM_DEFAULTS } }, { id: '0_2', name: 'Kitchen', setup: { ...ROOM_DEFAULTS } }] },
+      current_index: 0, completed: 0 }),
     'vacuum.robot': entity('cleaning', { supported_features: FEATURES }),
     'sensor.robot_status': entity('segment_cleaning'),
   });
   assert.equal(button(card, 'start'), null);
   assert.match(root(card).querySelector('h2').textContent, /Cleaning Hall/);
-  assert.equal(order(card, 'hall'), '1'); assert.equal(order(card, 'kitchen'), '2');
-  assert.equal(room(card, 'hall').disabled, true);
-  await tap(card, 'living');
-  assert.equal(order(card, 'living'), undefined);
+  assert.equal(order(card, '0_3'), '1'); assert.equal(order(card, '0_2'), '2');
+  assert.equal(room(card, '0_3').disabled, true);
+  await tap(card, '0_1');
+  assert.equal(order(card, '0_1'), undefined);
   assert.equal(calls.length, 1);
   assert.equal(button(card, 'pause').disabled, false);
 });
 
 test('a queue started elsewhere also blocks new starts and preserves backend order', async () => {
   const { card, calls } = await fixture({ states: {
-    'sensor.robot_queue': entity('starting', { vacuum: 'vacuum.robot', presets: ['button.robot_kitchen', 'button.robot_living_room'], current_index: 0, completed: 0 }),
+    'sensor.robot_queue': entity('starting', { vacuum: 'vacuum.robot', control_version: 5, mode: 'manual', presets: [],
+      targets: ['0_2', '0_1'], stages: [{ target: '0_2', mode: 'vacuum_mop', room_index: 0, pass_index: 0, repeat_index: 0 }],
+      setup: { rooms: [{ id: '0_2', name: 'Kitchen', setup: { ...ROOM_DEFAULTS } }, { id: '0_1', name: 'Living room', setup: { ...ROOM_DEFAULTS } }] },
+      current_index: 0, completed: 0 }),
   } });
   assert.equal(button(card, 'start'), null);
-  assert.equal(order(card, 'kitchen'), '1'); assert.equal(order(card, 'living'), '2');
-  assert.equal(room(card, 'hall').disabled, true);
-  await tap(card, 'hall'); assert.equal(calls.length, 0);
+  assert.equal(order(card, '0_2'), '1'); assert.equal(order(card, '0_1'), '2');
+  assert.equal(room(card, '0_3').disabled, true);
+  await tap(card, '0_3'); assert.equal(calls.length, 0);
 });
 
-test('preset button unknown is a valid never-pressed state', async () => {
-  const { card } = await fixture();
-  assert.equal(room(card, 'living').disabled, false);
-  await tap(card, 'living');
+test('a room the app has not named falls back to its segment', async () => {
+  const { card } = await fixture({ capabilities: { ...roomCapabilities(),
+    robot_rooms: roomCapabilities().robot_rooms.map(room => room.id === '0_3' ? { ...room, name: null } : room) } });
+  assert.match(room(card, '0_3').textContent, /Room 3/);
+  await tap(card, '0_3');
   assert.equal(button(card, 'start').disabled, false);
 });
 
-test('a selected preset becoming unavailable disables Start without losing selection', async () => {
-  const { card, calls } = await fixture();
-  await tap(card, 'living');
-  await changeStates(card, { 'button.robot_living_room': entity('unavailable') });
-  assert.equal(order(card, 'living'), '1');
+test('a selected room leaving the current map disables Start without losing the selection', async () => {
+  const { card, calls, setCapabilities } = await fixture();
+  await tap(card, '0_1');
+  // The robot changed floor, so the room is no longer on its current map.
+  setCapabilities({ ...roomCapabilities(), current_map: 1,
+    robot_rooms: [{ id: '1_1', segment: 1, name: 'Loft', floor: 'Loft', area_id: null }] });
+  // Capabilities are read when the card needs them again, so let it look.
+  button(card, 'setup').click(); await settle(card);
+  root(card).querySelector('[data-action="close-setup"]').click(); await settle(card);
+  assert.match(root(card).textContent, /no longer on this map/i);
   assert.equal(button(card, 'start').disabled, true);
-  assert.equal(room(card, 'living').disabled, false); // Unavailable draft rooms remain removable.
   button(card, 'start').click(); await settle(card);
   assert.equal(calls.length, 0);
-  await tap(card, 'living');
-  assert.equal(order(card, 'living'), undefined);
-  assert.equal(room(card, 'living').disabled, true);
-});
-
-test('missing queue backend fails closed for presets but keeps full-home cleaning available', async () => {
-  const { card, calls } = await fixture({ states: { 'sensor.robot_queue': undefined, 'script.robot_queue_control': undefined } });
+  // Clearing the stale selection makes the new floor's rooms startable again.
+  await clickText(card, 'Clear selection');
   assert.equal(button(card, 'start').disabled, false);
-  await tap(card, 'living');
-  assert.equal(button(card, 'start').disabled, true);
-  button(card, 'start').click(); await settle(card); assert.equal(calls.length, 0);
-  await tap(card, 'living');
-  button(card, 'start').click(); await settle(card);
-  assert.deepEqual(calls, [{ domain: 'button', action: 'press', data: { entity_id: 'button.robot_all_rooms' } }]);
+  assert.match(button(card, 'start').textContent, /Clean all rooms/);
 });
 
-test('a queue assigned to another vacuum cannot start this robot sequence', async () => {
+test('without the queue backend there are no room tiles and only the whole home can run', async () => {
+  const { card, calls } = await fixture({ services: {}, states: { 'sensor.robot_queue': undefined, 'script.robot_queue_control': undefined } });
+  assert.ok(!room(card, '0_1'));
+  assert.equal(button(card, 'start').disabled, false);
+  button(card, 'start').click(); await settle(card);
+  assert.deepEqual(calls, [{ domain: 'vacuum', action: 'start', data: { entity_id: 'vacuum.robot' } }]);
+});
+
+test('a queue assigned to another vacuum is ignored rather than reused', async () => {
   const { card, calls } = await fixture({ states: {
-    'sensor.robot_queue': entity('idle', { vacuum: 'vacuum.other_robot', presets: [] }),
+    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.other_robot', control_version: 5, mode: 'manual', presets: [],
+      targets: ['0_1'], stages: [{ target: '0_1', mode: 'vacuum_mop', room_index: 0, pass_index: 0, repeat_index: 0 }],
+      setup: { rooms: [{ id: '0_1', name: 'Living room', setup: { ...ROOM_DEFAULTS } }] }, current_index: 0, completed: 0 }),
   } });
-  await tap(card, 'living'); assert.equal(button(card, 'start').disabled, true);
-  button(card, 'start').click(); await settle(card); assert.equal(calls.length, 0);
+  // The other robot's committed order must never appear on this card.
+  assert.equal(order(card, '0_1'), undefined);
+  assert.ok(!/Queued|Completed/.test(room(card, '0_1').textContent));
+  const start = button(card, 'start');
+  if (start && !start.disabled) { start.click(); await settle(card); }
+  assert.equal(calls.some(call => ['script', 'button'].includes(call.domain)), false);
 });
 
 test('service rejection displays a safe error and restores the draft for retry', async () => {
   const { card, calls } = await fixture({ service: async () => { throw new Error('Controller rejected <script>bad()</script>'); } });
-  await tap(card, 'hall'); button(card, 'start').click(); await settle(card);
+  await tap(card, '0_3'); button(card, 'start').click(); await settle(card);
   const alert = root(card).querySelector('[role="alert"]');
   assert.match(alert.textContent, /Controller rejected <script>bad\(\)<\/script>/);
   assert.equal(alert.querySelector('script'), null);
-  assert.equal(order(card, 'hall'), '1'); assert.equal(button(card, 'start').disabled, false);
+  assert.equal(order(card, '0_3'), '1'); assert.equal(button(card, 'start').disabled, false);
   button(card, 'start').click(); await settle(card); assert.equal(calls.length, 2);
 });
 
@@ -213,10 +254,10 @@ test('normal cleaning offers supported Pause and Return to dock controls', async
   const { card, calls } = await fixture({ states: { 'vacuum.robot': entity('cleaning', { supported_features: FEATURES }), 'sensor.robot_status': entity('cleaning') } });
   assert.equal(button(card, 'start'), null);
   button(card, 'pause').click(); await settle(card);
-  assert.deepEqual(calls, [{ domain: 'vacuum', action: 'pause', data: { entity_id: 'vacuum.robot' } }]);
+  assert.deepEqual(calls, [{ domain: 'robot_cleaner_queue', action: 'control', data: { command: 'pause', vacuum: 'vacuum.robot' } }]);
   await changeStates(card, { 'vacuum.robot': entity('paused', { supported_features: FEATURES }) });
   button(card, 'resume').click(); await settle(card);
-  assert.equal(calls[1].action, 'start');
+  assert.equal(calls[1].data.command, 'resume');
 });
 
 test('unsupported pause and dock features are not offered', async () => {
@@ -225,8 +266,8 @@ test('unsupported pause and dock features are not offered', async () => {
   assert.equal(button(card, 'start'), null); assert.equal(calls.length, 0);
 });
 
-test('without a preset, full-home cleaning respects the vacuum START feature', async () => {
-  const { card, calls } = await fixture({ overrides: { full_clean_entity: undefined }, states: { 'vacuum.robot': entity('docked', { supported_features: 16 }) } });
+test('without a companion, whole-home cleaning respects the vacuum START feature', async () => {
+  const { card, calls } = await fixture({ services: {}, states: { 'vacuum.robot': entity('docked', { supported_features: 16 }) } });
   assert.equal(button(card, 'start').disabled, true);
   await changeStates(card, { 'vacuum.robot': entity('docked', { supported_features: 8192 }) });
   button(card, 'start').click(); await settle(card);
@@ -236,16 +277,18 @@ test('without a preset, full-home cleaning respects the vacuum START feature', a
 test('Return to dock uses the queue return_to_dock command rather than cancellation', async () => {
   const { card, calls } = await fixture({ states: {
     'vacuum.robot': entity('cleaning', { supported_features: FEATURES }),
-    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.robot', presets: ['button.robot_living_room'], current_index: 0, completed: 0 }),
+    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.robot', control_version: 5, mode: 'manual', presets: [],
+      targets: ['0_1'], stages: [{ target: '0_1', mode: 'vacuum_mop', room_index: 0, pass_index: 0, repeat_index: 0 }],
+      setup: { rooms: [{ id: '0_1', name: 'Living room', setup: { ...ROOM_DEFAULTS } }] }, current_index: 0, completed: 0 }),
   } });
   button(card, 'dock').click(); await settle(card);
-  assert.deepEqual(calls, [{ domain: 'script', action: 'turn_on', data: { entity_id: 'script.robot_queue_control', variables: { command: 'return_to_dock', vacuum: 'vacuum.robot' } } }]);
+  assert.deepEqual(calls, [{ domain: 'robot_cleaner_queue', action: 'control', data: { command: 'return_to_dock', vacuum: 'vacuum.robot' } }]);
 });
 
 test('a command still being confirmed explains itself and blocks a second one', async () => {
   const { card, calls } = await fixture({ states: {
     'vacuum.robot': entity('cleaning', { supported_features: FEATURES }),
-    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.robot', presets: ['button.robot_living_room'], current_index: 0, completed: 0 }),
+    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.robot', control_version: 5, presets: [], current_index: 0, completed: 0 }),
   } });
   button(card, 'dock').click(); await settle(card);
   // The old failure mode: the button went dim and every further press vanished silently.
@@ -260,7 +303,7 @@ test('a command still being confirmed explains itself and blocks a second one', 
 test('stop says which confirmation it is waiting for', async () => {
   const { card, calls } = await fixture({ states: {
     'vacuum.robot': entity('cleaning', { supported_features: 8192 | 4 | 8 | 16 }),
-    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.robot', control_version: 4, presets: ['button.robot_living_room'], current_index: 0, completed: 0 }),
+    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.robot', control_version: 5, presets: [], current_index: 0, completed: 0 }),
   } });
   button(card, 'stop').click(); await settle(card);
   assert.match(root(card).textContent, /Waiting for the robot to stop/);
@@ -292,11 +335,12 @@ test('reported vacuum or dock faults prevent new cleaning jobs', async () => {
 
 test('robot and room names render as text, not executable markup', async () => {
   const malicious = '<img src=x onerror="alert(1)">';
-  const { card } = await fixture({ overrides: { name: malicious, rooms: [{ ...roomDefinitions[0], name: malicious }] } });
+  const { card } = await fixture({ overrides: { name: malicious },
+    capabilities: { ...roomCapabilities(), robot_rooms: [{ id: '0_1', segment: 1, name: malicious, floor: 'Ground floor', area_id: null }] } });
   assert.equal(root(card).querySelector('.name').textContent, malicious);
   assert.equal(root(card).querySelector('.room-name').textContent, malicious);
   assert.equal(root(card).querySelector('img'), null);
-  await tap(card, 'living'); assert.match(root(card).querySelector('.sequence').textContent, /<img/);
+  await tap(card, '0_1'); assert.match(root(card).querySelector('.sequence').textContent, /<img/);
   assert.equal(root(card).querySelector('img'), null);
 });
 
@@ -309,6 +353,11 @@ test('editor configures the robot and room appearance without routine rooms', as
   // Rooms come from the robot now, so there are no per-room preset buttons to configure.
   assert.equal(editor.shadowRoot.querySelector('[aria-label="Room 1 name"]'), null);
   assert.equal(editor.shadowRoot.querySelector('[aria-label="Room 1 preset"]'), null);
+  // The full-home routine button is gone from the editor too.
+  assert.equal(editor.shadowRoot.querySelector('[aria-label="Full-home preset (optional)"]'), null);
+  assert.equal(editor.shadowRoot.querySelector('[aria-label="Full-home preset"]'), null);
+  // A configuration that still carries one loads without error and is simply unused.
+  assert.equal(original.full_clean_entity, 'button.robot_all_rooms');
   const display = editor.shadowRoot.querySelector('[aria-label="Display name"]');
   display.value = 'My cleaner'; display.dispatchEvent(new Event('change', { bubbles: true })); await settle(editor);
   assert.equal(events.length, 1); assert.equal(events[0].name, 'My cleaner');
@@ -322,47 +371,66 @@ test('editor configures the robot and room appearance without routine rooms', as
 });
 
 
-test('native queue service accepts ordered presets without requiring the wrapper script', async () => {
-  const { card, calls } = await fixture({
-    states: { 'script.robot_queue_control': undefined },
-    services: { robot_cleaner_queue: { control: {} } },
-  });
-  await tap(card, 'kitchen'); await tap(card, 'hall');
+test('a room plan goes to the queue service without the wrapper script', async () => {
+  const { card, calls } = await fixture({ states: { 'script.robot_queue_control': undefined } });
+  await tap(card, '0_2'); await tap(card, '0_3');
   assert.equal(button(card, 'start').disabled, false);
   button(card, 'start').click(); await settle(card);
   assert.equal(calls[0].domain, 'robot_cleaner_queue'); assert.equal(calls[0].action, 'control');
-  assert.equal(calls[0].data.command, 'start'); assert.equal(calls[0].data.vacuum, 'vacuum.robot');
-  assert.deepEqual(calls[0].data.presets, ['button.robot_kitchen', 'button.robot_hall']);
-  assert.equal(calls[0].data.variables, undefined);
+  assert.equal(calls[0].data.command, 'start_manual');
+  assert.deepEqual(calls[0].data.rooms.map(room => room.id), ['0_2', '0_3']);
+  assert.equal(calls.some(call => call.domain === 'script'), false);
 });
 
 test('native queue validation errors keep the selected order editable', async () => {
-  const { card } = await fixture({
-    services: { robot_cleaner_queue: { control: {} } },
-    service: async () => { throw new Error('Robot is already cleaning'); },
-  });
-  await tap(card, 'kitchen'); button(card, 'start').click(); await settle(card);
+  const { card } = await fixture({ service: async () => { throw new Error('Robot is already cleaning'); } });
+  await tap(card, '0_2'); button(card, 'start').click(); await settle(card);
   assert.match(root(card).querySelector('[role="alert"]').textContent, /already cleaning/);
-  assert.equal(order(card, 'kitchen'), '1'); assert.equal(room(card, 'hall').disabled, false);
+  assert.equal(order(card, '0_2'), '1'); assert.equal(room(card, '0_3').disabled, false);
 });
 
-test('full-home preset uses the companion when available to preserve queue ownership', async () => {
-  const { card, calls } = await fixture({ services: { robot_cleaner_queue: { control: {} } } });
+test('Clean all rooms plans every room on the current map in tile order', async () => {
+  const { card, calls } = await fixture();
+  assert.match(button(card, 'start').textContent, /Clean all rooms/);
   button(card, 'start').click(); await settle(card);
-  assert.equal(calls.length, 1); assert.equal(calls[0].domain, 'robot_cleaner_queue');
-  assert.equal(calls[0].data.command, 'start');
-  assert.deepEqual(calls[0].data.presets, ['button.robot_all_rooms']);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].domain, 'robot_cleaner_queue');
+  assert.equal(calls[0].data.command, 'start_manual');
+  assert.deepEqual(calls[0].data.rooms, [
+    { id: '0_1', ...ROOM_DEFAULTS }, { id: '0_2', ...ROOM_DEFAULTS }, { id: '0_3', ...ROOM_DEFAULTS }]);
+  assert.equal(calls[0].data.presets, undefined);
+  // No routine entity is touched anywhere: the plan is the robot's own rooms.
+  assert.equal(calls.some(call => ['button', 'script'].includes(call.domain)), false);
+});
+
+test('Clean all rooms keeps a per-room override in the plan', async () => {
+  const { card, calls } = await fixture();
+  button(card, 'setup').click(); await settle(card);
+  const kitchen = root(card).querySelector('[data-room-setup="0_2"]');
+  assert.equal(kitchen, null, 'Unselected rooms have no editor until every room is planned');
+  await clickText(card, 'Use settings');
+  await tap(card, '0_2');
+  button(card, 'setup').click(); await settle(card);
+  root(card).querySelector('[data-room-setup="0_2"] [data-room-mode="vacuum"]').click(); await settle(card);
+  await clickText(card, 'Use settings');
+  await clickText(card, 'Clear selection');
+  button(card, 'start').click(); await settle(card);
+  assert.deepEqual(calls.at(-1).data.rooms, [
+    { id: '0_1', ...ROOM_DEFAULTS }, { id: '0_2', mode: 'vacuum', suction: 'balanced', repeat: 1 },
+    { id: '0_3', ...ROOM_DEFAULTS }]);
 });
 
 test('attention requires clearing the old sequence before starting another', async () => {
   const { card, calls } = await fixture({ states: {
-    'sensor.robot_queue': entity('attention', { vacuum: 'vacuum.robot', presets: ['button.robot_living_room'], current_index: 0, completed: 0, error: 'Completion was not confirmed' }),
+    'sensor.robot_queue': entity('attention', { vacuum: 'vacuum.robot', control_version: 5, mode: 'manual', presets: [], targets: ['0_1'],
+      stages: [{ target: '0_1', mode: 'vacuum_mop', room_index: 0, pass_index: 0, repeat_index: 0 }], setup: {}, current_index: 0, completed: 0,
+      error: 'Completion was not confirmed' }),
   } });
   assert.equal(button(card, 'start').disabled, true);
   assert.match(root(card).querySelector('.subline').textContent, /not confirmed/);
   button(card, 'clear-queue').click(); await settle(card);
-  assert.deepEqual(calls, [{ domain: 'script', action: 'turn_on', data: { entity_id: 'script.robot_queue_control', variables: { command: 'cancel', vacuum: 'vacuum.robot' } } }]);
-  await changeStates(card, { 'sensor.robot_queue': entity('cancelled', { vacuum: 'vacuum.robot', presets: [], completed: 0 }) });
+  assert.deepEqual(calls, [{ domain: 'robot_cleaner_queue', action: 'control', data: { command: 'cancel', vacuum: 'vacuum.robot' } }]);
+  await changeStates(card, { 'sensor.robot_queue': entity('cancelled', { vacuum: 'vacuum.robot', control_version: 5, presets: [], targets: [], completed: 0 }) });
   assert.equal(button(card, 'clear-queue'), null);
   assert.equal(button(card, 'start').disabled, false);
 });
@@ -370,11 +438,12 @@ test('attention requires clearing the old sequence before starting another', asy
 test('clearing an uncertain queue remains possible while the robot is unavailable', async () => {
   const { card, calls } = await fixture({ states: {
     'vacuum.robot': entity('unavailable'),
-    'sensor.robot_queue': entity('attention', { vacuum: 'vacuum.robot', presets: ['button.robot_living_room'] }),
+    'sensor.robot_queue': entity('attention', { vacuum: 'vacuum.robot', control_version: 5, presets: [], targets: ['0_1'] }),
   } });
   assert.equal(button(card, 'clear-queue').disabled, false);
   button(card, 'clear-queue').click(); await settle(card);
-  assert.equal(calls[0].data.variables.command, 'cancel');
+  assert.equal(calls[0].data.command, 'cancel');
+  assert.equal(calls[0].action, 'control');
   assert.equal(calls.some(call => call.domain === 'vacuum' || call.domain === 'button'), false);
 });
 
@@ -382,15 +451,15 @@ test('paused robot with START but no PAUSE support still offers Resume', async (
   const { card, calls } = await fixture({ states: { 'vacuum.robot': entity('paused', { supported_features: 8192 | 16 }) } });
   assert.equal(button(card, 'resume').disabled, false);
   button(card, 'resume').click(); await settle(card);
-  assert.deepEqual(calls, [{ domain: 'vacuum', action: 'start', data: { entity_id: 'vacuum.robot' } }]);
+  assert.deepEqual(calls, [{ domain: 'robot_cleaner_queue', action: 'control', data: { command: 'resume', vacuum: 'vacuum.robot' } }]);
 });
 
 test('a running queue cannot dispatch controls through an unavailable controller', async () => {
   const { card, calls } = await fixture({ states: {
     'vacuum.robot': entity('cleaning', { supported_features: FEATURES }),
-    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.robot', presets: ['button.robot_living_room'] }),
+    'sensor.robot_queue': entity('running', { vacuum: 'vacuum.robot', control_version: 5, presets: [], targets: ['0_1'] }),
     'script.robot_queue_control': entity('unavailable'),
-  } });
+  }, services: {} });
   assert.equal(button(card, 'pause').disabled, true); assert.equal(button(card, 'dock').disabled, true);
   button(card, 'dock').click(); await settle(card); assert.equal(calls.length, 0);
 });
@@ -401,7 +470,7 @@ test('mop servicing does not offer physical pause or docking controls', async ()
     'vacuum.robot': entity('cleaning',{supported_features:FEATURES}),
     'binary_sensor.robot_cleaning': entity('on'),
     'sensor.robot_status': entity('washing_the_mop'),
-    'sensor.robot_queue': entity('running',{vacuum:'vacuum.robot',presets:['button.robot_kitchen'],current_index:0,completed:0}),
+    'sensor.robot_queue': entity('running',{vacuum:'vacuum.robot',control_version:5,mode:'manual',presets:[],targets:['0_2'],current_index:0,completed:0}),
   }});
   assert.equal(button(card,'pause'),null);
   assert.equal(button(card,'dock'),null);
@@ -411,11 +480,13 @@ test('mop servicing does not offer physical pause or docking controls', async ()
 test('next room stays queued while the robot returns to the dock', async () => {
   const {card} = await fixture({states: {
     'vacuum.robot': entity('returning',{supported_features:FEATURES}),
-    'sensor.robot_queue': entity('running',{vacuum:'vacuum.robot',presets:['button.robot_kitchen','button.robot_hall'],current_index:1,completed:1,waiting_for_dock:true}),
+    'sensor.robot_queue': entity('running',{vacuum:'vacuum.robot',control_version:5,mode:'manual',presets:[],targets:['0_2','0_3'],
+      stages:[{target:'0_2',mode:'vacuum_mop',room_index:0,pass_index:0,repeat_index:0},{target:'0_3',mode:'vacuum_mop',room_index:1,pass_index:0,repeat_index:0}],
+      setup:{rooms:[{id:'0_2',name:'Kitchen',setup:{...ROOM_DEFAULTS}},{id:'0_3',name:'Hall',setup:{...ROOM_DEFAULTS}}]},current_index:1,completed:1,waiting_for_dock:true}),
   }});
-  assert.equal(order(card,'kitchen'),'1');
-  assert.match(room(card,'kitchen').textContent,/Completed/);
-  assert.match(room(card,'hall').textContent,/Queued/);
+  assert.equal(order(card,'0_2'),'1');
+  assert.match(room(card,'0_2').textContent,/Completed/);
+  assert.match(room(card,'0_3').textContent,/Queued/);
   assert.match(root(card).querySelector('.subline').textContent,/Next: Hall/);
 });
 
@@ -437,13 +508,13 @@ test('app-started jobs use the shared companion for pause, resume and docking', 
 });
 
 test('standalone acknowledgement blocks edits without inventing a room sequence', async () => {
-  const { card, calls } = await fixture({services:{robot_cleaner_queue:{control:{}}},states:{
-    'sensor.robot_queue':entity('controlling',{vacuum:'vacuum.robot',mode:'external',presets:[],pending_command:'pause'}),
+  const { card, calls } = await fixture({states:{
+    'sensor.robot_queue':entity('controlling',{vacuum:'vacuum.robot',control_version:5,mode:'external',presets:[],targets:[],pending_command:'pause'}),
     'vacuum.robot':entity('cleaning',{supported_features:FEATURES}),
     'sensor.robot_status':entity('cleaning'),
   }});
   assert.equal(button(card,'pause').disabled,true);
-  assert.equal(room(card,'living').disabled,true);
+  assert.equal(room(card,'0_1').disabled,true);
   assert.match(root(card).querySelector('h2').textContent,/Waiting/);
   assert.doesNotMatch(root(card).textContent,/Room 0 of 0|Room 1 of 0/);
   assert.equal(calls.length,0);
@@ -463,7 +534,7 @@ for (const missing of ['sensor','service']) test(`required companion ${missing} 
   assert.deepEqual(calls,[]);
 });
 
-test('required companion never starts a default native full clean when no preset is configured', async () => {
+test('required companion never falls back to a native whole-home clean', async () => {
   const {card,calls}=await fixture({overrides:{require_queue:true,full_clean_entity:undefined},services:{robot_cleaner_queue:{control:{}}}});
   assert.equal(button(card,'start').disabled,true);
   button(card,'start').click(); await settle(card);

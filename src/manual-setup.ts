@@ -91,7 +91,7 @@ export interface SetupRoom { id: string; name: string; setup: ManualSetup; custo
 interface SetupSheet {
   source: CleaningSource; setup: ManualSetup; caps?: ManualCapabilities; loading: boolean; error: string;
   rooms?: SetupRoom[]; roomNames?: Record<string,string>;
-  changeSource(source:CleaningSource):void; changeSetup(setup:Partial<ManualSetup>):void;
+  changeSetup(setup:Partial<ManualSetup>):void;
   changeRoomSetup?(id:string, setup:Partial<ManualSetup>):void; resetRoomSetup?(id:string):void;
   close():void; apply():void; retry():void;
 }
@@ -109,8 +109,7 @@ export function renderSetupSheet(model: SetupSheet) {
   </details>` : nothing;
   const selected = model.rooms ?? [];
   return html`<div class="setup-sheet"><div class="setup-header"><div><div class="eyebrow">Your next clean</div><h2 id="setup-title">Cleaning setup</h2></div><button class="close-button" data-action="close-setup" aria-label="Close cleaning setup" @click=${model.close}><ha-icon .icon=${'mdi:close'}></ha-icon></button></div>
-    <div class="setup-body">${source==='rooms' ? nothing : html`<div class="source-tabs" role="group" aria-label="Cleaning setup source"><button data-action="presets" class=${source==='preset'?'chosen':''} aria-pressed=${source==='preset'?'true':'false'} @click=${()=>model.changeSource('preset')}>Preset</button><button data-action="manual" class=${source==='manual'?'chosen':''} aria-pressed=${source==='manual'?'true':'false'} @click=${()=>model.changeSource('manual')}>Manual setup</button></div>`}
-    ${source==='preset' ? html`<div class="setup-description"><ha-icon .icon=${'mdi:bookmark-outline'}></ha-icon><h3>Your Roborock routines</h3><p>Each room uses the settings saved in its Roborock preset. Select the tiles in the order you want them cleaned.</p></div>` : html`
+    <div class="setup-body">
       ${model.loading ? html`<p class="setup-message" role="status">Reading robot capabilities…</p>` : model.error || !caps?.supported ? html`<div class="setup-message" role="alert">${model.error || caps?.error || 'Room cleaning needs the updated Home Assistant queue companion.'}<button class="text-button" data-action="retry-capabilities" @click=${model.retry}>Try again</button></div>`:html`
         ${source==='rooms' ? html`<p class="mode-description">Each room keeps its own settings. These are the defaults for every room you have not customised.</p>`:nothing}
         <div class="mode-grid" role="group" aria-label="Cleaning mode">${caps.modes.map(mode=>html`<button class="mode-choice ${setup.mode===mode.value?'chosen':''}" data-mode=${mode.value} aria-pressed=${setup.mode===mode.value?'true':'false'} @click=${()=>model.changeSetup({mode:mode.value})}><ha-icon .icon=${MODE_ICONS[mode.value]}></ha-icon><span>${MODE_LABELS[mode.value] ?? mode.label}</span>${setup.mode===mode.value ? html`<ha-icon class="choice-check" .icon=${'mdi:check-circle'}></ha-icon>`:nothing}</button>`)}</div>
@@ -123,6 +122,5 @@ export function renderSetupSheet(model: SetupSheet) {
           : html`<p class="setup-footnote">${setup.repeat > 1 ? '×2 cleans each area twice per pass, as separate runs. ' : ''}Manual cleaning uses the settings selected here with Home Assistant’s mapped areas. With no area selected, the whole home is cleaned.</p>`}
         ${renderZoneReport(caps)}
       `}
-    `}
-    </div><div class="setup-footer"><p>Settings apply when you start cleaning.</p><button class="action primary" data-action="apply-setup" ?disabled=${source!=='preset' && (model.loading || !caps?.supported || !caps.modes.length || !!model.error)} @click=${model.apply}>Use ${source==='preset'?'preset':'settings'}</button></div></div>`;
+    </div><div class="setup-footer"><p>Settings apply when you start cleaning.</p><button class="action primary" data-action="apply-setup" ?disabled=${model.loading || !caps?.supported || !caps.modes.length || !!model.error} @click=${model.apply}>Use settings</button></div></div>`;
 }
