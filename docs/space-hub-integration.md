@@ -4,7 +4,7 @@ Space Hub already supports `perform-action`. Integration with this card is a das
 
 ## Shared room appearance
 
-Reuse the same `mdi:` icon names from the Space Hub room headers in preset `rooms[].icon` and manual `area_overrides.<area_id>.icon`. The robot card uses Home Assistant's native `ha-icon`, just as Space Hub does. Manual areas also inherit their Home Assistant area icon when available. Overrides only affect appearance; they cannot add areas or change the native cleaning target.
+Reuse the same `mdi:` icon names from the Space Hub room headers in `area_overrides.<area_id>.icon` or `area_overrides.<robot_room_id>.icon`. The robot card uses Home Assistant's native `ha-icon`, just as Space Hub does. Manual areas also inherit their Home Assistant area icon when available. Overrides only affect appearance; they cannot add areas or change the native cleaning target.
 
 ## Route quick cleaning through one controller
 
@@ -15,15 +15,15 @@ tap_action:
   action: perform-action
   perform_action: robot_cleaner_queue.control
   data:
-    command: start
+    command: start_manual
     vacuum: vacuum.robot
-    presets:
-      - button.robot_office
+    rooms:
+      - {id: "0_4", mode: vacuum, suction: max, repeat: 1}
   confirmation:
-    text: Start the Office preset? An active or unfinished job will not be replaced.
+    text: Clean Office with these settings? An active or unfinished job will not be replaced.
 ```
 
-This starts one saved Roborock preset. It does not inherit a browser's unsubmitted manual settings or append to an active sequence. Manual cleaning is a separate explicit plan.
+This starts one native room with explicit settings. Obtain the room id and supported options from `get_capabilities`. To reuse card-saved settings, a household wrapper can read that response's `saved_preset.rooms` and select the matching room. Reject a missing room instead of guessing. Unsaved browser drafts do not affect other entrypoints.
 
 This is a migration example, not an instruction to change a running dashboard before the companion is installed. Existing callers may need a shared wrapper retaining their original script/entity IDs.
 
@@ -39,4 +39,4 @@ This is a migration example, not an instruction to change a running dashboard be
 
 Validate the wrapper and dashboard as part of companion installation, using mocked commands first. This repository does not automatically rewrite household dashboards or legacy scripts.
 
-See [named preset scripts for switches](switch-presets.md) for zero-argument wrappers, existing input-button compatibility and an entrypoint audit. Set `require_queue: true` on a robot card participating in this shared control path.
+See [saved room plans for switches](switch-presets.md) for zero-argument wrappers, existing input-button compatibility and an entrypoint audit. Set `require_queue: true` on a robot card participating in this shared control path.

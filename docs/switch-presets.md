@@ -1,8 +1,8 @@
-# Presets from wall switches and other dashboards
+# Room plans from wall switches and other dashboards
 
-## Card-saved preset (0.4.0+)
+## Card-saved room plan
 
-Choose the room order and manual settings in the card and press **Save preset**. This persists one preset per robot in Home Assistant. Use a stable zero-argument script for the wall switch:
+Choose the room order and manual settings in the card and press **Save plan**. This persists one plan per robot in Home Assistant. Use a stable zero-argument script for the wall switch:
 
 ```yaml
 script:
@@ -64,7 +64,7 @@ channel_b_hold_service: "script.turn_on"
 channel_b_hold_entity: "script.robot_clean_office"
 ```
 
-Change the entity to choose another preset. Multiple ordered buttons in the wrapper's `presets` list create a fixed sequence. An active or unfinished job is rejected, not replaced or silently appended to. Script errors are available in HA's script trace; a wall switch cannot display the card's inline error.
+Change the entity to choose another named room plan. Ordered room objects in the wrapper's `rooms` list create a fixed sequence. An active or unfinished job is rejected, not replaced or silently appended to. Script errors are available in HA's script trace; a wall switch cannot display the card's inline error.
 
 ## Preserve existing switch firmware
 
@@ -74,11 +74,11 @@ Use a direct script call from that compatibility automation so errors propagate 
 
 ## Manual settings and controls
 
-An unsaved browser draft never changes the wall-switch preset. Use **Save preset** and `toggle_saved` to reuse manual settings. For a fixed manual plan, create a separate wrapper calling `robot_cleaner_queue.control` with `command: start_manual`, explicit `vacuum`, `rooms` and `setup`; use only capabilities supported by that robot. See [manual cleaning](https://github.com/bitosome/ha-robot-cleaner-queue/blob/main/docs/manual-cleaning.md).
+An unsaved browser draft never changes the wall-switch preset. Use **Save plan** and `toggle_saved` to reuse manual settings. For a fixed manual plan, create a separate wrapper calling `robot_cleaner_queue.control` with `command: start_manual`, explicit `vacuum`, `rooms` and `setup`; use only capabilities supported by that robot. See [manual cleaning](https://github.com/bitosome/ha-robot-cleaner-queue/blob/main/docs/manual-cleaning.md).
 
 Route pause/resume/dock through the companion too, with an explicit vacuum. Version 0.2.2 can control an existing app-started job without adopting it as an ordered queue. Resume requires a confirmed paused, unfinished job, and every physical command waits for acknowledgement. A failed command is never retried or replaced by native `vacuum.start`.
 
-Set `require_queue: true` in the robot card when all controls must use this shared controller. Missing controller state disables controls instead of falling back to a default clean. The card’s **Clean all rooms** action plans every room the companion reports for the current map, in tile order, with the settings chosen in the setup sheet.
+Set `require_queue: true` in the robot card when all controls must use this shared controller. Missing controller state disables controls instead of falling back to a default clean. The card requires explicit selection. **Select all** selects the map’s rooms; **Start sequence** runs them with the settings shown inline on each tile.
 
 ## Audit before migration
 
