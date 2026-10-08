@@ -11,8 +11,8 @@ Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap 
 - Numbered room selection with visible selected, queued, cleaning and completed states.
 - Manual **Vacuum**, **Mop**, **Vacuum & mop**, and **Vacuum then mop** modes, with supported suction, water, mop route and ×1/×2 controls.
 - A read-only **Zones & areas** report that shows which Roborock rooms each Home Assistant area claims, which robot rooms no area covers yet, and which mapped areas the robot no longer reports.
-- Existing Roborock routines retain their suction, mopping and repetition settings.
-- The [queue integration](https://github.com/bitosome/ha-robot-cleaner-queue) verifies actual successful cleaning records before moving to the next preset. Pauses, recharge breaks and mop washing do not finish a room. A routine that begins slowly after the robot docks — while the dock is still washing or drying the mop — is waited out rather than abandoned.
+- Room-first sequencing: the tiles are the robot's own rooms, each cleaning one room at a time in your order with its own mode, suction, water, mop route and repeat count.
+- The [queue integration](https://github.com/bitosome/ha-robot-cleaner-queue) verifies the robot's own successful cleaning record before moving to the next room. Pauses, recharge breaks and mop washing do not finish a room. A room that begins slowly after the robot docks — while the dock is still washing or drying the mop — is waited out rather than abandoned.
 - Command acknowledgement, errors, unavailable states and interrupted-queue recovery.
 - Touch and keyboard controls, a visual configuration editor, responsive layout, reduced motion and theme support.
 
@@ -23,7 +23,7 @@ Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap 
 **Required for room sequencing, manual setup and saved presets**
 
 - **[Robot Cleaner Queue](https://github.com/bitosome/ha-robot-cleaner-queue)** — add `https://github.com/bitosome/ha-robot-cleaner-queue` as a HACS **Custom repository** of category **Integration**, download it, then restart Home Assistant. The card drives the integration through `robot_cleaner_queue.control` and `get_capabilities`, and never falls back to a browser-driven queue.
-- **The native Roborock integration** with a **V1-protocol** robot, and **one routine button per room**, created in the Roborock app. Preset mode presses those routines so the app keeps its suction, mopping and repetition settings, and each routine must represent the room named on its tile.
+- **The native Roborock integration** with a **V1-protocol** robot. Rooms, their names and their floor come from the robot's own map, so nothing has to be mirrored in a Roborock app routine. The companion must accept per-room plans: per-room cleaning and saving a room plan need the version that carries the room contract, and an older companion keeps the legacy routine path working with no room plans.
 
 **Required for manual setup**
 
@@ -71,30 +71,34 @@ full_clean_entity: button.robot_full_cleaning
 require_queue: true
 queue_entity: sensor.robot_cleaner_queue
 queue_script: script.robot_cleaner_queue_control
+```
+
+Rooms, their names and their floors come from the robot, so there is no room list to maintain. The only per-room configuration left is optional appearance:
+
+```yaml
+area_overrides:
+  kitchen: {name: Kitchen, icon: mdi:stove}   # by Home Assistant area id
+  "0_13": {name: Dining area, icon: mdi:table-chair}   # or by robot room id
+```
+
+Legacy fallback (only used when the companion cannot report the robot's rooms):
+
+```yaml
 rooms:
   - id: kitchen
     name: Kitchen
-    icon: mdi:stove
     preset: button.robot_kitchen
-  - id: office
-    name: Office
-    icon: mdi:desk
-    preset: button.robot_office
-  - id: bedroom
-    name: Bedroom
-    icon: mdi:bed-king-outline
-    preset: button.robot_bedroom
 ```
 
-Entity names above are examples. Use your existing **routine buttons**, not maintenance-reset buttons or area identifiers. Every room needs a unique `id`, `name` and `preset`. Optional `activity_entity` can identify an externally initiated room clean (`cleaning`, `active` or `on`); it never proves completion. The robot's `supported_features` determines available physical controls.
+Entity names above are examples. `rooms` is **optional and legacy**: it is only used when the queue companion cannot report the robot's own rooms, and each entry then needs an `id`, a `name` and a Roborock routine `preset` button. With a current companion the tiles come from the robot's map, so `rooms` can be left out entirely. Optional `activity_entity` can identify an externally initiated room clean (`cleaning`, `active` or `on`); it never proves completion. The robot's `supported_features` determines available physical controls. `area_overrides` styles a tile by the Home Assistant area id a room is mapped to, or by the robot room id (`0_12`) when it has none.
 
-Configure the optional telemetry entities you have. Missing values are omitted. Cleaning metrics belong to the current preset, not the complete multi-room sequence. The robot's current-room reading describes location; a room tile is marked completed only by the queue integration's successful routine record.
+Configure the optional telemetry entities you have. Missing values are omitted. Cleaning metrics belong to the current job, not the complete multi-room sequence. The robot's current-room reading describes location; a room tile is marked completed only by the queue integration's verified cleaning record.
 
 A configured full-home preset uses the same queue integration when installed. With `require_queue: true`, every control requires the integration, and saved-preset mode requires a full-home preset for **Clean all rooms**. This prevents a missing controller from becoming a default native clean. With this setting omitted or false, standalone native controls remain available. A selected room always requires the integration.
 
 ## Manual cleaning setup
 
-Open the **Preset** pill and choose **Manual setup**. Choose a cleaning mode, adjust its available settings, and press **Use settings**. This only saves a local draft. Select areas in order and press **Clean** to apply settings and begin. Without selected areas, the whole current map is cleaned.
+Open **Cleaning setup** to choose the settings every room starts from: mode, suction, water, mop route and cleaning count. The same sheet lists the rooms you have selected so any of them can be given its own mode and settings; a room left alone follows the defaults, and **Use the default settings** returns a customised room to them. Nothing is applied until you press **Use settings**, and nothing is sent to the robot until you press Start. A vacuum room never offers water or a mop route, and a mop room never offers suction.
 
 Manual tiles use the robot's existing Home Assistant **Cleaning by area** mapping, read by the queue integration. They can differ from your saved-preset tiles, and an area can contain multiple Roborock rooms. No extra card entity configuration is needed. Preset and manual area selections remain separate.
 
@@ -126,7 +130,8 @@ See [Space Hub controls and migration requirements](docs/space-hub-integration.m
 - **Clear sequence** after an error or restart clears pending work without moving the robot. Check its state before selecting a new sequence.
 - While a command is being confirmed, the movement controls are disabled and the card names the confirmation it is waiting for. After **Stop** this can take up to a minute, because the robot must first report the job as finished; the robot is already idle while that shows.
 - HA restarts preserve the saved sequence for inspection and stop automatic progression. There is no unattended restart or automatic command retry.
-- The queue integration supports the native Roborock V1 coordinator, verified against HA Core 2026.9.4 / python-roborock 7.4.2. It fails closed when completion cannot be established. Other platforms, protocols and unusual multi-job routines require additional compatibility work.
+- The queue integration supports the native Roborock V1 coordinator, verified against HA Core 2026.9.4 / python-roborock 7.4.2. It fails closed when completion cannot be established. Other platforms and protocols require additional compatibility work.
+- Rooms are read from the robot's current map, so only the floor the robot is standing on is offered. Multi-floor plans need a map switch, which the queue does not perform yet.
 
 See [completion, cancellation and compatibility details](https://github.com/bitosome/ha-robot-cleaner-queue/blob/main/docs/queue-backend.md). Development checks use simulated Home Assistant states and production-code event traces; they do not claim a physical cleaning test.
 
@@ -159,7 +164,7 @@ Update the HACS card and the [queue integration](https://github.com/bitosome/ha-
 - **Settings** includes voice volume, Do Not Disturb and its times, child lock and dust emptying mode.
 - **Care** shows available consumable time-left sensors and overdue reminders. It never enables entities or resets counters.
 
-An empty clean-water tank is a dock warning, not a blanket cleaning lock. **Manual setup → Vacuum** can run with this specific fault. Roborock app presets can also be launched; the robot decides whether their mopping steps can proceed. Explicit manual mopping and combined/two-pass plans remain blocked until water is restored. Other faults do not receive this exception. Pause, Stop and return-to-dock have action-specific checks. Robot firmware can still reject an operation; the card never bypasses device interlocks or claims success before acknowledgement.
+An empty clean-water tank is a dock warning, not a blanket cleaning lock. A plan whose next room is vacuum-only can run with this specific fault, and the full-home preset can be launched; the robot decides whether its mopping steps can proceed. Explicit mopping and combined/two-pass rooms remain blocked until water is restored. Other faults do not receive this exception. Pause, Stop and return-to-dock have action-specific checks. Robot firmware can still reject an operation; the card never bypasses device interlocks or claims success before acknowledgement.
 
 Dock/settings changes use the shared server controller and caller permissions, wait up to 60 seconds for fresh native readback, and never retry automatically. Resolve an active/uncertain queue before changing these controls. A pending cloud command must finish its acknowledgement window before another motion command. Find is independent of cleaning.
 
@@ -173,6 +178,6 @@ Call `robot_cleaner_queue.control` with `command: toggle`, a `vacuum`, and selec
 
 ### Save a reusable preset
 
-Choose rooms in order and optionally use Manual setup, then press **Save preset**. One preset per robot is stored in Home Assistant (`.storage/robot_cleaner_queue_presets`), survives restarts and is shared across browsers. Saving replaces the previous saved plan without changing robot settings or starting cleaning. **Load preset** restores it into the card for review and Start. App routine sequences keep Roborock's own settings; manual presets retain the selected areas, mode, suction, water, route and repeat count. Plans are checked again at execution; changed maps, missing areas, unavailable settings or missing permissions cannot silently redirect cleaning.
+Choose rooms in order, give any of them their own settings, then press **Save preset**. One preset per robot is stored in Home Assistant (`.storage/robot_cleaner_queue_presets`), survives restarts and is shared across browsers — including the wall-switch path, which starts the same rooms with the same per-room settings through `toggle_saved`. Saving replaces the previous saved plan without changing robot settings or starting cleaning. **Load preset** restores the rooms and their settings into the card for review and Start. Plans are checked again at execution; a changed map, a room that is gone, unavailable settings or missing permissions cannot silently redirect cleaning.
 
 For a wall switch use `command: toggle_saved` with the robot entity. It starts the saved preset when idle and cancels/docks when busy. Optional `presets` are a fallback only until a preset is saved; invalid saved plans do not fall back to another clean. No preset is created automatically during installation.

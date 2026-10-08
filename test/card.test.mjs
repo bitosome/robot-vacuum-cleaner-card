@@ -300,19 +300,25 @@ test('robot and room names render as text, not executable markup', async () => {
   assert.equal(root(card).querySelector('img'), null);
 });
 
-test('editor emits changed configuration without mutating the input', async () => {
+test('editor configures the robot and room appearance without routine rooms', async () => {
   const Card = customElements.get('robot-vacuum-cleaner-card');
   const editor = await Card.getConfigElement(); const original = config();
   editor.hass = { states: initialStates() }; editor.setConfig(original);
   const events = []; editor.addEventListener('config-changed', event => events.push(event.detail.config));
   document.body.append(editor); await settle(editor);
-  const input = editor.shadowRoot.querySelector('[aria-label="Room 1 name"]');
-  input.value = 'Reading room'; input.dispatchEvent(new Event('change', { bubbles: true })); await settle(editor);
-  assert.equal(events.length, 1); assert.equal(events[0].rooms[0].name, 'Reading room');
-  assert.equal(original.rooms[0].name, 'Living room');
+  // Rooms come from the robot now, so there are no per-room preset buttons to configure.
+  assert.equal(editor.shadowRoot.querySelector('[aria-label="Room 1 name"]'), null);
+  assert.equal(editor.shadowRoot.querySelector('[aria-label="Room 1 preset"]'), null);
   const display = editor.shadowRoot.querySelector('[aria-label="Display name"]');
   display.value = 'My cleaner'; display.dispatchEvent(new Event('change', { bubbles: true })); await settle(editor);
-  assert.equal(events[1].name, 'My cleaner');
+  assert.equal(events.length, 1); assert.equal(events[0].name, 'My cleaner');
+  const addAppearance = editor.shadowRoot.querySelector('[data-action="add-area-override"]');
+  addAppearance.click(); await settle(editor);
+  const id = editor.shadowRoot.querySelector('[aria-label="Area 1 ID"]');
+  id.value = 'kitchen'; id.dispatchEvent(new Event('change', { bubbles: true })); await settle(editor);
+  const last = events.at(-1);
+  assert.deepEqual(last.area_overrides, {kitchen: {}});
+  assert.equal(original.area_overrides, undefined);
 });
 
 

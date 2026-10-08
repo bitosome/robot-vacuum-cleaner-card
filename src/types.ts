@@ -1,7 +1,12 @@
 export interface EntityState { state: string; attributes: Record<string, any>; last_changed?: string; last_updated?: string; }
 export interface Hass { hassUrl?(path:string):string; states: Record<string, EntityState>; services?: Record<string, Record<string, unknown>>; callWS?<T = unknown>(message: Record<string, unknown>): Promise<T>; callService(domain: string, service: string, data: Record<string, unknown>): Promise<unknown>; }
 export interface AreaAppearance { name?: string; icon?: string; }
-export interface RoomConfig { id: string; name: string; preset: string; icon?: string; activity_entity?: string; }
+/**
+ * A legacy tile: a Roborock app routine per room. Rooms now come from the robot's own
+ * map, so `preset` is optional and only used as the fallback when the companion
+ * reports no robot rooms.
+ */
+export interface RoomConfig { id: string; name: string; preset?: string; icon?: string; activity_entity?: string; }
 export interface CardConfig {
   type: string; entity: string; name?: string; rooms: RoomConfig[];
   battery_entity?: string; activity_entity?: string; status_entity?: string; cleaning_entity?: string;
@@ -22,14 +27,15 @@ export function numeric(entity?: EntityState): number | undefined {
 }
 export function validateConfig(raw: CardConfig): CardConfig {
   if (!raw || !/^vacuum\.[a-z0-9_]+$/.test(raw.entity ?? '')) throw new Error('Choose a vacuum entity.');
-  if (!Array.isArray(raw.rooms)) throw new Error('Configure a rooms list with a name and preset button for each room.');
+  if (raw.rooms !== undefined && !Array.isArray(raw.rooms)) throw new Error('rooms must be a list of rooms.');
   if (raw.require_queue !== undefined && typeof raw.require_queue !== 'boolean') throw new Error('require_queue must be true or false.');
   const ids = new Set<string>(); const presets = new Set<string>();
-  raw.rooms.forEach(room => {
-    if (!room.id || !room.name || !/^button\.[a-z0-9_]+$/.test(room.preset)) throw new Error('Every room needs an id, name and button preset entity.');
+  (raw.rooms ?? []).forEach(room => {
+    if (!room.id || !room.name) throw new Error('Every room needs an id and a name.');
+    if (room.preset && !/^button\.[a-z0-9_]+$/.test(room.preset)) throw new Error('A room preset must be a button entity.');
     if (room.activity_entity && !/^[a-z_]+\.[a-z0-9_]+$/.test(room.activity_entity)) throw new Error(`Invalid activity entity for ${room.name}.`);
-    if (ids.has(room.id) || presets.has(room.preset)) throw new Error('Room IDs and preset entities must be unique.');
-    ids.add(room.id); presets.add(room.preset);
+    if (ids.has(room.id) || (room.preset && presets.has(room.preset))) throw new Error('Room IDs and preset entities must be unique.');
+    ids.add(room.id); if (room.preset) presets.add(room.preset);
   });
   for (const key of ['queue_script','queue_entity','battery_entity','activity_entity','status_entity','cleaning_entity','current_room_entity','progress_entity','area_entity','time_entity','error_entity','dock_error_entity','full_clean_entity','last_clean_end_entity'] as const) {
     if (raw[key] && !/^[a-z_]+\.[a-z0-9_]+$/.test(raw[key]!)) throw new Error(`Invalid ${key} entity.`);
@@ -47,5 +53,5 @@ export function validateConfig(raw: CardConfig): CardConfig {
       return [id, {...(appearance.name !== undefined ? {name: appearance.name as string} : {}), ...(appearance.icon !== undefined ? {icon: appearance.icon as string} : {})}];
     }));
   }
-  return { ...raw, ...(areaOverrides !== undefined ? {area_overrides: areaOverrides} : {}), queue_entity: raw.queue_entity ?? 'sensor.robot_cleaner_queue', queue_script: raw.queue_script ?? 'script.robot_cleaner_queue_control', rooms: raw.rooms.map(room => ({...room})) };
+  return { ...raw, ...(areaOverrides !== undefined ? {area_overrides: areaOverrides} : {}), queue_entity: raw.queue_entity ?? 'sensor.robot_cleaner_queue', queue_script: raw.queue_script ?? 'script.robot_cleaner_queue_control', rooms: (raw.rooms ?? []).map(room => ({...room})) };
 }

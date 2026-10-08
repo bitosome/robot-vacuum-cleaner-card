@@ -99,6 +99,13 @@ export const cardStyles = css`
   .setup-description h3 { font-size:17px;margin:14px 0 8px; }
   .setup-message { padding:14px 0 24px; }
   .setup-footnote { padding-top:2px; }
+  .room-setups { display:grid;gap:8px;margin:14px 0 4px; }
+  .room-setups h3 { font-size:14px;margin:0 0 2px; }
+  .room-setup { border:1px solid var(--divider-color,rgba(255,255,255,.1));border-radius:12px;padding:10px 12px; }
+  .room-setup > summary { display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;cursor:pointer;font-size:13px;min-height:34px; }
+  .room-setup-state { font-size:11px;color:var(--secondary-text-color,#acb1cc); }
+  .room-setup .setting-group { margin-top:10px; }
+  .room-setup .text-button { margin-top:10px; }
   .zone-report { margin:14px 0 4px; border:1px solid var(--divider-color,rgba(255,255,255,.1)); border-radius:14px; padding:12px 14px; }
   .zone-report > summary { display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;justify-content:space-between;cursor:pointer;font-size:13px;font-weight:500; }
   .zone-count { font-size:11px;font-weight:400;color:var(--secondary-text-color,#acb1cc); }

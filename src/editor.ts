@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { CardConfig, Hass, RoomConfig } from './types';
+import type { CardConfig, Hass } from './types';
 
 interface AreaAppearanceRow { id: string; name: string; icon: string; }
 
@@ -24,11 +24,6 @@ export class RobotVacuumCleanerCardEditor extends LitElement {
     if(!this.config)return nothing;
     return html`<label>${label}${domain?html`<select aria-label=${label} @change=${(event:Event)=>this.updateConfig(key,(event.target as HTMLSelectElement).value)}><option value="" ?selected=${!this.config[key]}>Not configured</option>${Object.keys(this.hass?.states??{}).filter(id=>id.startsWith(`${domain}.`)).sort().map(id=>html`<option value=${id} ?selected=${this.config![key]===id}>${this.hass!.states[id].attributes.friendly_name??id} (${id})</option>`)}</select>`:html`<input aria-label=${label} .value=${String(this.config[key]??'')} @change=${(event:Event)=>this.updateConfig(key,(event.target as HTMLInputElement).value)}>`}</label>`;
   }
-  private changeRoom(index:number,key:keyof RoomConfig,value:string) {
-    if(!this.config)return;const rooms=this.config.rooms.map(room=>({...room}));rooms[index][key]=value;
-    if(key==='preset' && !rooms[index].name)rooms[index].name=this.hass?.states[value]?.attributes.friendly_name??'Room';
-    this.config={...this.config,rooms};this.emit();
-  }
   private syncAreas() {
     if (!this.config) return;
     const ids = this.areaRows.map(row=>row.id.trim());
@@ -47,13 +42,10 @@ export class RobotVacuumCleanerCardEditor extends LitElement {
   }
   protected render() {
     if(!this.config)return nothing;
-    return html`<p>Choose your robot and its room preset buttons. Ordered cleaning requires the Robot Cleaner Queue companion; the queue runs in Home Assistant.</p>
+    return html`<p>Choose your robot. Rooms come from the robot's own map, so there are no room preset buttons to configure; ordered cleaning requires the Robot Cleaner Queue companion, and the queue runs in Home Assistant.</p>
       ${this.field('entity','Robot','vacuum')}${this.field('name','Display name')}${this.field('full_clean_entity','Full-home preset (optional)','button')}
-      <h3>Room tiles</h3><p>Each tile runs an existing Roborock routine. Room order here controls the grid; tap order controls each cleaning sequence.</p>
-      ${this.config.rooms.map((room,index)=>html`<div class="room"><header><strong>Room ${index+1}</strong><button @click=${()=>{this.config={...this.config!,rooms:this.config!.rooms.filter((_,i)=>i!==index)};this.emit();}}>Remove room ${index+1}</button></header><div class="row"><label>Room name<input aria-label=${`Room ${index+1} name`} .value=${room.name} @change=${(e:Event)=>this.changeRoom(index,'name',(e.target as HTMLInputElement).value)}></label><label>Icon<input aria-label=${`Room ${index+1} icon`} .value=${room.icon??'mdi:floor-plan'} @change=${(e:Event)=>this.changeRoom(index,'icon',(e.target as HTMLInputElement).value)}></label></div><label>Preset button<select aria-label=${`Room ${index+1} preset`} @change=${(e:Event)=>this.changeRoom(index,'preset',(e.target as HTMLSelectElement).value)}><option value="">Choose a preset</option>${Object.keys(this.hass?.states??{}).filter(id=>id.startsWith('button.')).sort().map(id=>html`<option value=${id} ?selected=${room.preset===id}>${this.hass!.states[id].attributes.friendly_name??id} (${id})</option>`)}</select></label></div>`)}
-      <button class="add" @click=${()=>{this.config={...this.config!,rooms:[...this.config!.rooms,{id:`room_${Date.now()}`,name:'',preset:'',icon:'mdi:floor-plan'}]};this.emit();}}>Add room</button>
-      <details><summary>Manual area appearance</summary>
-        <p>Use the same room names and icons as your Space Hub cards. Match each override to an existing Home Assistant area ID from the robot's Cleaning by area mapping. These settings only change the tile appearance; they do not add areas or change what gets cleaned. Leave name or icon blank to use the area default.</p>
+      <details><summary>Room names and icons</summary>
+        <p>Use the same room names and icons as your Space Hub cards. Key an override by the robot room id (like <code>0_12</code>) or by its Home Assistant area id; the area id wins when a room is mapped to one. These settings only change the tile appearance; they do not add rooms or change what gets cleaned. Leave name or icon blank to use the robot's own room name.</p>
         ${this.areaRows.map((area,index)=>html`<div class="room"><header><strong>Area ${index+1}</strong><button data-action="remove-area-override" @click=${()=>{this.areaRows=this.areaRows.filter((_,i)=>i!==index);this.syncAreas();}}>Remove area ${index+1}</button></header><label>Home Assistant area ID<input aria-label=${`Area ${index+1} ID`} .value=${area.id} placeholder="living_room" @change=${(event:Event)=>this.changeArea(index,'id',(event.target as HTMLInputElement).value)}></label><div class="row"><label>Display name<input aria-label=${`Area ${index+1} name`} .value=${area.name} placeholder="Use area name" @change=${(event:Event)=>this.changeArea(index,'name',(event.target as HTMLInputElement).value)}></label><label>Icon<input aria-label=${`Area ${index+1} icon`} .value=${area.icon} placeholder="mdi:sofa-outline" @change=${(event:Event)=>this.changeArea(index,'icon',(event.target as HTMLInputElement).value)}></label></div></div>`)}
         ${this.areaError ? html`<p role="alert">${this.areaError}</p>` : nothing}
         <button class="add" data-action="add-area-override" @click=${()=>{this.areaRows=[...this.areaRows,{id:'',name:'',icon:''}];}}>Add area appearance</button>
