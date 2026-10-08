@@ -37,13 +37,18 @@ export class RobotVacuumCleanerCard extends LitElement {
   @state() private savingPreset = false;
   @state() private presetFeedback = '';
   @state() private savedPreset?: SavedPreset;
+  @state() private preferencesDirty = false;
+  @state() private savingPreferences = false;
+  @state() private preferencesMessage = '';
+  @state() private preferencesRevision = 0;
+  private preferencesFetchedRevision = 0;
   private capsFor = '';
   private capsRequest = 0;
   private mapState?: string;
   private barrierTimer?: ReturnType<typeof setTimeout>;
   private requestTimer?: ReturnType<typeof setTimeout>;
 
-  setConfig(config: CardConfig) { if (this.config?.entity !== config.entity) { this.capsRequest++; this.capsFor=''; this.caps=undefined; this.savedPreset=undefined; this.presetFeedback=''; this.manualSelected=[]; this.roomSetups={}; this.setup={mode:'vacuum_mop',repeat:1}; this.planEdited=false; this.source='rooms'; } this.config = validateConfig(config); this.selected = []; }
+  setConfig(config: CardConfig) { if (this.config?.entity !== config.entity) { this.capsRequest++; this.capsFor=''; this.caps=undefined; this.savedPreset=undefined; this.preferencesDirty=false; this.preferencesRevision=0; this.preferencesFetchedRevision=0; this.preferencesMessage=''; this.presetFeedback=''; this.manualSelected=[]; this.roomSetups={}; this.setup={mode:'vacuum_mop',repeat:1}; this.planEdited=false; this.source='rooms'; } this.config = validateConfig(config); this.selected = []; }
   getCardSize() { return 8; }
   getGridOptions() { return { columns: 12, min_columns: 6, rows: 9, min_rows: 6 }; }
   static async getConfigElement() { await import('./editor'); return document.createElement('robot-vacuum-cleaner-card-editor'); }
@@ -75,7 +80,7 @@ export class RobotVacuumCleanerCard extends LitElement {
    * A command is genuinely in flight. This is what freezes editing, because the
    * dashboard is about to change underneath the user.
    */
-  private get blocked() { return this.savingPreset || this.deviceSending || this.phase === 'controlling' || !!this.request || !!this.queue?.attributes.pending_command; }
+  private get blocked() { return this.savingPreferences || this.savingPreset || this.deviceSending || this.phase === 'controlling' || !!this.request || !!this.queue?.attributes.pending_command; }
   /**
    * The engine's uncertainty window only forbids motion. Selecting rooms, editing
    * settings, saving a plan and clearing a finished sequence are all local.
@@ -197,8 +202,44 @@ export class RobotVacuumCleanerCard extends LitElement {
         this.source='manual';
       }
       if (caps.supported && caps.modes.length && !this.planEdited) this.setup=normalizeSetup(caps,caps.defaults);
+      if (caps.preferences) {
+        this.preferencesFetchedRevision=caps.preferences.revision;
+        if (!this.preferencesDirty) this.applyPreferences();
+        else if (caps.preferences.revision!==this.preferencesRevision) this.preferencesMessage='Shared settings changed in another dashboard. Reload shared settings before saving.';
+      }
     } catch(error) { if (request===this.capsRequest) { this.caps=undefined; this.capsError=error instanceof Error ? error.message : 'Could not read robot capabilities.'; } }
     finally { if (request===this.capsRequest) this.capsLoading=false; }
+  }
+  private applyPreferences() {
+    const profile=this.caps?.preferences;
+    if (!profile || !this.caps) return;
+    // Preserve stored values exactly. A removed option must fail validation rather
+    // than silently change a household preference to another setting.
+    this.setup=profile.defaults.mode ? {...profile.defaults} as ManualSetup : normalizeSetup(this.caps,this.caps.defaults);
+    this.roomSetups=structuredClone(profile.rooms);
+    this.preferencesRevision=profile.revision;
+    this.preferencesDirty=false;
+  }
+  private async reloadPreferences() {
+    const dirty=this.preferencesDirty;
+    this.preferencesDirty=false;
+    await this.readCapabilities();
+    if (this.capsError) this.preferencesDirty=dirty;
+    this.preferencesMessage=this.capsError || 'Shared room settings loaded.';
+  }
+  private async savePreferences() {
+    if (!this.hass || !this.config || !this.caps || this.blocked || this.caps.current_map===undefined) return;
+    const vacuum=this.config.entity;
+    const rooms=Object.fromEntries(this.robotRooms.filter(room=>this.roomSetups[room.id]).map(room=>[room.id,{...this.roomSetups[room.id]}]));
+    this.savingPreferences=true; this.preferencesMessage='';
+    try {
+      await this.hass.callService('robot_cleaner_queue','save_preferences',{vacuum,revision:this.preferencesRevision,map_id:this.caps.current_map,defaults:{...this.setup},rooms});
+      if (this.config?.entity!==vacuum) return;
+      this.preferencesDirty=false;
+      await this.readCapabilities();
+      this.preferencesMessage='Room settings saved for everyone. Nothing started.';
+    } catch (error) { this.preferencesMessage=error instanceof Error ? error.message : 'Could not save room settings. Your changes are still unsaved.'; }
+    finally { this.savingPreferences=false; }
   }
   private get validSelection() {
     return !!this.caps && this.manualSelected.every(id=>this.rooms.some(room=>room.id===id)
@@ -247,13 +288,15 @@ export class RobotVacuumCleanerCard extends LitElement {
     } else {
       this.commandError='That saved preset runs Roborock app routines, which this card no longer uses. Choose rooms and save a new plan.'; return;
     }
-    this.source=plan.source; this.planEdited=true; this.commandError=''; this.presetFeedback='Plan loaded. Press Start sequence when ready.';
+    this.source=plan.source; this.planEdited=true; this.preferencesDirty=true; this.commandError=''; this.presetFeedback='Plan loaded. Press Start sequence when ready.';
   }
   private get selectedRooms() { return this.selection.map(id => this.rooms.find(room => room.id === id)).filter((room):room is RoomConfig => !!room); }
   private get showCommitted() { return (this.queuePresets.length > 0 || this.queueManual) && (this.queueActive || (!this.planEdited && this.queueManual === this.manual && !this.selection.length && ['attention','completed','cancelled'].includes(this.phase))); }
 
   protected updated(changed: PropertyValues) {
     if (changed.has('hass')) {
+      const revision=Number(this.entity(this.config?.queue_entity)?.attributes.preferences_revisions?.[this.config?.entity ?? ''] ?? 0);
+      if (this.caps && revision!==this.preferencesFetchedRevision && !this.capsLoading && !this.savingPreferences) void this.readCapabilities();
       const mapId=this.caps?.device_entities?.selected_map;
       const value=mapId?this.entity(mapId)?.state:undefined;
       if(this.mapState!==undefined && value!==undefined && value!==this.mapState && !this.capsLoading) void this.readCapabilities();
@@ -458,7 +501,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   }
   private editSetup(id:string|undefined, patch:Partial<ManualSetup>) {
     if (!this.caps || this.queueActive || this.blocked || this.jobActive) return;
-    this.planEdited=true; this.commandError=''; this.presetFeedback='';
+    this.planEdited=true; this.preferencesDirty=true; this.preferencesMessage='Unsaved room settings'; this.commandError=''; this.presetFeedback='';
     if (id) this.roomSetups={...this.roomSetups,[id]:normalizeSetup(this.caps,{...this.setupFor(id),...patch})};
     else this.setup=normalizeSetup(this.caps,{...this.setup,...patch});
   }
@@ -487,7 +530,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     const locked=disabled||this.jobActive||this.showCommitted;
     return html`<div class="tile-wrap"><div class="glow-under" style=${glow.style}>${glow.overlay}</div><section class="surface room ${selected?'selected':''} ${moving||externalActive?'active':''} ${done?'done':''}">
       <button class="room-select" data-room=${room.id} aria-pressed=${selected?'true':'false'} aria-label=${`${room.name}, ${text.toLowerCase()}${position>=0?`, position ${position+1}`:''}`} ?disabled=${disabled} @click=${()=>this.toggleRoom(room)}><ha-icon class="room-icon" .icon=${room.icon??'mdi:floor-plan'}></ha-icon><span class="room-title"><span class="room-name">${room.name}</span><span class="room-state">${text}</span></span>${position>=0?html`<span class="order">${position+1}</span>`:html`<span class="room-add" aria-hidden="true">+</span>`}</button>
-      <details class="room-inline" data-room-editor=${room.id}><summary aria-label=${`Settings for ${room.name}`}><span class="room-settings-summary">${settingsSummary(setup)}</span>${icon('mdi:tune-variant')}</summary>${this.caps?.supported?renderRoomSettings({id:room.id,name:room.name,setup,caps:this.caps,disabled:locked||!this.roomMode,change:patch=>this.editSetup(room.id,patch)}):nothing}${this.roomSetups[room.id]&&!this.showCommitted?html`<button class="text-button" data-action="reset-room" data-room-id=${room.id} ?disabled=${locked} @click=${()=>{const next={...this.roomSetups};delete next[room.id];this.roomSetups=next;this.planEdited=true;}}>Use defaults</button>`:nothing}</details>
+      <details class="room-inline" data-room-editor=${room.id}><summary aria-label=${`Settings for ${room.name}`}><span class="room-settings-summary">${settingsSummary(setup)}</span>${icon('mdi:tune-variant')}</summary>${this.caps?.supported?renderRoomSettings({id:room.id,name:room.name,setup,caps:this.caps,disabled:locked||!this.roomMode,change:patch=>this.editSetup(room.id,patch)}):nothing}${this.roomSetups[room.id]&&!this.showCommitted?html`<button class="text-button" data-action="reset-room" data-room-id=${room.id} ?disabled=${locked} @click=${()=>{const next={...this.roomSetups};delete next[room.id];this.roomSetups=next;this.planEdited=true;this.preferencesDirty=true;this.preferencesMessage='Unsaved room settings';}}>Use defaults</button>`:nothing}</details>
     </section></div>`;
   }
 
@@ -514,6 +557,7 @@ export class RobotVacuumCleanerCard extends LitElement {
         ${this.jobActive && (area || time || progress!==undefined) ? html`<div class="pills">${cleaning ? html`<span class="pill live">${icon('mdi:record-circle-outline')}Cleaning</span>`:nothing}${area?html`<span class="pill">${icon('mdi:ruler-square')}${area}</span>`:nothing}${time?html`<span class="pill">${icon('mdi:timer-outline')}${time}</span>`:nothing}${progress!==undefined?html`<span class="pill">${Math.round(progress)}%</span>`:nothing}</div>`:nothing}
         ${this.jobActive && progress!==undefined ? html`<div class="progress" role="progressbar" aria-label=${this.manual?'Current cleaning stage progress':'Current cleaning progress'} aria-valuenow=${Math.round(progress)} aria-valuemin="0" aria-valuemax="100"><span style=${`width:${progress}%`}></span></div>`:nothing}
         <details class="default-settings"><summary>Default room settings <span>${setupSummary(this.setup)}</span></summary>${this.caps?.supported ? renderRoomSettings({id:'defaults',name:'default settings',setup:this.setup,caps:this.caps,disabled:this.queueActive||this.blocked||this.jobActive,change:patch=>this.editSetup(undefined,patch)}):html`<p class="hint">${this.capsError||'Reading cleaning capabilities…'}</p>`}<p class="hint">Applies to rooms without custom settings. Changes take effect only when you start.</p></details>
+        ${this.hass.services?.robot_cleaner_queue?.save_preferences ? html`<div class="pills"><button class="action" data-action="save-preferences" ?disabled=${this.blocked||!this.preferencesDirty||!this.caps?.supported} @click=${()=>this.savePreferences()}>${icon('mdi:content-save-outline')}${this.savingPreferences?'Saving…':'Save room settings'}</button><button class="text-button" data-action="reload-preferences" ?disabled=${this.blocked||this.capsLoading} @click=${()=>this.reloadPreferences()}>Reload shared settings</button></div><p class="hint" role="status">${this.preferencesMessage || 'Saved defaults and room settings are shared by everyone and survive restarts.'}</p>`:html`<p class="hint">Update the queue integration to save shared room settings.</p>`}
         ${this.renderActions()}
       </section></div>
       ${this.waterEmpty ? html`<div class="note water-warning">${icon('mdi:water-alert-outline')}<span>Refill and reseat the dock’s clean-water tank for mopping. ${this.waterAllowed ? 'Vacuuming can start. Any later mopping stage waits for a healthy dock.' : 'Mopping needs water. Make the plan’s first room vacuum-only, or wait until the tank is refilled.'}</span></div>`:nothing}

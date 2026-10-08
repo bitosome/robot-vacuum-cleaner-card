@@ -278,10 +278,11 @@
       {value: 'vacuum_mop', label: 'Vacuum & mop'}, {value: 'vacuum_then_mop', label: 'Vacuum then mop'}
     ];
     const deviceEntities = {dust_emptying:'switch.rover_empty',mop_washing:'switch.rover_wash',mop_drying:'switch.rover_dry',volume:'number.rover_volume',dnd:'switch.rover_dnd',dnd_start:'time.rover_dnd_start',dnd_end:'time.rover_dnd_end',child_lock:'switch.rover_child',empty_mode:'select.rover_empty',main_brush_time_left:'sensor.rover_brush',sensor_time_left:'sensor.rover_sensors',map_0:'image.rover_map'};
+    let preferences = {revision:0,defaults:{},rooms:{}};
     function capabilities() {
       if (scenario === 'manual_unavailable' || states[config.entity]?.state === 'unavailable') return {supported: false, modes: [], suction: [], water: [], routes: [], repeats: [], room_targets: [], defaults: {}, error: 'Manual cleaning settings are unavailable. Check the robot connection.'};
       const vacuumOnly = scenario === 'vacuum_only';
-      return {saved_preset:savedPreset,current_map:0,control_version:5,device_entities:deviceEntities,supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
+      return {preferences,saved_preset:savedPreset,current_map:0,control_version:5,device_entities:deviceEntities,supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
         suction: ['quiet', 'balanced', 'turbo', 'max', 'max_plus'],
         water: vacuumOnly ? [] : ['low', 'medium', 'high'],
         routes: vacuumOnly ? [] : ['standard', 'deep', 'deep_plus', 'fast'],
@@ -355,7 +356,7 @@
         config: {unit_system: {length: 'km', temperature: '°C', mass: 'kg', volume: 'L'}, time_zone: 'Europe/London'},
         localize: () => undefined,
         callService, callWS, hassUrl: path=>path.startsWith('/api/image_proxy/') ? './demo-map.svg' : path,
-        services: {vacuum: {start: {}, pause: {}, return_to_base: {}, stop: {}}, button: {press: {}}, script: {turn_on: {}}, robot_cleaner_queue: {control: {}, get_capabilities: {}, device_control:{}, save_preset:{}}},
+        services: {vacuum: {start: {}, pause: {}, return_to_base: {}, stop: {}}, button: {press: {}}, script: {turn_on: {}}, robot_cleaner_queue: {control: {}, get_capabilities: {}, device_control:{}, save_preset:{}, save_preferences:{}}},
         formatEntityState: state => state.state,
         formatEntityAttributeValue: (state, attribute) => state.attributes[attribute]
       };
@@ -389,6 +390,12 @@
       }
     }
     async function callService(domain, service, data = {}) {
+      if (domain==='robot_cleaner_queue' && service==='save_preferences') {
+        if (data.revision!==preferences.revision) throw new Error('Shared settings changed. Reload shared settings.');
+        preferences=structuredClone({revision:preferences.revision+1,defaults:data.defaults,rooms:data.rooms});
+        states[config.queue_entity].attributes.preferences_revisions={[config.entity]:preferences.revision};
+        log(domain,service,data);paint();return;
+      }
       if (domain==='robot_cleaner_queue' && service==='save_preset') { savedPreset=structuredClone({...data,map_id:0});log(domain,service,data);return; }
       if (states[config.entity]?.state === 'unavailable' && (data.variables?.command || data.command) !== 'cancel') throw new Error('The robot is unavailable.');
       log(domain, service, data);

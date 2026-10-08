@@ -136,3 +136,17 @@ Open `http://127.0.0.1:8767/preview/`. The interactive preview is entirely local
 Space Hub Card is the design reference; the inline room controls follow the NIBE dashboard’s compact surfaces and progressive disclosure. Canonical tokens are vendored from its v2.0.83 commit; the shared glow helper and stacking model are reused. See [provenance](src/shared/PROVENANCE.md). There is no runtime dependency on another local checkout. `scripts/sync-design-tokens.py` updates the exact token source at an explicit commit.
 
 This is a public, reusable project. Examples contain no production configuration, household maps or credentials. MIT licensed.
+
+### Shared room settings
+
+With queue companion v0.9.0+, edit **Default room settings** and each room’s inline
+controls, then press **Save room settings**. This saves defaults and all current-map
+room overrides, including unselected rooms, in Home Assistant. They survive browser
+refreshes and HA restarts and are shared by all authorized users. Other dashboards
+refresh automatically. Unsaved edits stay local; conflicting saves require **Reload
+shared settings** so one user cannot silently overwrite another. **Use defaults**
+removes a room override when you save. Other floors retain their preferences.
+
+**Save plan** remains separate: it freezes the selected room order and settings for
+the wall switch. Updating preferences never alters that saved sequence or an active
+clean, and saving either kind of data never starts the robot.

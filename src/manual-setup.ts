@@ -11,7 +11,9 @@ export interface SavedPreset { source: CleaningSource; presets: string[]; rooms:
 export interface RobotRoom { id: string; name?: string|null; segment?: number; floor?: string|null; area_id?: string|null; area_name?: string|null; }
 export interface RobotMap { flag: number; name?: string|null; }
 export interface UnmappedArea { id: string; name: string; segments: string[]; }
+export interface RoomPreferences { revision: number; defaults: Partial<ManualSetup>; rooms: Record<string,ManualSetup>; }
 export interface ManualCapabilities {
+  preferences?: RoomPreferences;
   saved_preset?: SavedPreset; current_map?: number;
   control_version?: number; device_entities?: Record<string,string>;
   supported: boolean; modes: Array<{value: CleaningMode; label: string}>;

@@ -802,3 +802,59 @@ test('repeated stages display settings for their actual room and valid summaries
   assert.doesNotMatch(root(card).textContent,/undefined/);
   assert.equal(root(card).querySelector('[data-room-id="0_12"][data-room-setting="mode"]').disabled,true);
 });
+
+const sharedServices = {robot_cleaner_queue:{control:{},get_capabilities:{},save_preset:{},save_preferences:{}}};
+const sharedProfile = () => ({revision:2, defaults:{mode:'vacuum',suction:'max_plus',repeat:1},
+  rooms:{'0_12':{mode:'mop',water:'high',route:'deep',repeat:2}}});
+test('shared defaults and every room preference restore in a new card without selecting rooms',async()=>{
+  for(let i=0;i<2;i++) {
+    const {card,calls}=await roomFixture({services:sharedServices,capabilities:{...roomCapabilities(),preferences:sharedProfile()}});
+    assert.equal(card.setup.suction,'max_plus');
+    assert.equal(card.roomSetups['0_12'].water,'high');
+    assert.deepEqual(card.manualSelected,[]);
+    assert.equal(calls.length,0);
+    assert.equal(action(card,'save-preferences').disabled,true);
+  }
+});
+test('saving room settings persists unselected rooms separately from the wall-switch plan',async()=>{
+  const {card,calls,setCapabilities}=await roomFixture({services:sharedServices,capabilities:{...roomCapabilities(),preferences:sharedProfile()}});
+  await click(card,choice(card,'0_12','water','low'));
+  await click(card,choice(card,'defaults','suction','quiet'));
+  const updated={revision:3,defaults:{...card.setup},rooms:structuredClone(card.roomSetups)};
+  setCapabilities({...roomCapabilities(),preferences:updated});
+  await click(card,action(card,'save-preferences'));
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].action,'save_preferences');
+  assert.deepEqual(calls[0].data,{vacuum:'vacuum.rover',revision:2,map_id:0,defaults:updated.defaults,rooms:updated.rooms});
+  assert.deepEqual(card.manualSelected,[]);
+  assert.equal(card.preferencesDirty,false);
+  assert.match(root(card).textContent,/saved for everyone/);
+});
+test('another dashboard refreshes shared settings and conflicts preserve local edits',async()=>{
+  const {card,calls,setCapabilities}=await roomFixture({services:sharedServices,capabilities:{...roomCapabilities(),preferences:sharedProfile()}});
+  const changed={...sharedProfile(),revision:3,defaults:{mode:'vacuum',suction:'quiet',repeat:1}};
+  setCapabilities({...roomCapabilities(),preferences:changed});
+  card.hass={...card.hass,states:{...card.hass.states,'sensor.robot_cleaner_queue':entity('idle',{preferences_revisions:{'vacuum.rover':3}})}};
+  await settle(card);
+  assert.equal(card.setup.suction,'quiet');
+  await click(card,choice(card,'defaults','suction','max'));
+  setCapabilities({...roomCapabilities(),preferences:{...changed,revision:4}});
+  card.hass={...card.hass,states:{...card.hass.states,'sensor.robot_cleaner_queue':entity('idle',{preferences_revisions:{'vacuum.rover':4}})}};
+  await settle(card);
+  assert.equal(card.setup.suction,'max');
+  assert.equal(card.preferencesRevision,3);
+  assert.match(root(card).textContent,/changed in another dashboard/);
+  await click(card,action(card,'reload-preferences'));
+  assert.equal(card.setup.suction,'quiet');
+  assert.equal(card.preferencesRevision,4);
+  assert.equal(calls.length,0);
+});
+test('failed preference save keeps the draft and does not report success',async()=>{
+  const {card}=await roomFixture({services:sharedServices,capabilities:{...roomCapabilities(),preferences:sharedProfile()},service:()=>{throw new Error('Storage unavailable');}});
+  await click(card,choice(card,'defaults','suction','quiet'));
+  await click(card,action(card,'save-preferences'));
+  assert.equal(card.preferencesDirty,true);
+  assert.equal(card.setup.suction,'quiet');
+  assert.match(root(card).textContent,/Storage unavailable/);
+  assert.doesNotMatch(root(card).textContent,/Room settings saved for everyone/);
+});
