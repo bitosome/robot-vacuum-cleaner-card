@@ -63,12 +63,30 @@ export class RobotVacuumCleanerCard extends LitElement {
   private get robotReady() { return available(this.vacuum); }
   private get jobActive() { return this.entity(this.config?.cleaning_entity)?.state === 'on' || ['cleaning','paused','returning'].includes(this.vacuum?.state ?? ''); }
   /** The integration's own uncertainty window, so the card cannot unlock early. */
-  private get barrierActive() {
+  private get barrierUntil() {
     const raw = this.queue?.attributes.command_barrier_until;
     const seconds = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
-    return Number.isFinite(seconds) && seconds * 1000 > Date.now() + 500;
+    return Number.isFinite(seconds) ? seconds : 0;
   }
-  private get blocked() { return this.savingPreset || this.deviceSending || this.phase === 'controlling' || !!this.request || !!this.queue?.attributes.pending_command || this.barrierActive; }
+  private get barrierActive() { return this.barrierUntil * 1000 > Date.now() + 500; }
+  /** Remaining whole minutes of the window, never below one while it is open. */
+  private get barrierMinutes() { return Math.max(1, Math.ceil((this.barrierUntil * 1000 - Date.now()) / 60000)); }
+  private get barrierNotice() { return `Waiting ${this.barrierMinutes} min for the robot’s acknowledgement window`; }
+  /**
+   * A command is genuinely in flight. This is what freezes editing, because the
+   * dashboard is about to change underneath the user.
+   */
+  private get blocked() { return this.savingPreset || this.deviceSending || this.phase === 'controlling' || !!this.request || !!this.queue?.attributes.pending_command; }
+  /**
+   * The engine's uncertainty window only forbids motion. Selecting rooms, editing
+   * settings, saving a plan and clearing a finished sequence are all local.
+   */
+  private get dispatchBlocked() { return this.blocked || this.barrierActive; }
+  /** A committed plan that has stopped: it can be dismissed to plan a fresh one. */
+  private get terminalSequence() {
+    if (this.phase === 'attention') return true;
+    return ['cancelled','completed'].includes(this.phase) && (this.queueTargets.length > 0 || this.queuePresets.length > 0);
+  }
   private get waterEmpty() { return this.entity(this.config?.dock_error_entity)?.state === 'water_empty'; }
   private get modernController() { return Number(this.queue?.attributes.control_version) >= 3; }
   /** A dock with no clean water can still run a plan whose next room is vacuum-only. */
@@ -78,7 +96,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     const dock = this.entity(this.config?.dock_error_entity)?.state;
     return !quietError(err) ? humanize(err) : !quietError(dock) && !(dock==='water_empty' && this.waterAllowed) ? humanize(dock) : this.vacuum?.state === 'error' ? 'Robot needs attention' : '';
   }
-  private get canStart() { return this.phase !== 'attention' && (!this.config?.require_queue || this.queueReady) && this.robotReady && !this.jobActive && !this.queueActive && !this.blocked && !this.fault && ['docked','idle'].includes(this.vacuum?.state ?? ''); }
+  private get canStart() { return this.phase !== 'attention' && (!this.config?.require_queue || this.queueReady) && this.robotReady && !this.jobActive && !this.queueActive && !this.dispatchBlocked && !this.fault && ['docked','idle'].includes(this.vacuum?.state ?? ''); }
   private get queueReady() { return available(this.queue) && (!!this.hass?.services?.robot_cleaner_queue?.control || available(this.entity(this.config?.queue_script))); }
   private feature(bit: number) { return ((Number(this.vacuum?.attributes.supported_features) || 0) & bit) !== 0; }
   private get queueManual() { return this.queue?.attributes.mode === 'manual'; }
@@ -328,9 +346,11 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (kind !== 'cancel' && !this.robotReady) { this.commandError = 'The robot is unavailable.'; return; }
     // A refused press must say why. Silently returning looks like a broken button:
     // after Stop the queue holds the previous command open until the robot confirms it.
-    if (this.blocked && kind !== 'cancel') {
+    if (kind !== 'cancel' && this.dispatchBlocked) {
       this.commandError = '';
-      this.feedback = this.request ? this.waitingText(this.request.kind) : 'Waiting for the robot to confirm the previous command.';
+      // The barrier is not a command in flight: name it and its remaining time.
+      this.feedback = this.barrierActive && !this.blocked ? this.barrierNotice
+        : this.request ? this.waitingText(this.request.kind) : 'Waiting for the robot to confirm the previous command.';
       return;
     }
     if (this.config.require_queue && !this.queueReady) { this.commandError = 'The robot cleaner queue is not available yet.'; return; }
@@ -420,7 +440,8 @@ export class RobotVacuumCleanerCard extends LitElement {
     return this.vacuum?.state === 'docked' ? 'At the dock · Choose rooms or clean the whole home' : 'Choose rooms in the order you want them cleaned';
   }
   private renderActions() {
-    const busy = this.blocked || !this.robotReady || ((this.queueActive || this.config?.require_queue) && !this.queueReady);
+    const busy = this.dispatchBlocked || !this.robotReady || ((this.queueActive || this.config?.require_queue) && !this.queueReady);
+    const waiting = this.barrierActive && !this.blocked ? this.barrierNotice : 'Waiting…';
     if (this.jobActive || this.queueActive) {
       const paused = this.vacuum?.state === 'paused' || this.phase === 'paused';
       const servicing = /wash|dry|empty|attaching|detaching/.test(this.entity(this.config?.status_entity)?.state ?? '');
@@ -429,7 +450,7 @@ export class RobotVacuumCleanerCard extends LitElement {
         ${canPause ? html`<button class="action primary" data-action=${paused ? 'resume':'pause'} ?disabled=${busy || (paused && !this.feature(8192))} @click=${()=>this.command(paused ? 'resume':'pause')}>${icon(paused ? 'mdi:play':'mdi:pause')}${paused ? 'Resume':'Pause'}</button>`:nothing}
         ${this.feature(16) && this.vacuum?.state !== 'returning' && !servicing ? html`<button class="action ${canPause?'secondary':'primary'}" data-action="dock" ?disabled=${busy} @click=${()=>this.command('return_to_dock')}>${icon('mdi:home-import-outline')}Return to dock</button>`:nothing}
         ${this.feature(8) && this.modernController && !servicing ? html`<button class="action secondary" data-action="stop" ?disabled=${busy} @click=${()=>this.command('stop')}>${icon('mdi:stop')}Stop</button>`:nothing}
-      </div>`;
+      </div>${this.barrierActive && !this.blocked ? html`<p class="hint" role="status">${this.barrierNotice}</p>`:nothing}`;
     }
     const selected = this.selection.length;
     const selectedAvailable = this.selectedRooms.every(room=>this.roomAvailable(room));
@@ -437,7 +458,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     const startable = this.companionReady || (!this.config?.require_queue && !this.roomMode && !selected && this.feature(8192));
     const disabled = !this.canStart || !startable || (this.manual && !this.manualReady)
       || (selected > 0 && (!selectedAvailable || this.selectedRooms.length !== this.manualSelected.length));
-    return html`<div class="actions"><button class="action primary" data-action="start" ?disabled=${disabled} @click=${()=>this.command('start_manual')}>${icon('mdi:play')}${this.blocked ? 'Waiting…' : selected ? `Clean ${selected} ${selected===1?'room':'rooms'}` : 'Clean all rooms'}</button></div>`;
+    return html`<div class="actions"><button class="action primary" data-action="start" ?disabled=${disabled} @click=${()=>this.command('start_manual')}>${icon('mdi:play')}${this.dispatchBlocked ? waiting : selected ? `Clean ${selected} ${selected===1?'room':'rooms'}` : 'Clean all rooms'}</button></div>`;
   }
   private async openPanel(panel:DevicePanel) {
     this.panel=panel; this.commandError=''; await this.updateComplete;
@@ -505,7 +526,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       </section></div>
       ${this.waterEmpty ? html`<div class="note water-warning">${icon('mdi:water-alert-outline')}<span>Refill and reseat the dock’s clean-water tank for mopping. ${this.waterAllowed ? 'You can start this clean. Roborock may skip or stop mopping until water is available.' : 'Mopping needs water. Make the plan’s first room vacuum-only, or wait until the tank is refilled.'}</span></div>`:nothing}
       ${this.renderUtilities()}
-      ${this.phase === 'attention' ? html`<div class="note">Review the robot, then clear this sequence before choosing a new one.<button class="text-button" data-action="clear-queue" ?disabled=${!this.queueReady} @click=${()=>this.command('cancel')}>Clear sequence</button></div>`:nothing}
+      ${this.terminalSequence ? html`<div class="note">${this.phase === 'attention' ? this.queue?.attributes.error || 'Review the robot, then clear this sequence before choosing a new one.' : 'This sequence has finished. Clear it to plan a fresh one.'}<button class="text-button" data-action="clear-queue" ?disabled=${!this.queueReady} @click=${()=>this.command('cancel')}>${this.phase === 'attention' ? 'Clear sequence' : 'Start a new sequence'}</button></div>`:nothing}
       ${this.commandError ? html`<div class="error" role="alert">${this.commandError}<button class="text-button" @click=${()=>this.commandError=''}>Dismiss</button></div>`:nothing}
       ${this.request ? html`<div class="note">${this.feedback}</div>`:nothing}
       ${!this.queueReady && (this.rooms.length || this.config?.require_queue) ? html`<div class="note">${this.config?.require_queue ? 'The shared cleaning controller is unavailable. Controls will return when it reconnects.' : 'Install and configure the Home Assistant queue companion to clean rooms in order. Full-home cleaning remains available when the robot is ready.'}</div>`:nothing}

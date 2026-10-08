@@ -709,3 +709,74 @@ test('saving a plan a companion cannot store explains itself too', async () => {
   await click(card, action(card, 'save-preset'));
   assert.match(root(card).textContent, /room contract \(control_version 5 or newer\)/);
 });
+
+// --- the engine's uncertainty window (command_barrier_until) blocks motion, not editing ---
+
+const barrierAt = minutes => Math.floor(Date.now() / 1000) + minutes * 60;
+/** A committed room plan, the way the engine publishes it. */
+const manualQueue = (phase, extra = {}) => entity(phase, {
+  vacuum: 'vacuum.rover', control_version: 5, mode: 'manual', presets: [], targets: ['0_12'],
+  stages: [{ target: '0_12', mode: 'vacuum_mop', room_index: 0, pass_index: 0, repeat_index: 0 }],
+  setup: { rooms: [{ id: '0_12', name: 'Kitchen', setup: { ...DEFAULT_ROOM } }] },
+  current_index: 0, completed: phase === 'completed' ? 1 : 0, ...extra,
+});
+
+test('the acknowledgement window never freezes room editing', async () => {
+  const { card, calls } = await roomFixture({ states: {
+    'sensor.robot_cleaner_queue': manualQueue('cancelled', { command_barrier_until: barrierAt(4) }) } });
+  // Tiles stay tappable and the selection can still be changed.
+  assert.equal(room(card, '0_5').disabled, false);
+  await click(card, room(card, '0_5'));
+  assert.equal(room(card, '0_5').getAttribute('aria-pressed'), 'true');
+  // The sheet still opens and nothing it does sends a command.
+  await openSetup(card);
+  assert.ok(root(card).querySelector('[data-mode]'));
+  await click(card, action(card, 'close-setup'));
+  // A finished sequence stays dismissable, and clearing never waits for the window.
+  const clear = action(card, 'clear-queue');
+  assert.ok(clear, 'A terminal sequence can be dismissed during the window');
+  assert.equal(clear.disabled, false);
+  assert.equal(calls.length, 0);
+  await click(card, clear);
+  assert.equal(calls[0].domain, 'robot_cleaner_queue');
+  assert.equal(calls[0].data.command, 'cancel');
+});
+
+test('a dispatch waits out the acknowledgement window and says how long', async () => {
+  const { card, calls } = await roomFixture({ states: {
+    'sensor.robot_cleaner_queue': manualQueue('cancelled', { command_barrier_until: barrierAt(4) }) } });
+  const start = action(card, 'start');
+  assert.equal(start.disabled, true, 'Motion waits for a fresh robot update');
+  assert.match(start.textContent, /Waiting 4 min for the robot’s acknowledgement window/);
+  await click(card, start);
+  assert.equal(calls.length, 0);
+  // The engine publishes a cleared window, which is what releases the card.
+  await patchStates(card, { 'sensor.robot_cleaner_queue': manualQueue('idle', { command_barrier_until: barrierAt(-1) }) });
+  assert.equal(action(card, 'start').disabled, false);
+  assert.match(action(card, 'start').textContent, /Clean all rooms/);
+  await click(card, action(card, 'start'));
+  // Nothing is selected, so the plan is every room on the current map, in tile order.
+  assert.deepEqual(calls[0].data.rooms.map(room => room.id), ['0_12', '0_13', '0_5']);
+});
+
+test('a running queue also waits out the window before pause or dock', async () => {
+  const { card, calls } = await roomFixture({ states: {
+    'vacuum.rover': entity('cleaning', { supported_features: FEATURES }),
+    'sensor.robot_cleaner_queue': manualQueue('running', { command_barrier_until: barrierAt(2) }) } });
+  assert.equal(action(card, 'dock').disabled, true);
+  assert.equal(action(card, 'pause').disabled, true);
+  assert.match(root(card).textContent, /Waiting 2 min for the robot’s acknowledgement window/);
+  await click(card, action(card, 'dock'));
+  assert.equal(calls.length, 0);
+});
+
+test('a finished sequence can be dismissed to plan a fresh one', async () => {
+  for (const phase of ['cancelled', 'completed']) {
+    const { card, calls } = await roomFixture({ states: { 'sensor.robot_cleaner_queue': manualQueue(phase) } });
+    const clear = action(card, 'clear-queue');
+    assert.ok(clear, `A ${phase} sequence stays dismissable`);
+    assert.match(clear.textContent, /Start a new sequence/);
+    await click(card, clear);
+    assert.equal(calls[0].data.command, 'cancel');
+  }
+});
