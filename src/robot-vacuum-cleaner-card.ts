@@ -547,4 +547,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.6.0');
+console.info('ROBOT VACUUM CLEANER CARD 0.6.1');
