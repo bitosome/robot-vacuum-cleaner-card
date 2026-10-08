@@ -116,7 +116,7 @@ test('room taps choose an ordered sequence without starting the robot', async ()
   assert.equal(room(card, '0_1').getAttribute('aria-pressed'), 'true');
   assert.match(room(card, '0_2').getAttribute('aria-label'), /position 3/);
   assert.equal(calls.length, 0);
-  assert.match(button(card, 'start').textContent, /Clean 3 rooms/);
+  assert.match(button(card, 'start').textContent, /Start sequence · 3 rooms/);
 });
 
 test('deselecting a room reindexes the remaining sequence; reselecting appends it', async () => {
@@ -145,7 +145,7 @@ test('Start sends the ordered rooms with the settings each one runs with', async
   assert.equal(calls.length, 1);
   assert.equal(calls[0].domain, 'robot_cleaner_queue'); assert.equal(calls[0].action, 'control');
   assert.deepEqual(calls[0].data, { command: 'start_manual', vacuum: 'vacuum.robot',
-    rooms: [{ id: '0_3', ...ROOM_DEFAULTS }, { id: '0_1', ...ROOM_DEFAULTS }], setup: { ...ROOM_DEFAULTS } });
+    rooms: [{ id: '0_3', ...ROOM_DEFAULTS }, { id: '0_1', ...ROOM_DEFAULTS }], setup: {} });
   assert.equal(calls[0].data.presets, undefined);
   assert.equal(calls.some(call => call.domain === 'button' || call.domain === 'script'), false);
   // A successful service call is not physical acknowledgement.
@@ -206,24 +206,22 @@ test('a selected room leaving the current map disables Start without losing the 
   setCapabilities({ ...roomCapabilities(), current_map: 1,
     robot_rooms: [{ id: '1_1', segment: 1, name: 'Loft', floor: 'Loft', area_id: null }] });
   // Capabilities are read when the card needs them again, so let it look.
-  button(card, 'setup').click(); await settle(card);
-  root(card).querySelector('[data-action="close-setup"]').click(); await settle(card);
+  button(card, 'refresh-rooms').click(); await settle(card);
   assert.match(root(card).textContent, /no longer on this map/i);
   assert.equal(button(card, 'start').disabled, true);
   button(card, 'start').click(); await settle(card);
   assert.equal(calls.length, 0);
   // Clearing the stale selection makes the new floor's rooms startable again.
   await clickText(card, 'Clear selection');
-  assert.equal(button(card, 'start').disabled, false);
-  assert.match(button(card, 'start').textContent, /Clean all rooms/);
+  assert.equal(button(card, 'start').disabled, true);
+  button(card,'select-all').click(); await settle(card);
+  assert.equal(button(card,'start').disabled,false);
 });
 
-test('without the queue backend there are no room tiles and only the whole home can run', async () => {
-  const { card, calls } = await fixture({ services: {}, states: { 'sensor.robot_queue': undefined, 'script.robot_queue_control': undefined } });
-  assert.ok(!room(card, '0_1'));
-  assert.equal(button(card, 'start').disabled, false);
-  button(card, 'start').click(); await settle(card);
-  assert.deepEqual(calls, [{ domain: 'vacuum', action: 'start', data: { entity_id: 'vacuum.robot' } }]);
+test('without the queue backend an unselected whole-home clean cannot run', async () => {
+  const {card,calls}=await fixture({services:{},states:{'sensor.robot_queue':undefined,'script.robot_queue_control':undefined}});
+  assert.ok(!room(card,'0_1')); assert.equal(button(card,'start').disabled,true);
+  button(card,'start').click(); await settle(card); assert.deepEqual(calls,[]);
 });
 
 test('a queue assigned to another vacuum is ignored rather than reused', async () => {
@@ -266,12 +264,11 @@ test('unsupported pause and dock features are not offered', async () => {
   assert.equal(button(card, 'start'), null); assert.equal(calls.length, 0);
 });
 
-test('without a companion, whole-home cleaning respects the vacuum START feature', async () => {
-  const { card, calls } = await fixture({ services: {}, states: { 'vacuum.robot': entity('docked', { supported_features: 16 }) } });
-  assert.equal(button(card, 'start').disabled, true);
-  await changeStates(card, { 'vacuum.robot': entity('docked', { supported_features: 8192 }) });
-  button(card, 'start').click(); await settle(card);
-  assert.deepEqual(calls, [{ domain: 'vacuum', action: 'start', data: { entity_id: 'vacuum.robot' } }]);
+test('without a companion the card never launches a whole-home fallback',async()=>{
+  for(const features of [0,8192]) {
+    const {card,calls}=await fixture({services:{},states:{'vacuum.robot':entity('docked',{supported_features:features})}});
+    assert.equal(button(card,'start').disabled,true);button(card,'start').click();await settle(card);assert.deepEqual(calls,[]);
+  }
 });
 
 test('Return to dock uses the queue return_to_dock command rather than cancellation', async () => {
@@ -389,9 +386,11 @@ test('native queue validation errors keep the selected order editable', async ()
   assert.equal(order(card, '0_2'), '1'); assert.equal(room(card, '0_3').disabled, false);
 });
 
-test('Clean all rooms plans every room on the current map in tile order', async () => {
+test('Select all explicitly plans every current-map room in tile order', async () => {
   const { card, calls } = await fixture();
-  assert.match(button(card, 'start').textContent, /Clean all rooms/);
+  assert.equal(button(card,'start').disabled,true);
+  button(card,'select-all').click(); await settle(card);
+  assert.match(button(card,'start').textContent,/Start sequence/);
   button(card, 'start').click(); await settle(card);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].domain, 'robot_cleaner_queue');
@@ -403,21 +402,13 @@ test('Clean all rooms plans every room on the current map in tile order', async 
   assert.equal(calls.some(call => ['button', 'script'].includes(call.domain)), false);
 });
 
-test('Clean all rooms keeps a per-room override in the plan', async () => {
-  const { card, calls } = await fixture();
-  button(card, 'setup').click(); await settle(card);
-  const kitchen = root(card).querySelector('[data-room-setup="0_2"]');
-  assert.equal(kitchen, null, 'Unselected rooms have no editor until every room is planned');
-  await clickText(card, 'Use settings');
-  await tap(card, '0_2');
-  button(card, 'setup').click(); await settle(card);
-  root(card).querySelector('[data-room-setup="0_2"] [data-room-mode="vacuum"]').click(); await settle(card);
-  await clickText(card, 'Use settings');
-  await clickText(card, 'Clear selection');
-  button(card, 'start').click(); await settle(card);
-  assert.deepEqual(calls.at(-1).data.rooms, [
-    { id: '0_1', ...ROOM_DEFAULTS }, { id: '0_2', mode: 'vacuum', suction: 'balanced', repeat: 1 },
-    { id: '0_3', ...ROOM_DEFAULTS }]);
+test('Select all keeps settings edited inline before selection', async () => {
+  const {card,calls}=await fixture();
+  const select=root(card).querySelector('[data-room-editor="0_2"] [data-room-setting="mode"]');
+  select.value='vacuum';select.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
+  button(card,'select-all').click();await settle(card);
+  button(card,'start').click();await settle(card);
+  assert.deepEqual(calls[0].data.rooms,[{id:'0_1',...ROOM_DEFAULTS},{id:'0_2',mode:'vacuum',suction:'balanced',repeat:1},{id:'0_3',...ROOM_DEFAULTS}]);
 });
 
 test('attention requires clearing the old sequence before starting another', async () => {
@@ -432,7 +423,8 @@ test('attention requires clearing the old sequence before starting another', asy
   assert.deepEqual(calls, [{ domain: 'robot_cleaner_queue', action: 'control', data: { command: 'cancel', vacuum: 'vacuum.robot' } }]);
   await changeStates(card, { 'sensor.robot_queue': entity('cancelled', { vacuum: 'vacuum.robot', control_version: 5, presets: [], targets: [], completed: 0 }) });
   assert.equal(button(card, 'clear-queue'), null);
-  assert.equal(button(card, 'start').disabled, false);
+  assert.equal(button(card, 'start').disabled, true);
+  await tap(card,'0_1'); assert.equal(button(card,'start').disabled,false);
 });
 
 test('clearing an uncertain queue remains possible while the robot is unavailable', async () => {

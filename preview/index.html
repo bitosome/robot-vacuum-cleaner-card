@@ -107,7 +107,7 @@
     <header class="heading">
       <span class="eyebrow">ROBOT VACUUM CLEANER CARD</span>
       <h1>A clean home, room by room.</h1>
-      <p>Choose an ordered room sequence, then use saved presets or your own cleaning setup.</p>
+      <p>Choose rooms in order. See and adjust their settings directly on each tile.</p>
     </header>
     <div class="layout">
       <section class="stage" aria-label="Interactive robot card">
@@ -150,7 +150,7 @@
         </section>
         <section class="panel">
           <h2>Try a cleaning plan</h2>
-          <p class="hint">Tap a few room tiles. Their numbers show the order. Choose <strong>Manual setup</strong> to set a cleaning mode and settings for this run, then start. Nothing is sent while you edit.</p>
+          <p class="hint">Tap a few room tiles. Their numbers show the order. Expand a room’s settings to choose its mode, suction, water and passes, then start your sequence. Nothing is sent while you edit.</p>
           <div class="row">
             <button class="control" id="next">Finish current room</button>
             <button class="control" id="finish">Return to dock</button>
@@ -263,7 +263,7 @@
       cleaning_entity: 'binary_sensor.rover_cleaning', current_room_entity: 'sensor.rover_current_room',
       progress_entity: 'sensor.rover_cleaning_progress', area_entity: 'sensor.rover_cleaned_area', time_entity: 'sensor.rover_cleaning_time',
       error_entity: 'sensor.rover_error', dock_error_entity: 'sensor.rover_dock_error', full_clean_entity: 'button.rover_full_cleaning',
-      last_clean_end_entity: 'sensor.rover_last_clean_end', queue_entity: 'sensor.robot_cleaner_queue', queue_script: 'script.robot_cleaner_queue_control', rooms
+      last_clean_end_entity: 'sensor.rover_last_clean_end', queue_entity: 'sensor.robot_cleaner_queue', queue_script: 'script.robot_cleaner_queue_control', area_overrides:Object.fromEntries(rooms.map(room=>[room.id,{icon:room.icon}])), rooms
     };
     const card = document.querySelector('#card');
     const calls = [];
@@ -281,11 +281,13 @@
     function capabilities() {
       if (scenario === 'manual_unavailable' || states[config.entity]?.state === 'unavailable') return {supported: false, modes: [], suction: [], water: [], routes: [], repeats: [], room_targets: [], defaults: {}, error: 'Manual cleaning settings are unavailable. Check the robot connection.'};
       const vacuumOnly = scenario === 'vacuum_only';
-      return {saved_preset:savedPreset,current_map:0,control_version:4,device_entities:deviceEntities,supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
+      return {saved_preset:savedPreset,current_map:0,control_version:5,device_entities:deviceEntities,supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
         suction: ['quiet', 'balanced', 'turbo', 'max', 'max_plus'],
         water: vacuumOnly ? [] : ['low', 'medium', 'high'],
         routes: vacuumOnly ? [] : ['standard', 'deep', 'deep_plus', 'fast'],
         routes_by_mode: {vacuum: [], mop: ['standard', 'deep', 'deep_plus', 'fast'], vacuum_mop: ['standard', 'fast'], vacuum_then_mop: ['standard', 'deep', 'deep_plus', 'fast']}, repeats: [1, 2],
+        robot_rooms: rooms.map((room,index)=>({id:`0_${index+1}`,segment:index+1,name:room.name,area_id:room.id,area_name:room.name,floor:'Ground floor'})),
+        robot_maps:[{flag:0,name:'Ground floor'}], rooms_complete:true,
         room_targets: rooms.map(room => ({id: room.id, name: room.name, icon: room.icon})),
         defaults: {mode: vacuumOnly ? 'vacuum' : 'vacuum_mop', suction: 'max', ...(vacuumOnly ? {} : {water: 'high', route: 'standard'}), repeat: 1}};
     }
@@ -294,12 +296,12 @@
       return {response: structuredClone(capabilities())};
     }
     const stamp = () => new Date().toISOString();
-    const set = (id, state, attributes = {}) => { states[id] = {entity_id: id, state: String(state), attributes: id===config.queue_entity ? {control_version:4,...attributes}:attributes, last_changed: stamp(), last_updated: stamp()}; };
+    const set = (id, state, attributes = {}) => { states[id] = {entity_id: id, state: String(state), attributes: id===config.queue_entity ? {control_version:5,...attributes}:attributes, last_changed: stamp(), last_updated: stamp()}; };
     const queue = () => states[config.queue_entity];
     const queueAttrs = () => ({vacuum: config.entity, presets: [], current_index: 0, completed: 0, error: '', ...(queue()?.attributes || {})});
     const roomByPreset = preset => rooms.find(room => room.preset === preset);
     const currentRoom = attrs => attrs.mode === 'manual'
-      ? rooms.find(room => room.id === attrs.stages?.[attrs.current_index]?.target)
+      ? rooms.find((room,index) => room.id === attrs.stages?.[attrs.current_index]?.target || `0_${index+1}`===attrs.stages?.[attrs.current_index]?.target)
       : roomByPreset(attrs.presets[attrs.current_index]);
     function manualStages(targets, setup) {
       const stages = [];
@@ -311,6 +313,14 @@
     }
     function startManual(variables) {
       const supported = capabilities();
+      if(variables.rooms?.[0] && typeof variables.rooms[0]==='object') {
+        const plan=variables.rooms.map(({id,...setup})=>({id,name:capabilities().robot_rooms.find(room=>room.id===id)?.name,setup}));
+        const stages=plan.flatMap((room,room_index)=>manualStages([room.id],room.setup).map(stage=>({...stage,room_index})));
+        const attrs={vacuum:config.entity,mode:'manual',presets:[],targets:plan.map(room=>room.id),setup:{rooms:plan},stages,current_index:0,completed:0,error:''};
+        set(config.queue_entity,'running',attrs);
+        robotState('cleaning',stages[0].mode==='mop'?'mopping':'cleaning',currentRoom(attrs)?.id);
+        return;
+      }
       const setup = variables.setup || {};
       const targets = variables.rooms || [];
       if (!supported.supported || !supported.modes.some(mode => mode.value === setup.mode)) throw new Error('This cleaning mode is not available.');
@@ -365,6 +375,9 @@
         const command = call.data.variables?.command || call.data.command;
         const chosen = call.data.variables?.presets || call.data.presets;
         const manual = call.data.variables?.setup || call.data.setup;
+        if (manual && (call.data.rooms||[]).some(room=>typeof room==='object')) {
+          item.append(call.data.rooms.map(room=>`${capabilities().robot_rooms.find(item=>item.id===room.id)?.name||room.id}: ${modeDefinitions.find(mode=>mode.value===room.mode)?.label||room.mode}`).join(' → '));list.append(item);continue;
+        }
         if (manual) {
           const targets = call.data.variables?.rooms || call.data.rooms || [];
           item.append(`${modeDefinitions.find(mode => mode.value === manual.mode)?.label || manual.mode} · ${targets.length ? targets.map(target => rooms.find(room => room.id === target)?.name || target).join(' → ') : 'All rooms'} · ${manual.repeat}×`);
@@ -434,6 +447,7 @@
     }
     function setScenario(value) {
       scenario = value;
+      card.setConfig({...config,entity:'vacuum.reset_preview'});card.setConfig(config);
       fixtureRevision += 1;
       commandPending = false;
       states = {};
@@ -455,10 +469,8 @@
       }
       if(value==='water_empty')set(config.dock_error_entity,'water_empty');
       if (['cleaning', 'paused', 'error', 'recharging', 'washing'].includes(value)) {
-        const presets = ['button.rover_entrance', 'button.rover_kitchen', 'button.rover_living'];
-        set(config.queue_entity, value === 'paused' ? 'paused' : value === 'error' ? 'attention' : 'running', {
-          presets, current_index: 1, completed: 1, error: value === 'error' ? 'Main brush jammed. Clear the brush, then start a new plan.' : ''
-        });
+        startManual({rooms:[{id:'0_1',...capabilities().defaults},{id:'0_3',...capabilities().defaults},{id:'0_5',...capabilities().defaults}]});
+        set(config.queue_entity,value==='paused'?'paused':value==='error'?'attention':'running', {...queueAttrs(),current_index:1,completed:1,error:value==='error'?'Main brush jammed. Clear the brush before a new plan.':''});
         robotState(value === 'paused' ? 'paused' : value === 'error' ? 'error' : 'cleaning', value === 'paused' ? 'paused' : value === 'error' ? 'error' : 'cleaning', 'kitchen');
         set(config.battery_entity, 72, {unit_of_measurement: '%', device_class: 'battery'});
         set(config.progress_entity, 44, {unit_of_measurement: '%'});
@@ -482,7 +494,7 @@
         robotState('docked', 'charging');
       }
       if (value === 'washing') robotState('docked', 'washing_the_mop');
-      if (value === 'manual_cleaning') startManual({rooms: ['kitchen', 'living'], setup: {mode: 'vacuum_then_mop', suction: 'max', water: 'high', route: 'standard', repeat: 1}});
+      if (value === 'manual_cleaning') startManual({rooms:[{id:'0_3',mode:'vacuum_then_mop',suction:'max',water:'high',route:'standard',repeat:1},{id:'0_5',mode:'vacuum',suction:'max',repeat:1}]});
       document.querySelector('#scenario').value = value;
       paint();
     }
