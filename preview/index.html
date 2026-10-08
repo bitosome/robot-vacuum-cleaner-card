@@ -125,7 +125,12 @@
               <option value="ready">Ready to clean</option>
               <option value="cleaning">Cleaning a sequence</option>
               <option value="paused">Paused</option>
-              <option value="returning">Returning to dock</option>
+              <option value="returning">Rooms clean · returning to dock</option>
+              <option value="final_washing">Rooms clean · final mop wash</option>
+              <option value="final_emptying">Rooms clean · emptying dustbin</option>
+              <option value="final_settling">Rooms clean · settling at dock</option>
+              <option value="completed_drying">Complete · passive mop drying</option>
+              <option value="uncertain_start">Start request awaiting confirmation</option>
               <option value="error">Needs attention</option>
               <option value="unavailable">Unavailable</option>
               <option value="recharging">Low battery · recharging</option>
@@ -479,7 +484,7 @@
       set(config.queue_entity, 'idle', {vacuum: config.entity, presets: [], current_index: 0, completed: 0, error: ''});
       robotState('docked', 'charging');
       for(const [key,id] of Object.entries(deviceEntities)) {
-        const value=id.startsWith('switch.') ? key==='mop_drying'?'on':'off' : key==='volume'?75 : key==='dnd_start'?'22:00:00':key==='dnd_end'?'08:00:00':key==='empty_mode'?'max':key==='sensor_time_left'?-12:180;
+        const value=id.startsWith('switch.') ? 'off' : key==='volume'?75 : key==='dnd_start'?'22:00:00':key==='dnd_end'?'08:00:00':key==='empty_mode'?'max':key==='sensor_time_left'?-12:180;
         set(id,value,{min:0,max:100,step:1,options:['smart','light','balanced','max'],entity_picture:'/api/image_proxy/demo',friendly_name:'Ground floor',unit_of_measurement:'h'});
       }
       if(value==='water_empty')set(config.dock_error_entity,'water_empty');
@@ -492,12 +497,21 @@
         set(config.area_entity, 18.4, {unit_of_measurement: 'm²'});
         set(config.time_entity, 21, {unit_of_measurement: 'min'});
       }
-      if (value === 'returning') {
-        set(config.queue_entity, 'completed', {presets: ['button.rover_entrance', 'button.rover_kitchen', 'button.rover_living'], current_index: 2, completed: 3, error: ''});
-        robotState('returning', 'returning_home');
-        set(config.progress_entity, 100, {unit_of_measurement: '%'});
-        set(config.area_entity, 37.6, {unit_of_measurement: 'm²'});
-        set(config.time_entity, 38, {unit_of_measurement: 'min'});
+      if (['returning','final_washing','final_emptying','final_settling','completed_drying'].includes(value)) {
+        startManual({rooms:[{id:'0_1',...capabilities().defaults},{id:'0_3',...capabilities().defaults},{id:'0_5',...capabilities().defaults}]});
+        const attrs=queueAttrs();
+        const status=value==='returning'?'returning_home':value==='final_washing'?'washing_the_mop':value==='final_emptying'?'emptying_the_bin':'charging';
+        set(config.queue_entity,value==='completed_drying'?'completed':'finishing', {...attrs,current_index:attrs.stages.length,completed:attrs.stages.length,floor_cleaning_complete:true,dock_status:status,dock_drying:value==='completed_drying'});
+        robotState(value==='returning'?'returning':'docked',status);
+        set(deviceEntities.mop_drying,value==='completed_drying'?'on':'off');
+        set(config.progress_entity,100,{unit_of_measurement:'%'});
+        set(config.area_entity,37.6,{unit_of_measurement:'m²'});
+        set(config.time_entity,38,{unit_of_measurement:'min'});
+      }
+      if (value==='uncertain_start') {
+        startManual({rooms:[{id:'0_3',...capabilities().defaults},{id:'0_5',...capabilities().defaults}]});
+        set(config.queue_entity,'starting',{...queueAttrs(),start_uncertain:true,command_failure:{operation:'start',category:'timeout'}});
+        robotState('docked','charging');
       }
       if (value === 'error') set(config.error_entity, 'main_brush_jammed');
       if (value === 'unavailable') {
@@ -520,7 +534,7 @@
         const completed = attrs.current_index + 1;
         const count = attrs.mode === 'manual' ? attrs.stages.length : attrs.presets.length;
         if (completed >= count) {
-          set(config.queue_entity, 'completed', {...attrs, completed: count});
+          set(config.queue_entity, 'finishing', {...attrs, current_index:count, completed:count, floor_cleaning_complete:true, dock_status:'returning_home', dock_drying:false});
           robotState('returning', 'returning_home');
           set(config.progress_entity, 100, {unit_of_measurement: '%'});
           set(config.last_clean_end_entity, stamp(), {device_class: 'timestamp'});
@@ -543,7 +557,10 @@
       fixtureRevision += 1;
       commandPending = false;
       const attrs = queueAttrs();
-      if (['running', 'paused', 'starting'].includes(queue()?.state)) set(config.queue_entity, 'cancelled', {...attrs, error: ''});
+      if (queue()?.state==='finishing') {
+        set(config.queue_entity,'completed',{...attrs,dock_status:'charging',dock_drying:true});
+        set(deviceEntities.mop_drying,'on');
+      } else if (['running', 'paused', 'starting'].includes(queue()?.state)) set(config.queue_entity, 'cancelled', {...attrs, error: ''});
       robotState('docked', 'charging');
       paint();
     }

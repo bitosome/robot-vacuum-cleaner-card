@@ -418,7 +418,8 @@ test('attention requires clearing the old sequence before starting another', asy
       error: 'Completion was not confirmed' }),
   } });
   assert.equal(button(card, 'start').disabled, true);
-  assert.match(root(card).querySelector('.subline').textContent, /not confirmed/);
+  assert.match(root(card).textContent, /not confirmed/);
+  assert.match(root(card).querySelector('.subline').textContent, /Review the details below/);
   button(card, 'clear-queue').click(); await settle(card);
   assert.deepEqual(calls, [{ domain: 'robot_cleaner_queue', action: 'control', data: { command: 'cancel', vacuum: 'vacuum.robot' } }]);
   await changeStates(card, { 'sensor.robot_queue': entity('cancelled', { vacuum: 'vacuum.robot', control_version: 5, presets: [], targets: [], completed: 0 }) });

@@ -15,7 +15,7 @@ export interface CardConfig {
   require_queue?: boolean; queue_entity?: string; queue_script?: string; area_overrides?: Record<string, AreaAppearance>;
 }
 export const BAD = new Set(['unknown', 'unavailable', 'none', '']);
-export const QUEUE_ACTIVE = new Set(['preparing', 'starting', 'running', 'paused', 'cancelling']);
+export const QUEUE_ACTIVE = new Set(['preparing', 'starting', 'running', 'paused', 'cancelling', 'finishing']);
 export function available(entity?: EntityState, button = false): boolean {
   return !!entity && entity.state !== 'unavailable' && (button || !BAD.has(entity.state));
 }

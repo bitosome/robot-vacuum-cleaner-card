@@ -165,3 +165,18 @@ other dashboards refresh when a plan is saved; a locally changed draft is preser
 and a conflicting save is rejected until reloaded. Unavailable rooms/maps or options
 are reported for review rather than silently substituted. Active sequences keep
 their own frozen settings and are never started by loading a plan.
+
+
+### Floor cleaning and dock care
+
+With queue companion v0.10.0, the card keeps the sequence visible while the robot
+returns and services its dock after the final room. Completed room tiles describe
+floor cleaning; the header separately reports returning, washing mops, emptying
+the dustbin and settled docking. Passive mop drying remains visible after the
+sequence completes and does not block another clean. Native dock settings decide
+which care actions run; the card does not force washing or emptying.
+
+If a room-start response fails, the card explains that the queue is observing the
+robot without sending another start. A confirmed late start can continue normally.
+An unresolved outcome still stops for review after the original deadline. Saving
+or preloading a plan never starts or resumes the interrupted sequence.
