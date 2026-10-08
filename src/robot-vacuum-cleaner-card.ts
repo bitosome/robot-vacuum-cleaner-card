@@ -210,7 +210,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (kind !== 'cancel' && !this.robotReady) { this.commandError = 'The robot is unavailable.'; return; }
     // A refused press must say why. Silently returning looks like a broken button:
     // after Stop the queue holds the previous command open until the robot confirms it.
-    if (this.blocked) {
+    if (this.blocked && kind !== 'cancel') {
       this.commandError = '';
       this.feedback = this.request ? this.waitingText(this.request.kind) : 'Waiting for the robot to confirm the previous command.';
       return;
@@ -379,7 +379,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       </section></div>
       ${this.waterEmpty ? html`<div class="note water-warning">${icon('mdi:water-alert-outline')}<span>Refill and reseat the dock’s clean-water tank for mopping. ${this.waterAllowed ? 'You can start this clean. Roborock may skip or stop mopping until water is available.' : 'Manual mopping needs water. Choose Vacuum or a Roborock preset to continue.'}</span></div>`:nothing}
       ${this.renderUtilities()}
-      ${this.phase === 'attention' ? html`<div class="note">Review the robot, then clear this sequence before choosing a new one.<button class="text-button" data-action="clear-queue" ?disabled=${this.blocked || !this.queueReady} @click=${()=>this.command('cancel')}>Clear sequence</button></div>`:nothing}
+      ${this.phase === 'attention' ? html`<div class="note">Review the robot, then clear this sequence before choosing a new one.<button class="text-button" data-action="clear-queue" ?disabled=${!this.queueReady} @click=${()=>this.command('cancel')}>Clear sequence</button></div>`:nothing}
       ${this.commandError ? html`<div class="error" role="alert">${this.commandError}<button class="text-button" @click=${()=>this.commandError=''}>Dismiss</button></div>`:nothing}
       ${this.request ? html`<div class="note">${this.feedback}</div>`:nothing}
       ${!this.queueReady && (this.rooms.length || this.config?.require_queue) ? html`<div class="note">${this.config?.require_queue ? 'The shared cleaning controller is unavailable. Controls will return when it reconnects.' : 'Install and configure the Home Assistant queue companion to clean rooms in order. Full-home cleaning remains available when the robot is ready.'}</div>`:nothing}
@@ -400,4 +400,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status, room presets and ordered cleaning with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.5.2');
+console.info('ROBOT VACUUM CLEANER CARD 0.5.3');

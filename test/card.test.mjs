@@ -484,3 +484,18 @@ test('the integration command barrier keeps the movement controls locked', async
   await changeStates(card, { 'sensor.robot_queue': entity('cancelled', { vacuum: 'vacuum.robot' }) });
   assert.equal(button(card, 'dock').disabled, false);
 });
+
+test('a sequence that needs attention can always be cleared', async () => {
+  const { card, calls } = await fixture({ services: { robot_cleaner_queue: { control: {} } }, states: {
+    'vacuum.robot': entity('docked', { supported_features: FEATURES }),
+    'sensor.robot_queue': entity('attention', {
+      vacuum: 'vacuum.robot', error: 'The command failed.', pending_command: 'start',
+      command_barrier_until: Math.floor(Date.now() / 1000) + 600,
+    }),
+  } });
+  const clear = root(card).querySelector('[data-action="clear-queue"]');
+  assert.ok(clear, 'Expected a clear control while the queue needs attention');
+  assert.equal(clear.disabled, false);
+  clear.click(); await settle(card);
+  assert.deepEqual(calls.map(call => call.data.command), ['cancel']);
+});
