@@ -79,6 +79,8 @@ Configure the optional telemetry entities you have. Missing values are omitted. 
 
 ## Plan on the main screen
 
+Robot tools—**Find, Dock, Map, Settings, Care and Details**—stay directly below status and cleaning actions, above plan settings and all rooms. Available tools use labeled pills in three columns on phones and one row on wider cards. **Dock** opens dock controls; **Return to dock** is the separate movement action. Unsupported tools stay hidden.
+
 Every room shows its mode, suction, water, route and repeat count as compact icon-and-value pills. Expand the settings row inside a tile to edit it, even before selecting the room. Only relevant native options appear: vacuum omits water/route; mop omits suction. **Use defaults** removes a room override. **Room defaults** affects rooms without overrides. **Apply to all rooms** explicitly replaces custom settings and loaded-plan overrides on the current map, while keeping the selected room order and other floors unchanged. Editing sends no robot command.
 
 Tap rooms in cleaning order. A selected room shows its position; tapping again removes it and renumbers the remaining rooms. **Start sequence · N rooms** starts exactly that order. **Select all** explicitly includes every room on the current map. No selection means Start is disabled.

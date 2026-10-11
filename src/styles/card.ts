@@ -131,9 +131,14 @@ export const cardStyles = css`
   .setup-footer { flex-shrink:0; padding:14px 24px 20px; display:grid;gap:12px;border-top:1px solid var(--divider-color,rgba(255,255,255,.1));margin-top:16px; }
   .setup-footer p { text-align:center;font-size:11px; }
   @media (max-width:360px) { .setup-body { padding:0 18px; } .setup-header { padding:18px 18px 0; } .setup-footer { padding:12px 18px 16px; } .mode-choice { padding:13px; } .setting-pill { padding:10px 12px; } }
-  .utilities { display:flex;flex-wrap:wrap;gap:var(--medium-gap);padding:0 4px; }
-  .utilities button { display:flex;align-items:center;justify-content:center;gap:6px;flex:1 1 88px;min-height:44px;padding:10px 12px;font-weight:550;color:var(--robot-muted);background:color-mix(in srgb,var(--primary-text-color) 4%,transparent); }
+  .utilities { position:relative;z-index:1;display:grid;grid-template-columns:repeat(var(--utility-columns,3),minmax(0,1fr));gap:var(--medium-gap);padding:0 4px; }
+  .utilities button { display:flex;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:44px;padding:10px 6px;font-weight:550;line-height:1.35;color:var(--robot-muted);background:color-mix(in srgb,var(--primary-text-color) 6%,var(--robot-surface));transition:background .15s,color .15s; }
+  .utilities button > span { min-width:0;overflow-wrap:anywhere; }
+  .utilities button[aria-expanded="true"] { color:var(--robot-accent);border-color:color-mix(in srgb,var(--robot-accent) 35%,transparent);background:color-mix(in srgb,var(--robot-accent) 12%,var(--robot-surface)); }
+  .utilities button:not(:disabled):active { background:color-mix(in srgb,var(--robot-accent) 18%,var(--robot-surface)); }
   .utilities ha-icon { width:18px;height:18px;--mdc-icon-size:18px;flex-basis:18px; }
+  @container (min-width:600px) { .utilities { grid-template-columns:repeat(var(--utility-wide-columns,6),minmax(0,1fr)); } }
+  @media (hover:hover) { .utilities button:not(:disabled):hover { color:var(--primary-text-color);background:color-mix(in srgb,var(--primary-text-color) 10%,var(--robot-surface)); } }
   .water-warning { display:flex;gap:10px;align-items:flex-start;color:var(--secondary-text-color); }
   .water-warning ha-icon { color:var(--robot-accent); }
   .device-body { display:grid;gap:12px;padding-bottom:8px; }

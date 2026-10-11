@@ -611,7 +611,14 @@ export class RobotVacuumCleanerCard extends LitElement {
     if(!this.modernController || !this.hass?.services?.robot_cleaner_queue?.device_control) return nothing;
     const entities=this.caps?.device_entities??{};
     const panels: Array<[DevicePanel,string,string]>=[['dock','Dock','mdi:ev-station'],['map','Map','mdi:map-outline'],['settings','Settings','mdi:cog-outline'],['care','Care','mdi:tools'],['status','Details','mdi:information-outline']];
-    return html`<nav class="utilities" aria-label="Robot tools">${this.feature(512)?html`<button class="setting-pill" data-action="locate" ?disabled=${!this.robotReady || this.deviceSending} @click=${()=>this.deviceCommand('locate')}>${icon('mdi:volume-high')}Find</button>`:nothing}${panels.filter(([panel])=>panelKeys(panel,entities,this.hass!).length).map(([panel,label,mdi])=>html`<button class="setting-pill" data-panel=${panel} @click=${()=>this.openPanel(panel)}>${icon(mdi)}${label}</button>`)}</nav>`;
+    const visiblePanels=panels.filter(([panel])=>panelKeys(panel,entities,this.hass!).length);
+    const canLocate=this.feature(512);
+    const count=visiblePanels.length+(canLocate?1:0);
+    if (!count) return nothing;
+    return html`<div class="utilities" role="group" aria-label="Robot tools" style=${`--utility-columns:${Math.min(3,count)};--utility-wide-columns:${count}`}>
+      ${canLocate?html`<button class="setting-pill" data-action="locate" title="Play a sound to find the robot" ?disabled=${!this.robotReady || this.deviceSending} @click=${()=>this.deviceCommand('locate')}><ha-icon icon="mdi:volume-high" aria-hidden="true"></ha-icon><span>Find</span></button>`:nothing}
+      ${visiblePanels.map(([panel,label,mdi])=>html`<button class="setting-pill" data-panel=${panel} aria-haspopup="dialog" aria-expanded=${this.panel===panel?'true':'false'} title=${panel==='dock'?'Dock controls':`Open ${label.toLowerCase()}`} @click=${()=>this.openPanel(panel)}><ha-icon .icon=${mdi} aria-hidden="true"></ha-icon><span>${label}</span></button>`)}
+    </div>`;
   }
   private editSetup(id:string|undefined, patch:Partial<ManualSetup>) {
     if (!this.caps || this.queueActive || this.blocked || this.jobActive) return;
@@ -708,9 +715,9 @@ export class RobotVacuumCleanerCard extends LitElement {
         ${this.jobActive && (!this.queueActive || !this.floorCleaningComplete) && (area || time || (!this.queueActive&&progress!==undefined)) ? html`<div class="pills" aria-label=${this.queueActive?'Current cleaning pass':'Current clean'}>${this.queueActive?html`<span class="metric-caption">Current pass</span>`:nothing}${area?html`<span class="pill">${icon('mdi:ruler-square')}${area}</span>`:nothing}${time?html`<span class="pill">${icon('mdi:timer-outline')}${time}</span>`:nothing}${!this.queueActive&&progress!==undefined?html`<span class="pill">${Math.round(progress)}%</span>`:nothing}</div>`:nothing}
         ${!this.queueActive&&!sequence&&this.jobActive&&progress!==undefined ? html`<div class="progress" role="progressbar" aria-label="Current cleaning progress" aria-valuenow=${Math.round(progress)} aria-valuemin="0" aria-valuemax="100"><span style=${`width:${progress}%`}></span></div>`:nothing}
         ${this.renderRecovery()}
-        ${this.phase==='attention' && this.recoveryReady ? this.renderActions():nothing}
-        ${this.phase==='attention' && this.recoveryReady ? nothing : this.renderActions()}
+        ${this.renderActions()}
       </section></div>
+      ${this.renderUtilities()}
       ${this.waterEmpty ? html`<div class="note water-warning">${icon('mdi:water-alert-outline')}<span>Refill and reseat the dock’s clean-water tank for mopping. ${this.waterAllowed ? 'Vacuuming can start. Any later mopping stage waits for a healthy dock.' : 'Mopping needs water. Make the plan’s first room vacuum-only, or wait until the tank is refilled.'}</span></div>`:nothing}
 
       ${this.terminalSequence && this.phase!=='attention' ? html`<div class="note">This sequence has finished. Choose rooms for a fresh plan.<button class="text-button" data-action="clear-queue" ?disabled=${!this.queueReady || this.request?.kind==='cancel'} @click=${()=>this.command('cancel')}>Start a new sequence</button></div>`:nothing}
@@ -727,7 +734,6 @@ export class RobotVacuumCleanerCard extends LitElement {
         ${this.manual && this.selection.some(id=>!this.rooms.some(room=>room.id===id)) ? html`<p class="note">${this.roomMode ? 'A room in your selection is no longer on this map.' : 'An area in your selection is no longer mapped.'} Clear the selection and choose the available rooms again.</p>`:nothing}
 
       </section>
-      ${this.renderUtilities()}
       <div class="sr-only" role="status" aria-live="polite">${this.feedback}</div>
     </div></ha-card></div>
     <dialog class="setup-dialog device-dialog" aria-labelledby="device-title" @cancel=${()=>{this.panel=undefined;}} @close=${()=>{this.panel=undefined;}}>${this.panel&&this.hass ? renderDevicePanel({panel:this.panel,hass:this.hass,entities:this.caps?.device_entities??{},busy:this.blocked||this.queueActive||(this.phase==='attention'&&!this.recoveryReady),motionBlocked:this.barrierActive||!!this.queue?.attributes.pending_command||(this.phase==='attention'&&!this.recoveryReady),motionReason:this.phase==='attention'?this.recoveryReason:this.barrierActive?this.barrierNotice:'Waiting for the robot to confirm the previous command.',robotDocked:this.vacuum?.state==='docked'&&!this.jobActive,waterEmpty:this.waterEmpty,fault:!!this.fault&&this.fault!=='Water empty',error:this.commandError,pending:this.deviceSending||this.phase==='controlling',close:()=>this.closePanel(),send:(key,value)=>void this.deviceCommand(key,value)}):nothing}</dialog>`;
@@ -736,4 +742,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.10.0');
+console.info('ROBOT VACUUM CLEANER CARD 0.10.1');
