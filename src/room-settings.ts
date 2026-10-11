@@ -1,11 +1,22 @@
 /** Shared inline controls. Editing a draft never sends a Home Assistant service. */
 import {html,nothing} from 'lit';
 import {live} from 'lit/directives/live.js';
-import {MODE_LABELS,optionLabel,modeRoutes,type ManualCapabilities,type ManualSetup} from './manual-setup';
+import {MODE_LABELS,MODE_ICONS,optionLabel,modeRoutes,type ManualCapabilities,type ManualSetup} from './manual-setup';
 export function settingsSummary(setup:ManualSetup): string {
   return [MODE_LABELS[setup.mode], setup.mode!=='mop'&&setup.suction?`Suction ${optionLabel(setup.suction)}`:'',
     setup.mode!=='vacuum'&&setup.water?`Water ${optionLabel(setup.water)}`:'',
     setup.mode!=='vacuum'&&setup.route?`Route ${optionLabel(setup.route)}`:'',`×${setup.repeat}`].filter(Boolean).join(' · ');
+}
+/** Compact, readable values; icon labels remain available to assistive technology. */
+export function renderSettingPills(setup:ManualSetup) {
+  const chip=(key:string,label:string,value:string,mdi:string)=>html`<span class="setting-chip ${key==='mode'?'mode-chip':''}" data-setting-chip=${key} title=${`${label}: ${value}`}><ha-icon .icon=${mdi} aria-hidden="true"></ha-icon>${key!=='mode'?html`<span class="sr-only">${label} </span>`:nothing}<span>${value}</span></span>`;
+  return html`<span class="setting-chips">
+    ${chip('mode','Mode',MODE_LABELS[setup.mode]??setup.mode,MODE_ICONS[setup.mode]??'mdi:robot-vacuum')}
+    ${setup.mode!=='mop'&&setup.suction?chip('suction','Suction',optionLabel(setup.suction),'mdi:fan'):nothing}
+    ${setup.mode!=='vacuum'&&setup.water?chip('water','Water',optionLabel(setup.water),'mdi:water-outline'):nothing}
+    ${setup.mode!=='vacuum'&&setup.route?chip('route','Route',optionLabel(setup.route),'mdi:map-marker-path'):nothing}
+    ${chip('repeat','Passes',`×${setup.repeat}`,'mdi:repeat')}
+  </span>`;
 }
 export function renderRoomSettings(model:{id:string;name:string;setup:ManualSetup;caps:ManualCapabilities;disabled:boolean;change(patch:Partial<ManualSetup>):void}) {
   const {setup,caps}=model;

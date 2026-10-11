@@ -138,7 +138,7 @@ test('collapsing inline settings preserves edits without sending a robot command
   const editor=root(card).querySelector('[data-room-editor="0_12"]'); editor.open=true;
   await click(card,roomMode(card,'0_12','mop')); editor.open=false;
   assert.equal(calls.length,0);
-  assert.match(editor.querySelector('summary').textContent,/Mop.*Water Medium/);
+  assert.match(editor.querySelector('summary').textContent,/Mop[\s\S]*Water Medium/);
   await click(card,room(card,'0_12')); await click(card,action(card,'start'));
   assert.equal(calls[0].data.rooms[0].mode,'mop');
 });
@@ -341,7 +341,7 @@ test('an external completed run releases room tiles for the next plan', async ()
     'sensor.robot_cleaner_queue': entity('completed', {...attrs, completed: 2}),
   });
   assert.ok(room(card, 'kitchen_area')); assert.ok(!room(card, 'kitchen_preset'));
-  assert.match(room(card, 'kitchen_area').textContent, /Tap to select/);
+  assert.match(room(card, 'kitchen_area').getAttribute('aria-label'), /tap to select/);
   assert.doesNotMatch(root(card).querySelector('[data-room-editor="kitchen_area"] summary').textContent, /then mop/);
   assert.match(root(card).querySelector('h2').textContent, /Ready to clean/);
   await openSetup(card); await click(card, mode(card, 'vacuum')); await apply(card);
@@ -809,7 +809,7 @@ test('repeated stages display settings for their actual room and valid summaries
   const rooms=[{id:'0_12',name:'Kitchen',setup:{mode:'vacuum',suction:'max',repeat:2}},{id:'0_5',name:'Hall',setup:{mode:'mop',water:'low',route:'deep',repeat:1}}];
   const {card}=await roomFixture({states:{'sensor.robot_cleaner_queue':entity('running',{vacuum:'vacuum.rover',control_version:5,mode:'manual',targets:['0_12','0_5'],setup:{rooms},stages:[{target:'0_12',mode:'vacuum',room_index:0,repeat_index:0},{target:'0_12',mode:'vacuum',room_index:0,repeat_index:1},{target:'0_5',mode:'mop',room_index:1,repeat_index:0}],current_index:1,completed:1})}});
   assert.match(root(card).querySelector('.subline').textContent,/Room 1 of 2.*Run 2 of 2/);
-  assert.match(root(card).querySelector('[data-room-editor="0_12"] summary').textContent,/Vacuum.*×2/);
+  assert.match(root(card).querySelector('[data-room-editor="0_12"] summary').textContent,/Vacuum[\s\S]*×2/);
   assert.doesNotMatch(root(card).textContent,/undefined/);
   assert.equal(root(card).querySelector('[data-room-id="0_12"][data-room-setting="mode"]').disabled,true);
 });
@@ -839,7 +839,7 @@ test('saving room settings persists unselected rooms separately from the wall-sw
   assert.deepEqual(calls[0].data,{vacuum:'vacuum.rover',revision:2,map_id:0,defaults:updated.defaults,rooms:updated.rooms});
   assert.deepEqual(card.manualSelected,[]);
   assert.equal(card.preferencesDirty,false);
-  assert.match(root(card).textContent,/saved for everyone/);
+  assert.match(root(card).textContent,/Room settings saved/);
 });
 test('another dashboard refreshes shared settings and conflicts preserve local edits',async()=>{
   const {card,calls,setCapabilities}=await roomFixture({services:sharedServices,capabilities:{...roomCapabilities(),preferences:sharedProfile()}});

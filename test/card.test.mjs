@@ -337,7 +337,7 @@ test('robot and room names render as text, not executable markup', async () => {
   assert.equal(root(card).querySelector('.name').textContent, malicious);
   assert.equal(root(card).querySelector('.room-name').textContent, malicious);
   assert.equal(root(card).querySelector('img'), null);
-  await tap(card, '0_1'); assert.match(root(card).querySelector('.sequence').textContent, /<img/);
+  await tap(card, '0_1'); assert.match(room(card, '0_1').getAttribute('aria-label'), /<img/);
   assert.equal(root(card).querySelector('img'), null);
 });
 

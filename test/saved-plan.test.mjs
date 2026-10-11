@@ -106,8 +106,8 @@ test('a fresh dashboard preloads the saved native-room sequence and exact settin
   // first inserted (also reproducible with a standalone native select). Verify
   // the visible settings summary and the exact executable payload here; later
   // edit/refresh tests exercise the select values after normal updates.
-  assert.match(root(card).querySelector('[data-room-editor="0_5"] summary').textContent, /Vacuum · Suction Max\+ · ×2/);
-  assert.match(root(card).querySelector('[data-room-editor="0_12"] summary').textContent, /Mop · Water High · Route Deep · ×1/);
+  assert.match(root(card).querySelector('[data-room-editor="0_5"] summary').textContent, /Vacuum\s+Suction Max\+\s+Passes ×2/);
+  assert.match(root(card).querySelector('[data-room-editor="0_12"] summary').textContent, /Mop\s+Water High\s+Route Deep\s+Passes ×1/);
   assert.equal(action(card, 'save-preset').disabled, true);
   assert.equal(action(card, 'save-preferences').disabled, true);
   assert.equal(calls.length, 0);

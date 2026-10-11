@@ -6,7 +6,7 @@ Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap 
 
 ## Features
 
-- Robot status, battery, current-room progress, cleaning area and time when those entities are configured.
+- Robot status, battery, overall sequence progress, and optional current-pass cleaning area/time.
 - Explicit room selection, pause, resume, stop and return-to-dock controls.
 - Numbered room selection with visible selected, queued, cleaning and completed states.
 - Manual **Vacuum**, **Mop**, **Vacuum & mop**, and **Vacuum then mop** modes, with supported suction, water, mop route and ×1/×2 controls.
@@ -75,11 +75,11 @@ area_overrides:
 
 Entity names above are examples. `rooms` and `full_clean_entity` are **read but unused**: routine buttons are no longer part of any plan, so a configuration that still carries them keeps loading and simply ignores them. Without robot rooms the card falls back to Home Assistant's mapped areas (`room_targets`), which is the only other plan the companion can run. Optional `activity_entity` can identify an externally initiated room clean (`cleaning`, `active` or `on`); it never proves completion. The robot's `supported_features` determines available physical controls. `area_overrides` styles a tile by the Home Assistant area id a room is mapped to, or by the robot room id (`0_12`) when it has none.
 
-Configure the optional telemetry entities you have. Missing values are omitted. Cleaning metrics belong to the current job, not the complete multi-room sequence. The robot's current-room reading describes location; a room tile is marked completed only by the queue integration's verified cleaning record.
+Configure the optional telemetry entities you have. Missing values are omitted. The top sequence bar counts verified cleaning passes plus final docking as explicit steps; vacuum-then-mop and repeats are included. It reaches 100% only after the queue confirms completion, and stays stable while the robot washes, returns or starts the next pass. This is completed-step progress, not an estimate of elapsed time or floor coverage. Native percentages are shown only for a clean outside the sequence. Cleaning metrics belong to the current job, not the complete multi-room sequence. The robot's current-room reading describes location; a room tile is marked completed only by the queue integration's verified cleaning record.
 
 ## Plan on the main screen
 
-Every room shows its mode, suction, water, route and repeat count. Expand the settings row inside a tile to edit it, even before selecting the room. Only relevant native options appear: vacuum omits water/route; mop omits suction. **Use defaults** removes a room override. **Default room settings** affects rooms without overrides. Editing sends no robot command.
+Every room shows its mode, suction, water, route and repeat count as compact icon-and-value pills. Expand the settings row inside a tile to edit it, even before selecting the room. Only relevant native options appear: vacuum omits water/route; mop omits suction. **Use defaults** removes a room override. **Room defaults** affects rooms without overrides. **Apply to all rooms** explicitly replaces custom settings and loaded-plan overrides on the current map, while keeping the selected room order and other floors unchanged. Editing sends no robot command.
 
 Tap rooms in cleaning order. A selected room shows its position; tapping again removes it and renumbers the remaining rooms. **Start sequence · N rooms** starts exactly that order. **Select all** explicitly includes every room on the current map. No selection means Start is disabled.
 
@@ -139,13 +139,13 @@ This is a public, reusable project. Examples contain no production configuration
 
 ### Shared room settings
 
-With queue companion v0.9.0+, edit **Default room settings** and each room’s inline
+With queue companion v0.9.0+, edit **Room defaults** and each room’s inline
 controls, then press **Save room settings**. This saves defaults and all current-map
 room overrides, including unselected rooms, in Home Assistant. They survive browser
 refreshes and HA restarts and are shared by all authorized users. Other dashboards
 refresh automatically. Unsaved edits stay local; conflicting saves require **Reload
 shared settings** so one user cannot silently overwrite another. **Use defaults**
-removes a room override when you save. Other floors retain their preferences.
+removes a room override when you save. **Apply to all rooms** makes every room on the current map inherit the defaults, including rooms preloaded from the wall-switch plan. This is a local draft until you save. Save room settings persists the shared preferences; Save plan separately updates the wall-switch plan. Other floors retain their preferences.
 
 **Save plan** remains separate: it freezes the selected room order and settings for
 the wall switch. Updating preferences never alters that saved sequence or an active
