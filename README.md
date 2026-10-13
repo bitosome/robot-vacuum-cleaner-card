@@ -9,6 +9,7 @@ Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap 
 - Robot status, battery, overall sequence progress, and optional current-pass cleaning area/time.
 - Explicit room selection, pause, resume, stop and return-to-dock controls.
 - Numbered room selection with visible selected, queued, cleaning and completed states.
+- Persistent sequence activity: each room’s vacuum/mop passes, verified outcomes and times, including interrupted runs and the previous five sequences.
 - Manual **Vacuum**, **Mop**, **Vacuum & mop**, and **Vacuum then mop** modes, with supported suction, water, mop route and ×1/×2 controls.
 - A read-only **Zones & areas** report that shows which Roborock rooms each Home Assistant area claims, which robot rooms no area covers yet, and which mapped areas the robot no longer reports.
 - Room-first sequencing: the tiles are the robot's own rooms, each cleaning one room at a time in your order with its own mode, suction, water, mop route and repeat count.
@@ -93,7 +94,7 @@ Each native room finishes all its passes before the next room. **Vacuum then mop
 
 Execution lives in the companion, not in a browser timer. It applies settings, waits for native readback, sends one start, and requires the robot's successful cleaning record before advancing. Pauses, recharging and dock care are not completion. Deferred settings resume only where no command was attempted; uncertain physical commands are never replayed. Restarted or interrupted queues require review.
 
-The card shows committed settings while a sequence runs. Acknowledgement windows disable motion while still allowing a new draft to be edited or saved. **Stop** cancels remaining work and stops; **Return to dock** returns the robot and cancels remaining work. **Clear sequence** clears queue state; it does not stop the robot.
+The card shows committed settings while a sequence runs. Acknowledgement windows disable motion while still allowing a new draft to be edited or saved. **Stop** cancels remaining work and stops; **Return to dock** returns the robot and cancels remaining work. **Clear sequence** clears execution state; it does not stop the robot. With a history-capable companion, the activity record remains available.
 
 A specific empty clean-water warning permits vacuum-only work. Mopping still needs water; a mixed plan can begin with a vacuum-only room, but later mopping cannot bypass the dock checks. Firmware may refuse an otherwise available action.
 
@@ -189,10 +190,40 @@ or preloading a plan never starts or resumes the interrupted sequence.
 With queue v0.10.1 (execution_version 3), a historical stopped run is shown separately
 from the robot's current state. When fresh robot telemetry confirms readiness, Start
 runs the currently selected plan without requiring a separate clear step. The saved
-plan is preloaded and remains editable. Clear stopped sequence only dismisses history;
+plan is preloaded and remains editable. Clear stopped sequence releases execution state;
 it never moves the robot or changes the saved plan, and works while the robot is offline.
+With a history-capable companion, clearing does not delete recorded activity.
 
 Current faults, unavailable telemetry and unresolved commands still show their reason.
 Controls for a later app-started cleaning job do not resume the old sequence. Known
 Roborock mop/wash states omitted by HA's activity mapping use a fresh, connected
 backend observation for display; unavailable and error states remain authoritative.
+
+
+### Sequence activity and interrupted cleaning
+
+**Sequence activity** is a compact record separate from the editable **Next plan**.
+Its summary shows confirmed rooms and the run state; expand it for the ordered rooms,
+mode pills and times. Paused or interrupted runs open automatically. A room is complete
+only when every assigned pass is confirmed, including both parts of vacuum-then-mop
+and every repeat. A successful vacuum remains visible if mopping is interrupted.
+Final dock care is tracked separately from successful floor cleaning.
+
+Refilling water, clearing the queue, controlling an app-started clean, editing the next
+plan or reopening the dashboard cannot erase the server record. The selector retains
+the latest sequence and the previous five. A new start creates a separate record;
+it does not imply that unfinished passes in the earlier sequence were resumed.
+
+Times use Home Assistant’s configured time zone. A native successful cleaning record
+supplies its finish time; when only verification time is known, its accessible label
+says **Completion confirmed**. An incomplete pass shows when cleaning was observed.
+Missing historical timestamps say **Time unavailable**; the card never estimates them.
+Room names in stored runs stay frozen even if the current map changes.
+
+The companion exposes compact `run_history_version: 1` / `history_revision` attributes.
+The card retrieves full records through the read-only `robot_cleaner_queue.get_history`
+response service for its configured vacuum, caches them by revision, and ignores stale
+responses after a robot or revision change. Full pass histories are kept out of sensor
+attributes so they do not exceed Home Assistant Recorder’s state-size limit. A failed
+refresh retains the last read record and offers Retry. Older companions show only their
+retained stage/count evidence, without fabricated timestamps or browser-only storage.

@@ -1,5 +1,5 @@
 export interface EntityState { state: string; attributes: Record<string, any>; last_changed?: string; last_updated?: string; }
-export interface Hass { hassUrl?(path:string):string; states: Record<string, EntityState>; services?: Record<string, Record<string, unknown>>; callWS?<T = unknown>(message: Record<string, unknown>): Promise<T>; callService(domain: string, service: string, data: Record<string, unknown>): Promise<unknown>; }
+export interface Hass { locale?: {language?:string}; config?: {time_zone?:string}; hassUrl?(path:string):string; states: Record<string, EntityState>; services?: Record<string, Record<string, unknown>>; callWS?<T = unknown>(message: Record<string, unknown>): Promise<T>; callService(domain: string, service: string, data: Record<string, unknown>): Promise<unknown>; }
 export interface AreaAppearance { name?: string; icon?: string; }
 /**
  * A legacy tile: a Roborock app routine per room. Rooms now come from the robot's own

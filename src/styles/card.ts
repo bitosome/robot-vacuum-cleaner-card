@@ -197,6 +197,41 @@ export const cardStyles = css`
   .preferences-actions .action { min-height:44px;font-size:12px;padding:9px 12px; }
   .preferences-actions .text-button { padding:8px; }
   .preferences-panel > .hint { margin:0;padding:0 0 12px; }
+  .sequence-activity { padding:0 14px;min-width:0; }
+  .sequence-activity > summary { display:flex;align-items:center;gap:10px;min-height:64px;list-style:none;cursor:pointer; }
+  .activity-heading { display:grid;gap:4px;flex:1;min-width:0; }
+  .activity-heading strong { font-size:13px;font-weight:650; }
+  .activity-heading > span { font-size:12px;line-height:1.35;color:var(--robot-muted); }
+  .sequence-activity > summary > ha-icon { width:20px;height:20px;--mdc-icon-size:20px;flex-basis:20px;color:var(--robot-muted); }
+  .activity-chevron { transition:transform .15s; }
+  .sequence-activity[open] > summary .activity-chevron { transform:rotate(180deg); }
+  .activity-body { border-top:1px solid color-mix(in srgb,var(--primary-text-color) 7%,transparent);padding-bottom:12px; }
+  .activity-run-select { display:block;margin-top:12px; }
+  .activity-run-select select { width:100%;min-height:44px;min-width:0;padding:8px 10px;border-radius:12px;border:1px solid var(--divider-color);font:inherit;font-size:12px;background:var(--robot-surface);color:inherit; }
+  .activity-run-select select:focus-visible { outline:3px solid var(--robot-accent);outline-offset:2px; }
+  .activity-meta { display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;padding:12px 0;font-size:11px;color:var(--robot-muted);font-variant-numeric:tabular-nums; }
+  .activity-rooms { display:grid;gap:14px;list-style:none;margin:0;padding:0; }
+  .activity-room { min-width:0; }
+  .activity-room-heading { display:flex;align-items:center;gap:7px;margin-bottom:7px;font-size:12px; }
+  .activity-room-heading strong { flex:1;min-width:0;overflow-wrap:anywhere;font-weight:600; }
+  .activity-room-heading ha-icon { width:16px;height:16px;--mdc-icon-size:16px;flex-basis:16px;color:var(--robot-muted); }
+  .activity-room-heading .activity-room-done { color:var(--status-success-color); }
+  .activity-order { display:grid;place-items:center;width:20px;height:20px;border-radius:50%;flex:0 0 20px;background:color-mix(in srgb,var(--robot-accent) 10%,transparent);color:var(--robot-muted);font-size:10px;font-weight:650; }
+  .activity-stages { display:flex;flex-wrap:wrap;gap:6px; }
+  .activity-stage { display:inline-flex;align-items:center;gap:6px;padding:7px 9px;max-width:100%;min-width:0;border-radius:16px;background:color-mix(in srgb,var(--primary-text-color) 6%,transparent);color:var(--robot-muted);font-size:11px;line-height:1.4; }
+  .activity-stage ha-icon { width:15px;height:15px;--mdc-icon-size:15px;flex:0 0 15px; }
+  .activity-stage-text { display:grid;gap:2px;min-width:0;overflow-wrap:anywhere; }
+  .activity-stage time,.activity-time-unknown { font-size:10px;opacity:.85;font-variant-numeric:tabular-nums; }
+  .activity-stage.completed { color:color-mix(in srgb,var(--status-success-color) 60%,var(--primary-text-color));background:color-mix(in srgb,var(--status-success-color) 9%,transparent); }
+  .activity-stage.attention,.activity-stage.paused { color:color-mix(in srgb,var(--warning-color,#efb76a) 70%,var(--primary-text-color));background:color-mix(in srgb,var(--warning-color,#efb76a) 8%,transparent); }
+  .activity-stage.running { color:var(--robot-accent);background:color-mix(in srgb,var(--robot-accent) 10%,transparent); }
+  .activity-interruptions { margin-top:12px;font-size:11px;color:var(--robot-muted); }
+  .activity-interruptions > summary { display:flex;align-items:center;gap:7px;min-height:44px;cursor:pointer;list-style:none; }
+  .activity-interruptions ha-icon { width:16px;height:16px;--mdc-icon-size:16px;flex-basis:16px; }
+  .activity-interruptions > summary > ha-icon:last-child { margin-left:auto; }
+  .activity-interruptions ol { list-style:none;margin:0;padding:0;display:grid;gap:10px; }
+  .activity-interruptions li { display:grid;gap:4px;line-height:1.5;overflow-wrap:anywhere; }
+  .activity-note { margin-top:12px;font-size:11px;color:var(--robot-muted);line-height:1.45; }
   @container (max-width:340px) {
     .hero { padding:18px 14px; }
     .identity { gap:9px; }
