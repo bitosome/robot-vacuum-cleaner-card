@@ -40,6 +40,11 @@ export const cardStyles = css`
   .recovery-note button { display:flex; align-items:center; gap:7px; margin:8px 0 4px; }
   .recovery-note .primary { width:100%; }
   .recovery-note ha-icon { width:18px; height:18px; --mdc-icon-size:18px; flex-basis:18px; }
+  .recovery-details { margin-top:8px; color:var(--secondary-text-color); }
+  .recovery-details summary { min-height:44px; display:flex; align-items:center; cursor:pointer; }
+  .recovery-dialog-body { padding:24px; font-size:14px; line-height:1.5; }
+  .recovery-dialog-body h3 { font-size:20px; letter-spacing:-.02em; margin:0 0 12px; }
+  .recovery-dialog-body p { color:var(--secondary-text-color); }
   .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
   .action { border:0; border-radius:999px; min-height:46px; display:flex; justify-content:center; align-items:center; gap:8px; padding:10px 16px; font-size:14px; font-weight:650; line-height:1.3; background:color-mix(in srgb,var(--primary-text-color) 8%,transparent); }
   .primary { flex:1; color:var(--primary-background-color,#181a27); background:var(--robot-accent); }
@@ -87,8 +92,8 @@ export const cardStyles = css`
   .setup-launch:disabled { opacity:1; }
   .setup-launch:disabled .setup-edit { visibility:hidden; }
   .setup-launch ha-icon { width:18px;height:18px;--mdc-icon-size:18px;flex-basis:18px; }
-  .setup-dialog { background:var(--robot-surface); color:var(--primary-text-color,#dedff5); border:1px solid var(--divider-color,rgba(255,255,255,.05)); border-radius:28px; padding:0; width:calc(100vw - 24px); max-width:460px; max-height:calc(100dvh - 32px); overflow:hidden; box-shadow:0 24px 90px #0005; overscroll-behavior:contain; }
-  .setup-dialog::backdrop { background:rgba(7,10,20,.64); backdrop-filter:blur(7px); }
+  .setup-dialog,.recovery-dialog { background:var(--robot-surface); color:var(--primary-text-color,#dedff5); border:1px solid var(--divider-color,rgba(255,255,255,.05)); border-radius:28px; padding:0; width:calc(100vw - 24px); max-width:460px; max-height:calc(100dvh - 32px); overflow:hidden; box-shadow:0 24px 90px #0005; overscroll-behavior:contain; }
+  .setup-dialog::backdrop,.recovery-dialog::backdrop { background:rgba(7,10,20,.64); backdrop-filter:blur(7px); }
   .setup-sheet { display:flex; flex-direction:column; max-height:calc(100dvh - 34px); }
   .setup-body { overflow-y:auto; overscroll-behavior:contain; padding:0 24px; min-height:0; }
   .setup-header { flex-shrink:0; padding:24px 24px 0; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:22px; }

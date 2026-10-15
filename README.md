@@ -23,6 +23,14 @@ Room starts and saved plans require the [Robot Cleaner Queue](https://github.com
 
 Native robot rooms need no Home Assistant area mapping. Area mappings supply shared room names/icons and are shown in **Zones & areas**. Older companions that report only `room_targets` can still run mapped-area plans with common settings; update the companion for settings per robot room. An unavailable companion never turns an empty selection into a whole-home clean.
 
+### Continue after an interruption
+
+Companion `control_version: 6` adds recovery of the retained sequence. **Continue sequence** resumes its confirmed unfinished robot job, or continues with the next pending pass. If the robot no longer retains that job, **Retry current pass** repeats only the unconfirmed pass; all confirmed passes remain done. If the robot already continued on its own, **Continue sequence** reconnects tracking and the remaining rooms without restarting the current pass. **Check dock completion** handles a sequence whose floor cleaning is already complete. The companion validates current robot state and room settings before allowing each action.
+
+A clean-water warning may stay latched after refilling. When the companion identifies that specific recoverable case, the card asks you to confirm **I refilled the tank** before continuing. This acknowledgement belongs only to the current pass, not future cleaning. Other faults and uncertain commands remain blocked with a reason.
+
+During a native charging break, the hero, room and activity show **Charging to continue**, and measured area/time are labelled **Pass so far**. **Continue now** appears only with the new companion and is enabled only when it confirms the retained room job can safely resume. It does not start a whole-home clean. Commands carry the run and pass identity so an old dashboard cannot continue a different sequence. Native scheduling and battery rules still apply; the card does not promise an automatic resume time.
+
 **Optional**
 
 - Status, battery, progress, area, time, error and dock-error entities. They only affect what is displayed; safety decisions always use the native coordinator's own state, not your sensor mapping. The robot's `supported_features` decides which physical controls appear.
