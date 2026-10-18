@@ -64,7 +64,7 @@ test('floor-complete hints and a docked robot alone cannot create progress', () 
 });
 
 test('verified steps survive room transitions, errors, pauses and a dashboard reload', () => {
-  const samples = [['preparing', 0], ['starting', 0], ['running', 0], ['running', 1], ['preparing', 1], ['starting', 1], ['paused', 1], ['attention', 1], ['finishing', 2], ['completed', 2]];
+  const samples = [['preparing', 0], ['starting', 0], ['running', 0], ['running', 1], ['preparing', 1], ['starting', 1], ['paused', 1], ['recovering', 1], ['attention', 1], ['finishing', 2], ['completed', 2]];
   let previous = 0;
   for (const [phase, completed] of samples) {
     const snapshot = state(phase, completed);

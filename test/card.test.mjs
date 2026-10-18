@@ -307,6 +307,69 @@ test('stop says which confirmation it is waiting for', async () => {
   assert.equal(calls.length, 1);
 });
 
+test('a confirmed Stop keeps Return to dock available for the idle robot away from its dock',async()=>{
+  const queue={vacuum:'vacuum.robot',control_version:6,mode:'manual',targets:['0_1'],stages:[{target:'0_1',mode:'vacuum',room_index:0,pass_index:0,repeat_index:0}],current_index:0,completed:0};
+  const {card,calls}=await fixture({states:{
+    'vacuum.robot':entity('cleaning',{supported_features:FEATURES|8}),
+    'sensor.robot_status':entity('segment_cleaning'),
+    'binary_sensor.robot_cleaning':entity('on'),
+    'sensor.robot_queue':entity('running',queue),
+  }});
+  button(card,'stop').click();await settle(card);
+  await changeStates(card,{'sensor.robot_queue':entity('controlling',{...queue,pending_command:'stop'})});
+  assert.equal(button(card,'dock').disabled,true);
+  await changeStates(card,{
+    'vacuum.robot':entity('idle',{supported_features:FEATURES|8}),
+    'sensor.robot_status':entity('idle'),
+    'binary_sensor.robot_cleaning':entity('off'),
+    'sensor.robot_queue':entity('cancelled',queue),
+  });
+  assert.equal(card.request,undefined);
+  assert.equal(button(card,'dock').disabled,false);
+  assert.equal(button(card,'pause'),null);assert.equal(button(card,'stop'),null);
+  button(card,'dock').click();await settle(card);button(card,'dock').click();await settle(card);
+  assert.deepEqual(calls.map(call=>call.data.command),['stop','return_to_dock']);
+  assert.ok(calls.every(call=>call.domain==='robot_cleaner_queue'));
+  await changeStates(card,{'vacuum.robot':entity('returning',{supported_features:FEATURES|8})});
+  assert.equal(button(card,'dock'),null);
+});
+
+for(const phase of ['idle','cancelled','attention']) test(`an idle robot can return home with a ${phase} queue and no startable plan`,async()=>{
+  const {card,calls}=await fixture({states:{
+    'vacuum.robot':entity('idle',{supported_features:FEATURES}),
+    'sensor.robot_status':entity('idle'),
+    'sensor.robot_dock_error':entity('water_empty'),
+    'sensor.robot_queue':entity(phase,{vacuum:'vacuum.robot',control_version:5,execution_version:3,recovery_ready:false}),
+  }});
+  assert.equal(button(card,'dock').disabled,false);
+  assert.ok(!button(card,'start')||button(card,'start').disabled);
+  button(card,'dock').click();await settle(card);
+  assert.deepEqual(calls,[{domain:'robot_cleaner_queue',action:'control',data:{command:'return_to_dock',vacuum:'vacuum.robot'}}]);
+});
+
+for(const [state,status,features] of [
+  ['docked','charging',FEATURES],['returning','returning_home',FEATURES],
+  ['idle','washing_the_mop',FEATURES],['idle','going_to_wash_the_mop',FEATURES],
+  ['idle','idle',FEATURES&~16],
+]) test(`stopped robot does not offer duplicate or unsupported docking: ${state}, ${status}, ${features}`,async()=>{
+  const {card,calls}=await fixture({states:{
+    'vacuum.robot':entity(state,{supported_features:features}),
+    'sensor.robot_status':entity(status),
+    'sensor.robot_queue':entity('cancelled',{vacuum:'vacuum.robot',control_version:6}),
+  }});
+  assert.equal(button(card,'dock'),null);assert.deepEqual(calls,[]);
+});
+
+for(const constraint of ['robot_unavailable','pending_command','barrier','required_queue_unavailable']) test(`idle Return to dock respects ${constraint}`,async()=>{
+  const {card,calls}=await fixture({overrides:{require_queue:true},states:{
+    'vacuum.robot':entity(constraint==='robot_unavailable'?'unavailable':'idle',{supported_features:FEATURES}),
+    'sensor.robot_status':entity('idle'),
+    'sensor.robot_queue':entity(constraint==='required_queue_unavailable'?'unavailable':'cancelled',{vacuum:'vacuum.robot',control_version:6,pending_command:constraint==='pending_command'?'stop':'',command_barrier_until:constraint==='barrier'?Date.now()/1000+60:0}),
+  }});
+  assert.equal(button(card,'dock').disabled,true);
+  button(card,'dock').click();await settle(card);assert.deepEqual(calls,[]);
+});
+
 test('returning robot does not offer a duplicate Return to dock action', async () => {
   const { card } = await fixture({ states: { 'vacuum.robot': entity('returning', { supported_features: FEATURES }) } });
   assert.equal(button(card, 'dock'), null); assert.equal(button(card, 'start'), null);

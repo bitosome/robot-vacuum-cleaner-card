@@ -132,6 +132,9 @@
               <option value="completed_drying">Complete · passive mop drying</option>
               <option value="uncertain_start">Start request awaiting confirmation</option>
               <option value="stopped_ready">Previous sequence stopped · ready again</option>
+              <option value="stopped_away">Stopped · away from dock</option>
+              <option value="restart_recovering">After restart · checking current job</option>
+              <option value="restart_paused">After restart · robot paused</option>
               <option value="stopped_waiting">Previous sequence stopped · awaiting update</option>
               <option value="error">Needs attention</option>
               <option value="unavailable">Unavailable</option>
@@ -458,8 +461,9 @@
             robotState('paused', 'paused', currentRoom(attrs)?.id);
           } else if (['continue_sequence','resume_now'].includes(variables.command)) {
             if(variables.run_id!==attrs.run_id || variables.current_index!==attrs.current_index) throw new Error('The sequence changed. Review the current pass.');
+            if(variables.command==='resume_now' && attrs.restart_record_pending && variables.recovery_token!==attrs.restart_resume_token) throw new Error('Confirm the currently displayed robot job before resuming.');
             if(variables.command==='continue_sequence' && attrs.continuation_requires_water_ack && !variables.water_refilled) throw new Error('Confirm that the clean-water tank was refilled.');
-            set(config.queue_entity,'running',{...attrs,robot_job:'on',execution_status:'cleaning',resume_now_ready:false,continuation_ready:false,error:'',water_refill_ack_active:!!variables.water_refilled});
+            set(config.queue_entity,'running',{...attrs,robot_job:'on',execution_status:'cleaning',resume_now_ready:false,restart_resume_ready:false,restart_resume_token:'',continuation_ready:false,error:'',water_refill_ack_active:!!variables.water_refilled});
             if(sequenceHistory.last_run?.run_id===attrs.run_id) {
               sequenceHistory.last_run.state='running';sequenceHistory.last_run.stages[attrs.current_index].state='running';
               sequenceHistory.history_revision++;states[config.queue_entity].attributes.history_revision=sequenceHistory.history_revision;
@@ -545,6 +549,14 @@
         startManual({rooms:[{id:'0_1',mode:'vacuum_then_mop',suction:'max',water:'high',route:'standard',repeat:1},{id:'0_3',mode:'vacuum_then_mop',suction:'max',water:'high',route:'standard',repeat:1}]});
         set(config.queue_entity,'attention',{...queueAttrs(),run_id:'previous-run',current_index:3,completed:3,pending_command:'',recovery_ready:value==='stopped_ready',recovery_reason:value==='stopped_ready'?'':'Wait for a fresh robot update before starting a new action.',command_barrier_until:Date.now()/1000-60,error:'The previous room start could not be confirmed. No automatic retry was sent.'});
         robotState('docked','charging');
+      }
+      if (['stopped_away','restart_recovering','restart_paused'].includes(value)) {
+        startManual({rooms:[{id:'0_3',mode:'vacuum_then_mop',suction:'max',water:'high',route:'standard',repeat:1},{id:'0_5',mode:'vacuum_then_mop',suction:'balanced',water:'medium',route:'standard',repeat:1}]});
+        const phase=value==='stopped_away'?'cancelled':value==='restart_paused'?'paused':'recovering';
+        const attrs={...queueAttrs(),control_version:7,execution_version:5,run_id:'preview-restart',current_index:1,completed:1,robot_job:value==='stopped_away'?'off':'on',restart_recovery:phase==='recovering',restart_recovery_reason:'Checking the robot after Home Assistant restarted. Completed passes are kept.',restart_record_pending:value!=='stopped_away',restart_resume_ready:value==='restart_paused',restart_resume_token:value==='restart_paused'?'preview-native-job':'',run_history_version:1,history_revision:fixtureRevision};
+        set(config.queue_entity,phase,attrs);
+        sequenceHistory={history_revision:fixtureRevision,last_run:{run_id:attrs.run_id,vacuum:config.entity,state:phase,assigned_at:Date.now()/1000-1800,rooms:attrs.setup.rooms,stages:attrs.stages.map((stage,index)=>({...stage,index,state:index<1?'completed':index===1?(phase==='cancelled'?'cancelled':phase==='paused'?'paused':'running'):'pending',finished_at:index<1?Date.now()/1000-1200:null,started_at:index===1?Date.now()/1000-600:null})),interruptions:[]},previous_runs:[]};
+        robotState(value==='stopped_away'?'idle':value==='restart_paused'?'paused':'cleaning',value==='stopped_away'?'idle':value==='restart_paused'?'paused':'segment_cleaning');
       }
       if(['interrupted_history','refilled_retry','refilled_resume','continued_robot'].includes(value)) {
         startManual({rooms:[{id:'0_3',mode:'vacuum_then_mop',suction:'max',water:'high',route:'standard',repeat:1},{id:'0_5',mode:'vacuum_then_mop',suction:'balanced',water:'medium',route:'standard',repeat:1},{id:'0_7',mode:'mop',water:'high',route:'deep',repeat:1}]});

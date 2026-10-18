@@ -14,7 +14,7 @@ export interface CleaningRun {
 }
 export interface RunRoom {id:string;name?:string;stages:RunStage[];completed:boolean;}
 const stageStates = new Set<RunStageState>(['pending','preparing','starting','running','paused','attention','completed','cancelled']);
-const runStates = new Set(['preparing','starting','running','paused','attention','completed','cancelled','cancelling','finishing']);
+const runStates = new Set(['preparing','starting','running','paused','attention','completed','cancelled','cancelling','finishing','recovering']);
 const modes = new Set(['vacuum','mop','vacuum_mop']);
 const record = (value:unknown):value is Record<string,any> => !!value && typeof value==='object' && !Array.isArray(value);
 const timestamp = (value:unknown):number|undefined => typeof value==='number' && Number.isFinite(value) && value>0 && value<8640000000000 ? value : undefined;
@@ -73,13 +73,14 @@ export function runRooms(run:CleaningRun):RunRoom[] {
   return [...rooms.values()];
 }
 export function runStateLabel(run:CleaningRun):string {
-  if(run.previous && ['preparing','starting','running','paused','cancelling','finishing'].includes(run.state)) return 'Interrupted';
+  if(run.previous && ['preparing','starting','running','paused','cancelling','finishing','recovering'].includes(run.state)) return 'Interrupted';
   // A terminal label is never evidence for an individual pass.
   if(run.state==='completed'&&!run.stages.every(stage=>stage.state==='completed')) return 'Needs review';
-  return ({preparing:'Preparing',starting:'Starting',running:'In progress',paused:'Paused',attention:'Needs attention',completed:'Completed',cancelled:'Stopped',cancelling:'Stopping',finishing:'Dock care'} as Record<string,string>)[run.state]??'Needs review';
+  return ({preparing:'Preparing',starting:'Starting',running:'In progress',paused:'Paused',attention:'Needs attention',completed:'Completed',cancelled:'Stopped',cancelling:'Stopping',finishing:'Dock care',recovering:'Restoring sequence'} as Record<string,string>)[run.state]??'Needs review';
 }
 export function stageStateLabel(stage:RunStage,run:CleaningRun):string {
   if((run.previous || ['attention','cancelled','completed'].includes(run.state)) && ['preparing','starting','running','paused'].includes(stage.state)) return 'Not confirmed';
+  if(run.state==='recovering' && ['preparing','starting','running','paused'].includes(stage.state)) return 'Checking status';
   if(stage.state==='pending') return ['attention','cancelled','completed'].includes(run.state)||run.previous?'Not run':'Queued';
   if(stage.state==='cancelled') return stage.started_at?'Stopped':'Not completed';
   return ({completed:'Done',attention:'Needs attention',paused:'Paused',running:'Cleaning',preparing:'Preparing',starting:'Starting'} as Record<string,string>)[stage.state]??'Not confirmed';

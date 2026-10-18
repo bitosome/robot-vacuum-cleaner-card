@@ -16,7 +16,7 @@ export interface SequenceProgress {
 
 const SEQUENCE_PHASES = new Set([
   'preparing', 'starting', 'running', 'paused', 'cancelling', 'finishing',
-  'completed', 'cancelled', 'attention',
+  'completed', 'cancelled', 'attention', 'recovering',
 ]);
 
 /**

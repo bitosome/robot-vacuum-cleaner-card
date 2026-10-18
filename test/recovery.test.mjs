@@ -191,3 +191,93 @@ test('a robot that continued after a fault can reconnect sequence tracking witho
   action(card,'pause').click();await settle(card);
   assert.deepEqual(calls.map(call=>call.data.command),['continue_sequence','pause']);
 });
+
+test('a retained interrupted sequence keeps docking independent of blocked continuation',async()=>{
+  const {card,calls}=await fixture({phase:'attention',state:'idle',status:'idle',job:'off',water:'water_empty',attributes:{robot_job:'off',continuation_action:'retry_stage',continuation_ready:false,continuation_reason:'Refill the tank before mopping.'}});
+  assert.equal(action(card,'continue-sequence').disabled,true);
+  assert.equal(action(card,'start'),null);
+  assert.equal(action(card,'dock').disabled,false);
+  action(card,'dock').click();await settle(card);
+  assert.deepEqual(calls,[{domain:'robot_cleaner_queue',action:'control',data:{command:'return_to_dock',vacuum}}]);
+  assert.match(activity(card).querySelector('[data-history-stage="0"]').textContent,/Done/);
+});
+
+test('restart reconciliation keeps the frozen sequence and completed history without claiming ownership of a live job',async()=>{
+  const {card,calls}=await fixture({phase:'recovering',state:'cleaning',status:'segment_cleaning',attributes:{control_version:7,restart_recovery:true,restart_recovery_reason:'Waiting for the robot’s matching cleaning record.'}});
+  assert.equal(headline(card),'Cleaning in progress');
+  assert.match(root(card).querySelector('.subline').textContent,/matching cleaning record/);
+  assert.match(root(card).querySelector('.progress-summary').textContent,/Restoring sequence.*1 \/ 5 steps/);
+  assert.match(root(card).querySelector('[data-room="0_1"]').textContent,/Checking status/);
+  assert.equal(root(card).querySelector('[data-room="0_1"]').disabled,true);
+  assert.equal(root(card).querySelector('[data-room-editor="0_1"] select').disabled,true);
+  assert.match(activity(card).querySelector('summary').textContent,/Restoring sequence/);
+  assert.match(activity(card).querySelector('[data-history-stage="0"]').textContent,/Done/);
+  assert.match(activity(card).querySelector('[data-history-stage="1"]').textContent,/Checking status/);
+  assert.match(activity(card).querySelector('[data-history-stage="2"]').textContent,/Queued/);
+  for(const name of ['start','pause','resume','resume-now','continue-sequence','resume-after-restart']) assert.equal(action(card,name),null);
+  assert.equal(action(card,'dock').disabled,false);assert.equal(action(card,'stop').disabled,false);
+  assert.deepEqual(calls,[]);
+  await update(card,{'sensor.queue':entity('running',{...attrs,control_version:7})});
+  assert.match(headline(card),/Vacuuming Kitchen/);assert.equal(action(card,'pause').disabled,false);
+});
+
+for(const state of ['paused','docked']) test(`restart resume of a ${state} native job requires explicit confirmation tied to the displayed run`,async()=>{
+  const recovery={control_version:7,restart_recovery:true,restart_record_pending:true,restart_resume_ready:true,restart_resume_token:'native-snapshot-token'};
+  const {card,calls}=await fixture({phase:'recovering',state,status:state==='docked'?'charging':'paused',attributes:recovery});
+  assert.equal(headline(card),state==='docked'?'Charging':'Cleaning paused');
+  assert.equal(action(card,'resume-after-restart').disabled,false);
+  assert.equal(action(card,'resume'),null);assert.equal(action(card,'resume-now'),null);
+  action(card,'resume-after-restart').click();await settle(card);
+  assert.equal(root(card).querySelector('.recovery-dialog').open,true);
+  assert.match(root(card).querySelector('.recovery-dialog').textContent,/unfinished job.*remaining rooms will continue only after its cleaning record matches this pass/s);
+  assert.deepEqual(calls,[]);
+  action(card,'cancel-restart-resume').click();await settle(card);assert.deepEqual(calls,[]);
+  action(card,'resume-after-restart').click();await settle(card);
+  action(card,'confirm-restart-resume').click();await settle(card);
+  assert.deepEqual(calls,[{domain:'robot_cleaner_queue',action:'control',data:{command:'resume_now',vacuum,run_id:attrs.run_id,current_index:1,recovery_token:'native-snapshot-token'}}]);
+  assert.equal(card.request.kind,'resume_now');
+  action(card,'resume-after-restart').click();await settle(card);assert.equal(calls.length,1);
+  await update(card,{[vacuum]:entity('cleaning',{supported_features:8192|4|8|16}),'sensor.status':entity('segment_cleaning'),'sensor.queue':entity('recovering',{...attrs,...recovery,restart_resume_ready:false})});
+  assert.equal(card.request,undefined);assert.equal(action(card,'resume-after-restart'),null);
+  assert.equal(action(card,'start'),null);assert.match(activity(card).querySelector('[data-history-stage="0"]').textContent,/Done/);
+});
+
+for(const patch of [{run_id:'new-run'},{current_index:2},{restart_resume_token:'changed-native-job'}]) test(`a restart confirmation cannot outlive its displayed ${Object.keys(patch)[0]}`,async()=>{
+  const recovery={...attrs,control_version:7,restart_recovery:true,restart_record_pending:true,restart_resume_ready:true,restart_resume_token:'native-snapshot-token'};
+  const {card,calls}=await fixture({phase:'recovering',attributes:recovery});
+  action(card,'resume-after-restart').click();await settle(card);
+  await update(card,{'sensor.queue':entity('recovering',{...recovery,...patch})});
+  action(card,'confirm-restart-resume').click();await settle(card);
+  assert.deepEqual(calls,[]);assert.match(root(card).querySelector('[role="alert"]').textContent,/robot or sequence changed/);
+});
+
+for(const patch of [{control_version:6},{restart_resume_token:''},{restart_resume_ready:false,restart_resume_reason:'Wait for a fresh robot update.'},{command_barrier_until:Date.now()/1000+60}]) test(`restart resume cannot bypass ${Object.keys(patch)[0]}`,async()=>{
+  const {card,calls}=await fixture({phase:'recovering',attributes:{control_version:7,restart_recovery:true,restart_record_pending:true,restart_resume_ready:true,restart_resume_token:'native-snapshot-token',...patch}});
+  const resume=action(card,'resume-after-restart');
+  if(resume){assert.equal(resume.disabled,true);resume.click();await settle(card);}
+  assert.equal(action(card,'resume'),null);assert.equal(action(card,'resume-now'),null);
+  assert.deepEqual(calls,[]);
+  if(patch.restart_resume_reason) assert.match(root(card).textContent,/Wait for a fresh robot update/);
+});
+
+test('restart resume cannot fall back to a generic vacuum service when its controller is absent',async()=>{
+  const {card,calls}=await fixture({phase:'recovering',controlService:false,attributes:{control_version:7,restart_recovery:true,restart_record_pending:true,restart_resume_ready:true,restart_resume_token:'native-snapshot-token'}});
+  assert.equal(action(card,'resume-after-restart').disabled,true);
+  action(card,'resume-after-restart').click();await settle(card);assert.deepEqual(calls,[]);
+});
+
+for(const phase of ['running','paused','attention']) test(`a reattached ${phase} job still requires the explicit restart resume confirmation`,async()=>{
+  const {card,calls}=await fixture({phase,state:'paused',status:'paused',attributes:{control_version:7,restart_record_pending:true,restart_resume_ready:true,restart_resume_token:'native-snapshot-token'}});
+  assert.equal(action(card,'resume'),null);assert.equal(action(card,'resume-now'),null);
+  assert.equal(action(card,'resume-after-restart').disabled,false);
+  action(card,'resume-after-restart').click();await settle(card);assert.deepEqual(calls,[]);
+  action(card,'confirm-restart-resume').click();await settle(card);
+  assert.equal(calls[0].data.recovery_token,'native-snapshot-token');assert.equal(calls[0].data.command,'resume_now');
+});
+
+test('a reattached paused job cannot regain generic Resume when restart eligibility is blocked',async()=>{
+  const {card,calls}=await fixture({phase:'paused',state:'paused',status:'paused',attributes:{control_version:7,restart_record_pending:true,restart_resume_ready:false,restart_resume_reason:'The previous command is not yet confirmed.'}});
+  assert.equal(action(card,'resume'),null);assert.equal(action(card,'resume-after-restart').disabled,true);
+  assert.match(root(card).textContent,/previous command is not yet confirmed/);
+  await card.command('resume');assert.deepEqual(calls,[]);
+});
