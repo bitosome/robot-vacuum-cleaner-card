@@ -980,10 +980,12 @@ test('touch drag reorders the actual room tiles and the eventual start payload',
   assert.deepEqual(calls[0].data.rooms.map(room=>room.id),['0_3','0_1']);
 });
 
-for(const cancel of ['pointercancel','Escape'])test(`cancelled touch drag restores the draft (${cancel})`,async()=>{
+for(const cancel of ['pointercancel','Escape','lostpointercapture','blur'])test(`cancelled touch drag restores the draft (${cancel})`,async()=>{
   const {card,calls}=await fixture();await tap(card,'0_1');await tap(card,'0_3');mockRoomGeometry(card);
   pointer(card,'0_3','pointerdown',245);pointer(card,'0_3','pointermove',35);await settle(card);
   if(cancel==='Escape')window.dispatchEvent(new browser.KeyboardEvent('keydown',{key:'Escape',cancelable:true}));
+  else if(cancel==='blur')window.dispatchEvent(new browser.Event('blur'));
+  else if(cancel==='lostpointercapture')root(card).querySelector('[data-drag-room="0_3"]').dispatchEvent(new browser.PointerEvent(cancel,{pointerId:7}));
   else pointer(card,'0_3','pointercancel',35);
   await settle(card);
   assert.deepEqual(visibleRooms(card),['0_1','0_2','0_3']);assert.deepEqual(card.manualSelected,['0_1','0_3']);

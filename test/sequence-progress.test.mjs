@@ -21,8 +21,8 @@ test('overall progress counts verified floor passes and final docking as explici
   assert.equal(progress.completedSteps, 1);
   assert.equal(progress.totalSteps, 3);
   assert.ok(Math.abs(progress.percent - 100 / 3) < 1e-10);
-  assert.equal(progress.label, '1 / 3 steps');
-  assert.equal(progress.valueText, '1 of 3 steps; includes final docking. 1 of 2 cleaning passes confirmed; final docking not yet confirmed.');
+  assert.equal(progress.label, '1 / 2 rooms');
+  assert.equal(progress.valueText, '1 of 2 rooms completed. 1 of 2 cleaning passes confirmed; final docking not yet confirmed.');
 });
 
 test('vacuum then mop and repeats use the frozen stage list without double-expansion', () => {
@@ -55,7 +55,7 @@ test('100% requires both the completed state and every successful pass', () => {
   const completed = sequenceProgress(state('completed', 2, twoRooms, {dock_drying: true}));
   assert.equal(completed.percent, 100);
   assert.equal(completed.complete, true);
-  assert.equal(completed.valueText, '3 of 3 steps; includes final docking. 2 of 2 cleaning passes confirmed; final docking confirmed.');
+  assert.equal(completed.valueText, '2 of 2 rooms completed. 2 of 2 cleaning passes confirmed; final docking confirmed.');
 });
 
 test('floor-complete hints and a docked robot alone cannot create progress', () => {
@@ -103,4 +103,16 @@ test('the maximum accepted execution plan still waits for the final dock step', 
   assert.equal(finishing.totalSteps, 129);
   assert.ok(finishing.percent < 100);
   assert.equal(sequenceProgress(state('completed', 128, stages)).percent, 100);
+});
+
+ test('rooms finish only after every assigned pass, and docking is separate', () => {
+ const stages=[pass('a'),pass('a','mop'),pass('b')];
+ const partial=sequenceProgress(state('running',1,stages));
+ assert.equal(partial.completedRooms,0); assert.equal(partial.roomPercent,0);
+ const roomDone=sequenceProgress(state('running',2,stages));
+ assert.equal(roomDone.label,'1 / 2 rooms'); assert.equal(roomDone.roomPercent,50);
+ const floorDone=sequenceProgress(state('finishing',3,stages));
+ assert.equal(floorDone.roomPercent,100); assert.equal(floorDone.complete,false);
+ assert.equal(floorDone.dockLabel,'Final docking pending');
+ assert.equal(sequenceProgress(state('completed',3,stages)).dockLabel,'Final docking confirmed');
 });

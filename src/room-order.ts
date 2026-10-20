@@ -32,6 +32,8 @@ export class RoomDrag {
     window.addEventListener('pointermove',this.move,{passive:false});
     window.addEventListener('pointerup',this.end);
     window.addEventListener('pointercancel',this.abort);
+    handle.addEventListener('lostpointercapture',this.abort);
+    window.addEventListener('blur',this.blur);
     window.addEventListener('keydown',this.escape);
   }
 
@@ -82,6 +84,7 @@ export class RoomDrag {
     if(s.moved)this.options.announce(s.id);
   };
   private abort=(event:PointerEvent)=>{if(event.pointerId===this.session?.pointer)this.cancel();};
+  private blur=()=>this.cancel();
   private escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();this.cancel();}};
   cancel(){
     const s=this.session;this.clear();
@@ -89,6 +92,8 @@ export class RoomDrag {
   }
   private clear(){
     const s=this.session;this.session=undefined;
+    s?.handle.removeEventListener('lostpointercapture',this.abort);
+    window.removeEventListener('blur',this.blur);
     if(s?.handle.hasPointerCapture?.(s.pointer))s.handle.releasePointerCapture(s.pointer);
     if(this.frame!==undefined)cancelAnimationFrame(this.frame);this.frame=undefined;
     window.removeEventListener('pointermove',this.move);

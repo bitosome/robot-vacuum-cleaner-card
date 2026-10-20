@@ -35,7 +35,7 @@ test('a charging break consistently retains the active pass, sequence progress a
   const {card,calls}=await fixture({attributes:{resume_now_ready:true}});
   assert.equal(headline(card),'Charging to continue');
   assert.match(root(card).querySelector('.subline').textContent,/Kitchen · Vacuum pass 2\/2 paused for charging/);
-  assert.match(root(card).querySelector('.progress-summary').textContent,/1 \/ 5 steps/);
+  assert.match(root(card).querySelector('.progress-summary').textContent,/0 \/ 1 rooms/);
   assert.match(root(card).querySelector('.pills').textContent,/Pass so far.*6.5 m².*9.7 min/);
   assert.match(root(card).querySelector('[data-room="0_1"]').textContent,/Charging/);
   assert.match(activity(card).querySelector('summary').textContent,/Charging to continue/);
@@ -180,7 +180,7 @@ test('a robot that continued after a fault can reconnect sequence tracking witho
   assert.equal(headline(card),'Vacuuming Kitchen');
   assert.match(root(card).querySelector('.subline').textContent,/robot continued/);
   assert.match(root(card).querySelector('.recovery-note').textContent,/Sequence tracking paused.*without restarting it/s);
-  assert.match(root(card).querySelector('.progress-summary').textContent,/1 \/ 5 steps/);
+  assert.match(root(card).querySelector('.progress-summary').textContent,/0 \/ 1 rooms/);
   assert.equal(action(card,'resume'),null);assert.equal(action(card,'pause'),null);
   assert.equal(action(card,'continue-sequence').disabled,false);
   assert.equal(action(card,'stop').disabled,false);assert.equal(action(card,'dock').disabled,false);
@@ -206,7 +206,7 @@ test('restart reconciliation keeps the frozen sequence and completed history wit
   const {card,calls}=await fixture({phase:'recovering',state:'cleaning',status:'segment_cleaning',attributes:{control_version:7,restart_recovery:true,restart_recovery_reason:'Waiting for the robot’s matching cleaning record.'}});
   assert.equal(headline(card),'Cleaning in progress');
   assert.match(root(card).querySelector('.subline').textContent,/matching cleaning record/);
-  assert.match(root(card).querySelector('.progress-summary').textContent,/Restoring sequence.*1 \/ 5 steps/);
+  assert.match(root(card).querySelector('.progress-summary').textContent,/Restoring sequence.*0 \/ 1 rooms/);
   assert.match(root(card).querySelector('[data-room="0_1"]').textContent,/Checking status/);
   assert.equal(root(card).querySelector('[data-room="0_1"]').disabled,true);
   assert.equal(root(card).querySelector('[data-room-editor="0_1"] select').disabled,true);

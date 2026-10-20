@@ -119,7 +119,8 @@ for (const reason of ['queue', 'robot', 'request']) test(`Apply defaults cannot 
   if (reason === 'request') card.savingPreferences = true;
   await settle(card);
   const before = structuredClone({rooms: card.roomSetups, overlays: card.planSetups, defaults: card.setup});
-  assert.equal(action(card, 'apply-defaults').disabled, true);
+  if(reason==='request') assert.equal(action(card, 'apply-defaults').disabled, true);
+  else assert.equal(root(card).querySelector('.plan-section'),null);
   card.applyDefaultsToRooms(); await settle(card);
   assert.deepEqual({rooms: card.roomSetups, overlays: card.planSetups, defaults: card.setup}, before);
   assert.deepEqual(calls, []);
@@ -147,7 +148,7 @@ test('main view has one Start action and moves default editing out of the status
 });
 
 
-test('overall progress ignores native room percentage and includes final dock confirmation', async () => {
+test('room progress ignores native percentage and separates final dock confirmation', async () => {
   const {card} = await fixture();
   const stages = [{target:'0_5',mode:'vacuum'},{target:'0_5',mode:'mop'},{target:'0_12',mode:'vacuum'},{target:'0_12',mode:'mop'}];
   card.setConfig({...card.config, progress_entity:'sensor.rover_progress'});
@@ -161,12 +162,12 @@ test('overall progress ignores native room percentage and includes final dock co
     await settle(card);
   };
   await publish('running',2,95);
-  assert.equal(root(card).querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),'40');
-  assert.match(root(card).querySelector('.progress-summary').textContent,/2 \/ 5 steps/);
+  assert.equal(root(card).querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),'50');
+  assert.match(root(card).querySelector('.progress-summary').textContent,/1 \/ 2 rooms/);
   await publish('running',2,1);
-  assert.equal(root(card).querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),'40');
+  assert.equal(root(card).querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),'50');
   await publish('finishing',4,100,'returning');
-  assert.equal(root(card).querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),'80');
+  assert.equal(root(card).querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),'100');
   await publish('completed',4,100,'docked');
   assert.equal(root(card).querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),'100');
 });

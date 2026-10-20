@@ -86,7 +86,7 @@ area_overrides:
 
 Entity names above are examples. `rooms` and `full_clean_entity` are **read but unused**: routine buttons are no longer part of any plan, so a configuration that still carries them keeps loading and simply ignores them. Without robot rooms the card falls back to Home Assistant's mapped areas (`room_targets`), which is the only other plan the companion can run. Optional `activity_entity` can identify an externally initiated room clean (`cleaning`, `active` or `on`); it never proves completion. The robot's `supported_features` determines available physical controls. `area_overrides` styles a tile by the Home Assistant area id a room is mapped to, or by the robot room id (`0_12`) when it has none.
 
-Configure the optional telemetry entities you have. Missing values are omitted. The top sequence bar counts verified cleaning passes plus final docking as explicit steps; vacuum-then-mop and repeats are included. It reaches 100% only after the queue confirms completion, and stays stable while the robot washes, returns or starts the next pass. This is completed-step progress, not an estimate of elapsed time or floor coverage. Native percentages are shown only for a clean outside the sequence. Cleaning metrics belong to the current job, not the complete multi-room sequence. The robot's current-room reading describes location; a room tile is marked completed only by the queue integration's verified cleaning record.
+Configure the optional telemetry entities you have. Missing values are omitted. The top sequence bar counts completed rooms. A room counts only after every assigned pass and repeat is confirmed, including both vacuum and mop. Final docking is reported separately, so 100% rooms cleaned does not claim the robot has finished returning or dock care. Whole-home plans without named rooms show confirmed passes instead. This is verified work, not elapsed-time or floor-coverage estimation. Native percentages are shown only for a clean outside the sequence. Cleaning metrics belong to the current job, not the complete multi-room sequence. The robot's current-room reading describes location; a room tile is marked completed only by the queue integration's verified cleaning record.
 
 ## Plan on the main screen
 
@@ -242,7 +242,7 @@ retained stage/count evidence, without fabricated timestamps or browser-only sto
 
 ### Robot overview
 
-The overview groups robot status, overall progress, contextual actions, the always-visible Find/Dock/Map/settings tools, and expandable sequence activity on one surface. Saved-plan controls and room defaults share a separate compact panel above the rooms. During dock care, the next room remains visible without repeating the status or showing inactive floor-cleaning counters. All actions, command safeguards and saved-plan behavior are unchanged.
+The overview groups robot status, overall progress, contextual actions, the always-visible Find/Dock/Map/settings tools, and expandable sequence activity on one surface. Saved-plan controls and room defaults share a separate compact panel above the rooms when idle; they are hidden during cleaning. During dock care, the next room remains visible without repeating the status or showing inactive floor-cleaning counters. All actions, command safeguards and saved-plan behavior are unchanged.
 
 ### Edit an in-progress sequence
 

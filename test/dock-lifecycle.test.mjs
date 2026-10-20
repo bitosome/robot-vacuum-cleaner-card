@@ -55,7 +55,7 @@ for(const [status,vacuum,title] of [
   }
   assert.equal(action(card,'start'),null);
   assert.equal(action(card,'select-all'),null);
-  assert.doesNotMatch(root(card).querySelector('.plan-bar').textContent,/Unsaved changes/);
+  assert.equal(root(card).querySelector('.plan-section'),null);
   assert.equal(calls.length,0);
 });
 
