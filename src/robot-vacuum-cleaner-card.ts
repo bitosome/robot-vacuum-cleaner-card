@@ -749,7 +749,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (this.chargingBreak) return `${this.stageName} · ${this.passLabel} paused for charging`;
     if (!this.queueActive && this.dockService) return 'Dock care is in progress. Cleaning can start when it finishes.';
     if (this.queueActive && this.queueManual) {
-      if (this.dockService) return `${this.dockService} · Next: ${this.stageName}`;
+      if (this.dockService) return `Next: ${this.stageName}`;
       if (this.queue?.attributes.waiting_for_dock) return `Next: ${this.stageName} · Waiting for the dock`;
       const stage=this.stages[this.index];
       const label=stage?.mode==='vacuum'?'Vacuum pass':stage?.mode==='mop'?'Mop pass':'Vacuum & mop';
@@ -932,19 +932,19 @@ export class RobotVacuumCleanerCard extends LitElement {
     const glow = buildGlow(BLUE,'pulse',cleaning);
     return html`<div class="outer"><ha-card><div class="root">
       <div class="tile-wrap"><div class="glow-under" style=${glow.style}>${glow.overlay}</div><section class="surface hero" aria-label="Robot status">
-        <div class="identity"><span class="robot-icon">${icon('mdi:robot-vacuum')}</span><div class="identity-text"><div class="eyebrow">Robot vacuum</div><div class="name">${this.config.name ?? this.vacuum?.attributes.friendly_name ?? 'Robot'}</div></div>${battery!==undefined ? html`<span class="battery" aria-label=${`Battery ${battery} percent`}>${icon(this.vacuum?.state==='docked'?'mdi:battery-charging':'mdi:battery')} ${battery}%</span>`:nothing}</div>
+        <div class="identity"><span class="robot-icon">${icon('mdi:robot-vacuum')}</span><div class="identity-text"><div class="name">${this.config.name ?? this.vacuum?.attributes.friendly_name ?? 'Robot'}</div></div>${battery!==undefined ? html`<span class="battery" aria-label=${`Battery ${battery} percent`}>${icon(this.vacuum?.state==='docked'?'mdi:battery-charging':'mdi:battery')} ${battery}%</span>`:nothing}</div>
         <h2>${this.headline()}</h2><p class="subline">${this.subline()}</p>
         ${sequence ? html`<div class="progress-summary" title=${sequence.valueText}><span>${sequenceLabel}</span><strong>${sequence.label}</strong></div><div class="progress" role="progressbar" aria-label=${this.phase==='attention'?`${sequenceLabel} progress`:'Overall sequence progress'} aria-valuenow=${Math.round(sequence.percent)} aria-valuemin="0" aria-valuemax="100" aria-valuetext=${sequence.valueText}><span style=${`width:${sequence.percent}%`}></span></div>`:nothing}
-        ${this.jobActive && (!this.queueActive || !this.floorCleaningComplete) && (area || time || (!this.queueActive&&progress!==undefined)) ? html`<div class="pills" aria-label=${this.queueActive&&!this.restartRecovering?'Current cleaning pass':'Current clean'}>${this.queueActive?html`<span class="metric-caption">${this.restartRecovering?'Robot so far':this.chargingBreak?'Pass so far':'Current pass'}</span>`:nothing}${area?html`<span class="pill">${icon('mdi:ruler-square')}${area}</span>`:nothing}${time?html`<span class="pill">${icon('mdi:timer-outline')}${time}</span>`:nothing}${!this.queueActive&&progress!==undefined?html`<span class="pill">${Math.round(progress)}%</span>`:nothing}</div>`:nothing}
+        ${this.jobActive && !this.dockServicing && (!this.queueActive || !this.floorCleaningComplete) && (area || time || (!this.queueActive&&progress!==undefined)) ? html`<div class="pills" aria-label=${this.queueActive&&!this.restartRecovering?'Current cleaning pass':'Current clean'}>${this.queueActive?html`<span class="metric-caption">${this.restartRecovering?'Robot so far':this.chargingBreak?'Pass so far':'Current pass'}</span>`:nothing}${area?html`<span class="pill">${icon('mdi:ruler-square')}${area}</span>`:nothing}${time?html`<span class="pill">${icon('mdi:timer-outline')}${time}</span>`:nothing}${!this.queueActive&&progress!==undefined?html`<span class="pill">${Math.round(progress)}%</span>`:nothing}</div>`:nothing}
         ${!this.queueActive&&!sequence&&this.jobActive&&progress!==undefined ? html`<div class="progress" role="progressbar" aria-label="Current cleaning progress" aria-valuenow=${Math.round(progress)} aria-valuemin="0" aria-valuemax="100"><span style=${`width:${progress}%`}></span></div>`:nothing}
         ${this.renderRecovery()}
         ${this.renderActions()}
-      </section></div>
-      ${this.renderUtilities()}
+        ${this.renderUtilities()}
       ${renderSequenceActivity({runs,selectedRunId:this.historyRunId,locale:this.hass.locale?.language,timeZone:this.hass.config?.time_zone,
         liveState:this.chargingBreak?{runId:this.queue?.attributes.run_id??'legacy-run',stageIndex:this.index,label:'Charging to continue',stageLabel:'Charging'}:undefined,
         roomName:(id,name)=>name??this.roomName({id,name:this.rooms.find(room=>room.id===id)?.name}),roomIcon:id=>this.roomIcon({id,area_id:this.robotRooms.find(room=>room.id===id)?.area_id}),select:id=>{this.historyRunId=id;}})}
       ${this.historyError?html`<div class="note" role="status">Activity could not be refreshed. ${this.historyError}<button class="text-button" data-action="refresh-history" ?disabled=${this.historyLoading} @click=${()=>this.readHistory(true)}>Retry</button></div>`:nothing}
+      </section></div>
       ${this.waterEmpty&&!this.continuationSupported ? html`<div class="note water-warning">${icon('mdi:water-alert-outline')}<span>${this.waterAcknowledged?'The dock still reports a water warning. You confirmed the tank was refilled for this pass.':this.waterAllowed?`Refill and reseat the dock’s clean-water tank for mopping. ${this.queueActive?'Vacuuming can continue.':'Vacuuming can start.'} Any later mopping stage waits for a healthy dock.`:'Refill and reseat the dock’s clean-water tank for mopping.'}</span></div>`:nothing}
 
       ${this.terminalSequence && this.phase!=='attention' ? html`<div class="note">This sequence has finished. Choose rooms for a fresh plan.<button class="text-button" data-action="clear-queue" ?disabled=${!this.queueReady || this.request?.kind==='cancel'} @click=${()=>this.command('cancel')}>Start a new sequence</button></div>`:nothing}
@@ -953,8 +953,10 @@ export class RobotVacuumCleanerCard extends LitElement {
       ${this.commandError && this.commandError!==this.queue?.attributes.error ? html`<div class="error" role="alert">${this.commandError}<button class="text-button" @click=${()=>this.commandError=''}>Dismiss</button></div>`:nothing}
       ${this.request ? html`<div class="note">${this.feedback}</div>`:nothing}
       ${!this.queueReady && (this.rooms.length || this.config?.require_queue) ? html`<div class="note">${this.config?.require_queue ? 'The shared cleaning controller is unavailable. Controls will return when it reconnects.' : 'Install and configure the Home Assistant queue companion to clean rooms in order. Select rooms after the controller reconnects.'}</div>`:nothing}
+      <section class="surface plan-section" aria-label="Cleaning plan settings">
       ${this.hass.services?.robot_cleaner_queue?.save_preset ? html`<section class="plan-bar" aria-label="Saved cleaning plan"><div class="plan-toolbar"><span class="plan-label">${!this.savedPreset?'Wall switch':this.presetFeedback && !this.selection.length?'Review saved plan':this.planChanged&&!this.queueActive?'Unsaved changes':'Saved plan'}</span>${this.savedPreset && !this.queueActive && (this.planChanged||this.presetFeedback) ? html`<button class="text-button" data-action="load-preset" title="Restore the saved wall-switch plan" ?disabled=${this.blocked||this.queueActive||this.jobActive} @click=${()=>this.loadPreset()}>Reload</button>`:nothing}<button class="action" data-action="save-preset" ?disabled=${!this.canSavePreset} @click=${()=>this.savePreset()}>${icon('mdi:content-save-outline')}${this.savingPreset?'Saving…':'Save plan'}</button></div>${this.presetFeedback ? html`<p class="hint" role="status">${this.presetFeedback}</p>`:nothing}</section>`:nothing}
       ${this.renderPreferences()}
+      </section>
       <section class="room-section" aria-label="Rooms"><div class="section-heading"><h3>${this.queueActive?'Cleaning sequence':runs.length?'Next plan':'Rooms'}</h3>${!this.queueActive?html`<button class="text-button" data-action="select-all" ?disabled=${this.blocked||!this.rooms.length} @click=${()=>{this.planEdited=true;this.setSelection(this.selection.length===this.rooms.length?[]:this.orderedRooms.map(room=>room.id));}}>${this.selection.length===this.rooms.length&&this.rooms.length?'Clear selection':'Select all'}</button>`:nothing}</div>
         <span class="sr-only" id="room-reorder-help">Drag to reorder rooms, or use the arrow keys, Home and End. Toggle rooms to include them, then start the sequence.</span><div class="rooms">${repeat(this.orderedRooms,room=>room.id,room=>this.renderRoom(room))}</div>
         ${!this.rooms.length ? html`<p class="note">${this.roomMode ? 'The robot reports no rooms on its current map.' : this.manual ? 'No mapped areas available. Map areas to this robot in Home Assistant.' : 'Room cleaning needs the updated queue companion and an available robot map.'}</p>`:nothing}
@@ -973,4 +975,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.14.0');
+console.info('ROBOT VACUUM CLEANER CARD 0.14.1');

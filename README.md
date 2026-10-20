@@ -237,3 +237,7 @@ responses after a robot or revision change. Full pass histories are kept out of 
 attributes so they do not exceed Home Assistant Recorder’s state-size limit. A failed
 refresh retains the last read record and offers Retry. Older companions show only their
 retained stage/count evidence, without fabricated timestamps or browser-only storage.
+
+### Robot overview
+
+The overview groups robot status, overall progress, contextual actions, the always-visible Find/Dock/Map/settings tools, and expandable sequence activity on one surface. Saved-plan controls and room defaults share a separate compact panel above the rooms. During dock care, the next room remains visible without repeating the status or showing inactive floor-cleaning counters. All actions, command safeguards and saved-plan behavior are unchanged.
