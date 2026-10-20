@@ -87,6 +87,11 @@ async function fixture({ states = {}, overrides = {}, service, services, capabil
   return { card, calls, setCapabilities(value) { caps = structuredClone(value); } };
 }
 const root = card => card.shadowRoot;
+async function moveKey(card, id, key) {
+  root(card).querySelector(`[data-drag-room="${id}"]`).dispatchEvent(new browser.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));
+  await settle(card);
+}
+
 const button = (card, action) => root(card).querySelector(`[data-action="${action}"]`);
 const room = (card, id) => root(card).querySelector(`[data-room="${id}"]`);
 const order = (card, id) => room(card, id).querySelector('.order')?.textContent.trim();
@@ -107,27 +112,27 @@ afterEach(() => {
 });
 after(async () => { await browser.happyDOM.abort(); browser.close(); });
 
-test('room taps choose an ordered sequence without starting the robot', async () => {
+test('room toggles follow visible order regardless of tap order, without starting the robot', async () => {
   const { card, calls } = await fixture();
   await tap(card, '0_3'); await tap(card, '0_1'); await tap(card, '0_2');
-  assert.equal(order(card, '0_3'), '1');
-  assert.equal(order(card, '0_1'), '2');
-  assert.equal(order(card, '0_2'), '3');
-  assert.equal(room(card, '0_1').getAttribute('aria-pressed'), 'true');
-  assert.match(room(card, '0_2').getAttribute('aria-label'), /position 3/);
+  assert.equal(order(card, '0_1'), '1');
+  assert.equal(order(card, '0_2'), '2');
+  assert.equal(order(card, '0_3'), '3');
+  assert.equal(room(card, '0_1').getAttribute('aria-checked'), 'true');
+  assert.match(room(card, '0_2').getAttribute('aria-label'), /position 2/);
   assert.equal(calls.length, 0);
   assert.match(button(card, 'start').textContent, /Start sequence · 3 rooms/);
 });
 
-test('deselecting a room reindexes the remaining sequence; reselecting appends it', async () => {
+test('toggling a room off and on keeps its arranged position', async () => {
   const { card } = await fixture();
   await tap(card, '0_3'); await tap(card, '0_1'); await tap(card, '0_2');
   await tap(card, '0_1');
   assert.equal(order(card, '0_1'), undefined);
-  assert.equal(order(card, '0_3'), '1');
-  assert.equal(order(card, '0_2'), '2');
+  assert.equal(order(card, '0_2'), '1');
+  assert.equal(order(card, '0_3'), '2');
   await tap(card, '0_1');
-  assert.equal(order(card, '0_1'), '3');
+  assert.equal(order(card, '0_1'), '1');
 });
 
 test('ordinary Home Assistant updates preserve the draft room order', async () => {
@@ -140,6 +145,7 @@ test('ordinary Home Assistant updates preserve the draft room order', async () =
 
 test('Start sends the ordered rooms with the settings each one runs with', async () => {
   const { card, calls } = await fixture();
+  await moveKey(card,'0_3','Home');
   await tap(card, '0_3'); await tap(card, '0_1');
   button(card, 'start').click(); await settle(card);
   assert.equal(calls.length, 1);
@@ -648,7 +654,7 @@ test('a recovered stopped run preloads the saved plan and starts a new explicit 
   capabilities.saved_preset={source:'rooms',map_id:0,revision:3,setup:{},rooms:[{id:'0_2',...ROOM_DEFAULTS}]};
   const {card,calls}=await fixture({capabilities,states:{'sensor.robot_queue':stoppedQueue()}});
   assert.equal(button(card,'start').disabled,false);
-  assert.equal(room(card,'0_2').getAttribute('aria-pressed'),'true');
+  assert.equal(room(card,'0_2').getAttribute('aria-checked'),'true');
   assert.match(root(card).querySelector('h2').textContent,/Ready to clean/);
   assert.match(root(card).querySelector('.recovery-note').textContent,/Previous sequence stopped/);
   assert.equal(calls.length,0,'No retry may be sent merely because recovery becomes ready');
@@ -663,7 +669,7 @@ test('a stopped run immediately releases per-room editors and stale pending attr
   assert.equal(field.disabled,false);
   field.value='vacuum';field.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
   await tap(card,'0_1');
-  assert.equal(room(card,'0_1').getAttribute('aria-pressed'),'true');
+  assert.equal(room(card,'0_1').getAttribute('aria-checked'),'true');
   assert.equal(button(card,'save-preset').disabled,false);
   assert.equal(button(card,'start'),null);
   assert.match(root(card).querySelector('.subline').textContent,/Waiting for a fresh robot update/);
@@ -775,4 +781,73 @@ test('historical attention does not remove controls for an external active clean
   assert.equal(button(card,'start'),null);
   button(card,'dock').click();await settle(card);
   assert.deepEqual(calls.map(call=>call.data.command),['return_to_dock']);
+});
+
+function visibleRooms(card) { return [...root(card).querySelectorAll('[data-room-item]')].map(node=>node.dataset.roomItem); }
+function pointer(card,id,type,y,pointerId=7) {
+  const target=type==='pointerdown'?root(card).querySelector(`[data-drag-room="${id}"]`):window;
+  target.dispatchEvent(new browser.PointerEvent(type,{pointerId,pointerType:'touch',isPrimary:true,button:0,clientY:y,bubbles:true,cancelable:true}));
+}
+function mockRoomGeometry(card) {
+  for(const node of root(card).querySelectorAll('[data-room-item]'))node.getBoundingClientRect=()=>{
+    const i=visibleRooms(card).indexOf(node.dataset.roomItem);
+    return {top:i*100,bottom:i*100+90,height:90,left:0,right:360,width:360};
+  };
+  globalThis.requestAnimationFrame=callback=>browser.requestAnimationFrame(callback);
+  globalThis.cancelAnimationFrame=id=>browser.cancelAnimationFrame(id);
+  globalThis.getComputedStyle=node=>browser.getComputedStyle(node);
+}
+
+test('keyboard handles reorder disabled and enabled rooms without altering membership or settings',async()=>{
+  const {card,calls}=await fixture();
+  await tap(card,'0_3');await tap(card,'0_1');
+  await moveKey(card,'0_3','Home');
+  assert.deepEqual(visibleRooms(card),['0_3','0_1','0_2']);
+  assert.deepEqual(card.manualSelected,['0_3','0_1']);
+  await moveKey(card,'0_2','Home'); // Disabled room can still be arranged.
+  assert.deepEqual(card.manualSelected,['0_3','0_1']);
+  await tap(card,'0_2');assert.deepEqual(card.manualSelected,['0_2','0_3','0_1']);
+  await tap(card,'0_2');await tap(card,'0_2');
+  assert.deepEqual(card.manualSelected,['0_2','0_3','0_1']);
+  assert.deepEqual(calls,[]);
+});
+
+test('touch drag reorders the actual room tiles and the eventual start payload',async()=>{
+  const {card,calls}=await fixture();await tap(card,'0_1');await tap(card,'0_3');
+  mockRoomGeometry(card);
+  pointer(card,'0_3','pointerdown',245);pointer(card,'0_3','pointermove',35);await settle(card);
+  assert.deepEqual(visibleRooms(card),['0_3','0_1','0_2']);
+  assert.ok(root(card).querySelector('[data-room-item="0_3"]').classList.contains('dragging'));
+  pointer(card,'0_3','pointerup',35);await settle(card);
+  assert.equal(root(card).querySelector('.dragging'),null);
+  assert.deepEqual(calls,[]);
+  button(card,'start').click();await settle(card);
+  assert.deepEqual(calls[0].data.rooms.map(room=>room.id),['0_3','0_1']);
+});
+
+for(const cancel of ['pointercancel','Escape'])test(`cancelled touch drag restores the draft (${cancel})`,async()=>{
+  const {card,calls}=await fixture();await tap(card,'0_1');await tap(card,'0_3');mockRoomGeometry(card);
+  pointer(card,'0_3','pointerdown',245);pointer(card,'0_3','pointermove',35);await settle(card);
+  if(cancel==='Escape')window.dispatchEvent(new browser.KeyboardEvent('keydown',{key:'Escape',cancelable:true}));
+  else pointer(card,'0_3','pointercancel',35);
+  await settle(card);
+  assert.deepEqual(visibleRooms(card),['0_1','0_2','0_3']);assert.deepEqual(card.manualSelected,['0_1','0_3']);
+  assert.deepEqual(calls,[]);
+});
+
+test('handle tap and a second pointer cannot select or move a room',async()=>{
+  const {card,calls}=await fixture();mockRoomGeometry(card);
+  pointer(card,'0_3','pointerdown',245);pointer(card,'0_3','pointermove',15,99);
+  pointer(card,'0_3','pointermove',242);pointer(card,'0_3','pointerup',242);await settle(card);
+  assert.deepEqual(visibleRooms(card),['0_1','0_2','0_3']);assert.deepEqual(card.manualSelected,[]);assert.deepEqual(calls,[]);
+});
+
+test('a running sequence displays frozen order and cannot be reordered or toggled',async()=>{
+  const {card,calls}=await fixture({states:{
+    'vacuum.robot':entity('cleaning',{supported_features:FEATURES}),
+    'sensor.robot_queue':entity('running',{vacuum:'vacuum.robot',mode:'manual',targets:['0_3','0_1'],setup:{rooms:[{id:'0_3',setup:ROOM_DEFAULTS},{id:'0_1',setup:ROOM_DEFAULTS}]},stages:[{target:'0_3',mode:'vacuum_mop'},{target:'0_1',mode:'vacuum_mop'}],current_index:0,completed:0})
+  }});
+  assert.deepEqual(visibleRooms(card),['0_3','0_1','0_2']);
+  assert.equal(root(card).querySelector('[data-drag-room]'),null);
+  assert.equal(room(card,'0_3').disabled,true);await tap(card,'0_2');assert.deepEqual(calls,[]);
 });

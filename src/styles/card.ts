@@ -62,6 +62,18 @@ export const cardStyles = css`
   .hint { font-size:12px; line-height:1.4; color:var(--secondary-text-color); margin-bottom:14px; }
   .rooms { display:grid; grid-template-columns:1fr; gap:var(--large-gap); }
   .room { display:block; width:100%; min-width:0; border:1px solid transparent; text-align:left; padding:0; transition:border-color .15s,background .15s; }
+  .room-header { display:flex; align-items:center; min-width:0; }
+  .room-header .room-select { flex:1; min-width:0; }
+  .room-drag { flex:0 0 44px; width:44px; min-height:52px; border:0; background:transparent; color:var(--robot-muted); cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
+  .room-drag:active { cursor:grabbing; }
+  .room-drag:disabled { opacity:.3; cursor:default; }
+  .room-item.dragging .surface { border-color:var(--robot-accent); box-shadow:0 8px 24px #0004; }
+  .room-toggle { display:flex; align-items:center; flex:0 0 36px; width:36px; height:22px; padding:3px; border-radius:999px; background:color-mix(in srgb,var(--robot-muted) 25%,transparent); }
+  .room-toggle > span { width:16px; height:16px; border-radius:50%; background:var(--robot-muted); transition:transform .15s; }
+  .room-toggle.on { background:var(--robot-accent); }
+  .room-toggle.on > span { transform:translateX(14px); background:var(--primary-background-color,#181a27); }
+  .room-header .room-select:disabled { opacity:1; }
+  .room-header:has(.room-drag) .room-select { padding-left:0; }
   .room-top { display:flex; justify-content:space-between; align-items:center; width:100%; min-height:28px; gap:8px; }
   .room-icon { color:var(--secondary-text-color); width:26px; height:26px; --mdc-icon-size:26px; }
   .room:disabled { opacity: 1; cursor: default; }
@@ -86,7 +98,7 @@ export const cardStyles = css`
   .error button { min-height:44px; color:inherit; }
   .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
   .outer { container-type:inline-size; }
-  @container (min-width:600px) { .rooms { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
   .setup-launch { width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:18px; padding:9px 12px; min-height:44px; border-radius:999px; border:1px solid color-mix(in srgb,var(--robot-accent) 24%,transparent); background:color-mix(in srgb,var(--robot-accent) 8%,transparent); color:var(--robot-accent); font-size:12px; font-weight:650; text-align:left; }
   .setup-launch > span { display:flex; align-items:center; gap:7px; }
   .setup-launch:disabled { opacity:1; }

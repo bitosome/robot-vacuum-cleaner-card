@@ -3,6 +3,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
 import { matchesSetup, MODE_LABELS, normalizeSetup, renderZoneReport, roomLabel, roomsPayload, savedRoomSetup, setupSummary, type CleaningSource, type ManualCapabilities, type ManualSetup, type ManualStage, type PlanRoom, type RobotRoom, type SavedPreset, type SavedRoom, type SetupRoom } from './manual-setup';
 import {planKey} from './saved-plan';
+import {reconcileOrder, moveRoom, RoomDrag} from './room-order';
 import {sequenceProgress} from './sequence-progress';
 import {cleaningRuns, type CleaningRun} from './run-history';
 import {renderSequenceActivity} from './sequence-activity';
@@ -30,6 +31,13 @@ export class RobotVacuumCleanerCard extends LitElement {
   @state() private commandError = '';
   @state() private source: CleaningSource = 'rooms';
   @state() private manualSelected: string[] = [];
+  @state() private roomOrder: string[] = [];
+  @state() private draggingRoom?: string;
+  private roomDrag = new RoomDrag(this,{
+    enabled:()=>this.canArrangeRooms, order:()=>this.orderedRooms.map(room=>room.id),
+    change:order=>this.reorderRooms(order), active:id=>{this.draggingRoom=id;},
+    announce:id=>this.announceOrder(id),
+  });
   @state() private setup: ManualSetup = {mode:'vacuum_mop',repeat:1};
   /** Per-room overrides of the default settings, keyed by robot room id. */
   @state() private roomSetups: Record<string, ManualSetup> = {};
@@ -69,7 +77,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   private barrierTimer?: ReturnType<typeof setTimeout>;
   private requestTimer?: ReturnType<typeof setTimeout>;
 
-  setConfig(config: CardConfig) { if (this.config?.entity !== config.entity) { this.closeRecoveryPrompt(); this.configEpoch++; this.historyRunId=undefined; this.historyRecords=[]; this.historyFor=''; this.historyRequest++; this.historyLoading=false; this.historyError=''; this.capsRequest++; this.capsLoading=false; this.refreshPending=false; this.mapState=undefined; this.savingPreset=false; this.savingPreferences=false; this.deviceSending=false; clearTimeout(this.requestTimer); this.request=undefined; this.commandError=''; this.feedback=''; this.capsFor=''; this.caps=undefined; this.savedPreset=undefined; this.preferencesDirty=false; this.preferencesRevision=0; this.preferencesFetchedRevision=0; this.preferencesMessage=''; this.presetFeedback=''; this.manualSelected=[]; this.roomSetups={}; this.planSetups={}; this.planDraftTouched=false; this.loadedPlanSignature=''; this.planBaseRevision=0; this.savedPlanFetchedRevision=0; this.setup={mode:'vacuum_mop',repeat:1}; this.planEdited=false; this.source='rooms'; } this.config = validateConfig(config); this.selected = []; }
+  setConfig(config: CardConfig) { if (this.config?.entity !== config.entity) { this.roomDrag.cancel(); this.roomOrder=[]; this.closeRecoveryPrompt(); this.configEpoch++; this.historyRunId=undefined; this.historyRecords=[]; this.historyFor=''; this.historyRequest++; this.historyLoading=false; this.historyError=''; this.capsRequest++; this.capsLoading=false; this.refreshPending=false; this.mapState=undefined; this.savingPreset=false; this.savingPreferences=false; this.deviceSending=false; clearTimeout(this.requestTimer); this.request=undefined; this.commandError=''; this.feedback=''; this.capsFor=''; this.caps=undefined; this.savedPreset=undefined; this.preferencesDirty=false; this.preferencesRevision=0; this.preferencesFetchedRevision=0; this.preferencesMessage=''; this.presetFeedback=''; this.manualSelected=[]; this.roomSetups={}; this.planSetups={}; this.planDraftTouched=false; this.loadedPlanSignature=''; this.planBaseRevision=0; this.savedPlanFetchedRevision=0; this.setup={mode:'vacuum_mop',repeat:1}; this.planEdited=false; this.source='rooms'; } this.config = validateConfig(config); this.selected = []; }
   getCardSize() { return 8; }
   getGridOptions() { return { columns: 12, min_columns: 6, rows: 9, min_rows: 6 }; }
   static async getConfigElement() { await import('./editor'); return document.createElement('robot-vacuum-cleaner-card-editor'); }
@@ -77,7 +85,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     return {type:'custom:robot-vacuum-cleaner-card',entity:Object.keys(hass?.states ?? {}).find(id => id.startsWith('vacuum.')) ?? 'vacuum.robot',rooms:[]};
   }
   connectedCallback() { super.connectedCallback(); void this.readHistory(); }
-  disconnectedCallback() { super.disconnectedCallback(); this.historyRequest++; this.historyFor=''; this.historyLoading=false; clearTimeout(this.requestTimer); clearTimeout(this.barrierTimer); this.request = undefined; }
+  disconnectedCallback() { this.roomDrag.cancel(); super.disconnectedCallback(); this.historyRequest++; this.historyFor=''; this.historyLoading=false; clearTimeout(this.requestTimer); clearTimeout(this.barrierTimer); this.request = undefined; }
   private entity(id?: string) { return id ? this.hass?.states[id] : undefined; }
   private get vacuum() {
     const native=this.entity(this.config?.entity);
@@ -245,6 +253,31 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (this.queueActive && this.queueRooms) return true;
     return !!this.caps?.room_targets.some(target=>target.id===room.id);
   }
+  private get orderedRooms() {
+    const preferred=this.showCommitted?this.queueTargets:this.roomOrder;
+    const order=reconcileOrder(preferred,this.rooms.map(room=>room.id));
+    const rooms=new Map(this.rooms.map(room=>[room.id,room]));
+    return order.map(id=>rooms.get(id)!);
+  }
+  private get canArrangeRooms() { return !this.queueActive && !this.jobActive && !this.blocked && !!this.caps?.supported; }
+  private reorderRooms(order:string[]) {
+    if(!this.canArrangeRooms)return;
+    this.roomOrder=reconcileOrder(order,this.rooms.map(room=>room.id));
+    this.planEdited=true;
+    this.setSelection(this.selection);
+  }
+  private announceOrder(id:string) {
+    const room=this.rooms.find(room=>room.id===id);
+    this.feedback=`${room?.name??'Room'} moved to position ${this.orderedRooms.findIndex(room=>room.id===id)+1}.`;
+  }
+  private reorderKey(event:KeyboardEvent,id:string) {
+    if(!this.canArrangeRooms)return;
+    const order=this.orderedRooms.map(room=>room.id),index=order.indexOf(id);
+    const next=event.key==='ArrowUp'?index-1:event.key==='ArrowDown'?index+1:event.key==='Home'?0:event.key==='End'?order.length-1:undefined;
+    if(next===undefined)return;
+    event.preventDefault();event.stopPropagation();
+    this.reorderRooms(moveRoom(order,id,next));this.announceOrder(id);
+  }
   private get manualReady() { return this.queueReady && !!this.hass?.services?.robot_cleaner_queue?.control && !!this.caps?.supported && !this.capsError; }
   /** What the room being cleaned right now is actually running with. */
   private get activeSetup(): ManualSetup {
@@ -267,7 +300,14 @@ export class RobotVacuumCleanerCard extends LitElement {
     const repeats=this.queueRoomSetups.find(room=>room.id===stage?.target)?.setup.repeat ?? this.queue?.attributes.setup?.repeat ?? 1;
     return `${label}${repeats>1?` ${(stage?.repeat_index??0)+1}/${repeats}`:''}`;
   }
-  private setSelection(ids: string[]) { this.planDraftTouched=true; if (this.manual) this.manualSelected=ids; else this.selected=ids; }
+  private setSelection(ids: string[]) {
+    this.planDraftTouched=true;
+    // Keep missing IDs so capability changes cannot silently shorten a saved plan.
+    const order=reconcileOrder(this.roomOrder,this.rooms.map(room=>room.id));
+    const selected=new Set(ids);
+    const next=[...order.filter(id=>selected.has(id)),...ids.filter(id=>!order.includes(id))];
+    if (this.manual) this.manualSelected=next; else this.selected=next;
+  }
   private requestCapabilitiesRefresh() {
     if (this.capsLoading) this.refreshPending=true;
     else void this.readCapabilities();
@@ -411,6 +451,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       this.planSetups=Object.fromEntries(areas.map(id=>[id,normalizeSetup(this.caps!,plan.setup)]));
       this.manualSelected=areas; this.source='manual';
     } else { fail('Saved Roborock routines are retired. Choose rooms and save a new plan.'); return; }
+    this.roomOrder=reconcileOrder(this.manualSelected,this.rooms.map(room=>room.id));
     this.planBaseRevision=plan.revision ?? 0;
     this.loadedPlanSignature=JSON.stringify([plan.revision ?? 0,plan,this.caps.current_map]);
     this.planDraftTouched=false; this.planEdited=true; this.commandError='';
@@ -449,6 +490,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   private get showCommitted() { return this.queueActive && (this.queuePresets.length > 0 || this.queueManual); }
 
   protected updated(changed: PropertyValues) {
+    if(this.draggingRoom && !this.canArrangeRooms)this.roomDrag.cancel();
     if (changed.has('hass') || changed.has('config')) {
       if(this.historyOnline && !this.historySupported) this.historyFor='';
       this.historyOnline=this.historySupported;
@@ -495,7 +537,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   }
 
   private toggleRoom(room: RoomConfig) {
-    if (this.queueActive || this.blocked || (!this.selection.includes(room.id) && !this.roomAvailable(room))) return;
+    if (this.queueActive || this.jobActive || this.blocked || (!this.selection.includes(room.id) && !this.roomAvailable(room))) return;
     this.planEdited=true;
     this.setSelection(this.selection.includes(room.id) ? this.selection.filter(id => id !== room.id) : [...this.selection,room.id]);
     this.feedback = this.selection.length ? `${this.selectedRooms.map((r,i)=>`${i+1}. ${r.name}`).join(', ')} selected.` : 'Selection cleared.';
@@ -861,11 +903,12 @@ export class RobotVacuumCleanerCard extends LitElement {
     const externalActive = !this.queueActive && ['cleaning','active','on'].includes(roomActivity ?? '') && this.vacuum?.state === 'cleaning';
     const glow = buildGlow(moving || externalActive ? BLUE:ACCENT,moving || externalActive ? 'pulse':'static',selected || moving || externalActive);
     const text = unavailable ? (this.manual ? 'Area unavailable':'Room unavailable') : done ? 'Completed' : active ? (this.restartRecovering?'Checking status':this.chargingBreak?'Charging':this.phase === 'preparing' ? 'Preparing…' : this.phase === 'starting' ? 'Starting…' : this.vacuum?.state === 'paused' ? 'Paused' : moving ? 'Cleaning':'In progress') : externalActive ? 'Cleaning' : vacuumDone && selected && this.queueActive ? 'Vacuumed · mop next' : selected ? (committed && ['cancelled','attention'].includes(this.phase) ? 'Not completed':committed?'Queued':'Selected') : this.queueActive ? 'Not in this clean' : 'Tap to select';
-    const disabled = this.queueActive || this.blocked || (unavailable && !this.selection.includes(room.id));
+    const disabled = this.queueActive || this.jobActive || this.blocked || (unavailable && !this.selection.includes(room.id));
     const setup=this.displayedRoomSetup(room.id);
     const locked=disabled||this.jobActive||this.showCommitted;
-    return html`<div class="tile-wrap"><div class="glow-under" style=${glow.style}>${glow.overlay}</div><section class="surface room ${selected?'selected':''} ${moving||externalActive?'active':''} ${done?'done':''}">
-      <button class="room-select" data-room=${room.id} aria-pressed=${selected?'true':'false'} aria-label=${`${room.name}, ${text.toLowerCase()}${position>=0?`, position ${position+1}`:''}`} ?disabled=${disabled} @click=${()=>this.toggleRoom(room)}><ha-icon class="room-icon" .icon=${room.icon??'mdi:floor-plan'}></ha-icon><span class="room-title"><span class="room-name">${room.name}</span>${!['Tap to select','Selected'].includes(text)?html`<span class="room-state">${text}</span>`:nothing}</span>${position>=0?html`<span class="order">${position+1}</span>`:html`<span class="room-add" aria-hidden="true">+</span>`}</button>
+    return html`<div class="tile-wrap room-item ${this.draggingRoom===room.id?'dragging':''}" data-room-item=${room.id}><div class="glow-under" style=${glow.style}>${glow.overlay}</div><section class="surface room ${selected?'selected':''} ${moving||externalActive?'active':''} ${done?'done':''}">
+      <div class="room-header">${!committed?html`<button class="room-drag" data-drag-room=${room.id} aria-label=${`Move ${room.name}`} aria-describedby="room-reorder-help" ?disabled=${!this.canArrangeRooms} @pointerdown=${(event:PointerEvent)=>this.roomDrag.start(event,room.id)} @keydown=${(event:KeyboardEvent)=>this.reorderKey(event,room.id)}>${icon('mdi:drag-horizontal')}</button>`:nothing}
+      <button class="room-select" data-room=${room.id} role="switch" aria-checked=${position>=0?'true':'false'} aria-label=${`${room.name}, ${text.toLowerCase()}${position>=0?`, position ${position+1}`:''}`} ?disabled=${disabled} @click=${()=>this.toggleRoom(room)}><ha-icon class="room-icon" .icon=${room.icon??'mdi:floor-plan'}></ha-icon><span class="room-title"><span class="room-name">${room.name}</span>${!['Tap to select','Selected'].includes(text)?html`<span class="room-state">${text}</span>`:nothing}</span>${position>=0?html`<span class="order">${position+1}</span>`:nothing}<span class="room-toggle ${position>=0?'on':''}" aria-hidden="true"><span></span></span></button></div>
       <details class="room-inline" data-room-editor=${room.id}><summary aria-label=${`Settings for ${room.name}: ${settingsSummary(setup)}`}><span class="room-settings-summary">${renderSettingPills(setup)}</span><ha-icon class="settings-edit-icon" icon="mdi:tune-variant" aria-hidden="true"></ha-icon></summary>${this.caps?.supported?renderRoomSettings({id:room.id,name:room.name,setup,caps:this.caps,disabled:locked||!this.roomMode,change:patch=>this.editSetup(room.id,patch)}):nothing}${(this.roomSetups[room.id]||this.planSetups[room.id])&&!this.showCommitted?html`<button class="text-button" data-action="reset-room" data-room-id=${room.id} ?disabled=${locked} @click=${()=>{const next={...this.roomSetups};delete next[room.id];this.roomSetups=next;const overlays={...this.planSetups};delete overlays[room.id];this.planSetups=overlays;this.planEdited=true;this.planDraftTouched=true;this.preferencesDirty=true;this.preferencesMessage='';}}>Use defaults</button>`:nothing}</details>
     </section></div>`;
   }
@@ -912,8 +955,8 @@ export class RobotVacuumCleanerCard extends LitElement {
       ${!this.queueReady && (this.rooms.length || this.config?.require_queue) ? html`<div class="note">${this.config?.require_queue ? 'The shared cleaning controller is unavailable. Controls will return when it reconnects.' : 'Install and configure the Home Assistant queue companion to clean rooms in order. Select rooms after the controller reconnects.'}</div>`:nothing}
       ${this.hass.services?.robot_cleaner_queue?.save_preset ? html`<section class="plan-bar" aria-label="Saved cleaning plan"><div class="plan-toolbar"><span class="plan-label">${!this.savedPreset?'Wall switch':this.presetFeedback && !this.selection.length?'Review saved plan':this.planChanged&&!this.queueActive?'Unsaved changes':'Saved plan'}</span>${this.savedPreset && !this.queueActive && (this.planChanged||this.presetFeedback) ? html`<button class="text-button" data-action="load-preset" title="Restore the saved wall-switch plan" ?disabled=${this.blocked||this.queueActive||this.jobActive} @click=${()=>this.loadPreset()}>Reload</button>`:nothing}<button class="action" data-action="save-preset" ?disabled=${!this.canSavePreset} @click=${()=>this.savePreset()}>${icon('mdi:content-save-outline')}${this.savingPreset?'Saving…':'Save plan'}</button></div>${this.presetFeedback ? html`<p class="hint" role="status">${this.presetFeedback}</p>`:nothing}</section>`:nothing}
       ${this.renderPreferences()}
-      <section class="room-section" aria-label="Rooms"><div class="section-heading"><h3>${this.queueActive?'Cleaning sequence':runs.length?'Next plan':'Rooms'}</h3>${!this.queueActive?html`<button class="text-button" data-action="select-all" ?disabled=${this.blocked||!this.rooms.length} @click=${()=>{this.planEdited=true;this.setSelection(this.selection.length===this.rooms.length?[]:this.rooms.map(room=>room.id));}}>${this.selection.length===this.rooms.length&&this.rooms.length?'Clear selection':'Select all'}</button>`:nothing}</div>
-        <div class="rooms">${repeat(this.rooms,room=>room.id,room=>this.renderRoom(room))}</div>
+      <section class="room-section" aria-label="Rooms"><div class="section-heading"><h3>${this.queueActive?'Cleaning sequence':runs.length?'Next plan':'Rooms'}</h3>${!this.queueActive?html`<button class="text-button" data-action="select-all" ?disabled=${this.blocked||!this.rooms.length} @click=${()=>{this.planEdited=true;this.setSelection(this.selection.length===this.rooms.length?[]:this.orderedRooms.map(room=>room.id));}}>${this.selection.length===this.rooms.length&&this.rooms.length?'Clear selection':'Select all'}</button>`:nothing}</div>
+        <span class="sr-only" id="room-reorder-help">Drag to reorder rooms, or use the arrow keys, Home and End. Toggle rooms to include them, then start the sequence.</span><div class="rooms">${repeat(this.orderedRooms,room=>room.id,room=>this.renderRoom(room))}</div>
         ${!this.rooms.length ? html`<p class="note">${this.roomMode ? 'The robot reports no rooms on its current map.' : this.manual ? 'No mapped areas available. Map areas to this robot in Home Assistant.' : 'Room cleaning needs the updated queue companion and an available robot map.'}</p>`:nothing}
         ${this.manual && this.selection.some(id=>!this.rooms.some(room=>room.id===id)) ? html`<p class="note">${this.roomMode ? 'A room in your selection is no longer on this map.' : 'An area in your selection is no longer mapped.'} Clear the selection and choose the available rooms again.</p>`:nothing}
 
@@ -930,4 +973,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.13.0');
+console.info('ROBOT VACUUM CLEANER CARD 0.14.0');

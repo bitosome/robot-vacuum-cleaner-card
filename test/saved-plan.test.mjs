@@ -145,10 +145,10 @@ test('Save plan detects room membership changes and their reversal', async () =>
 
 test('the same rooms in a different order are a plan change; restoring order clears it', async () => {
   const {card} = await fixture();
-  await click(card, room(card, '0_5')); await click(card, room(card, '0_5'));
+  root(card).querySelector('[data-drag-room="0_5"]').dispatchEvent(new browser.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true})); await settle(card);
   assert.equal(order(card, '0_12'), '1'); assert.equal(order(card, '0_5'), '2');
   assert.equal(action(card, 'save-preset').disabled, false);
-  await click(card, room(card, '0_12')); await click(card, room(card, '0_12'));
+  root(card).querySelector('[data-drag-room="0_5"]').dispatchEvent(new browser.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true})); await settle(card);
   assert.equal(order(card, '0_5'), '1'); assert.equal(order(card, '0_12'), '2');
   assert.equal(action(card, 'save-preset').disabled, true);
 });
@@ -195,7 +195,7 @@ test('shared preference refresh updates defaults but preserves the saved sequenc
 test('capability refresh cannot overwrite unsaved plan order, membership, or settings', async () => {
   const {card, calls, setCapabilities} = await fixture();
   await edit(card, '0_5', 'suction', 'turbo');
-  await click(card, room(card, '0_5')); await click(card, room(card, '0_5'));
+  root(card).querySelector('[data-drag-room="0_5"]').dispatchEvent(new browser.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true})); await settle(card);
   await click(card, room(card, '0_13'));
   const changed = capabilities(); changed.defaults.suction = 'quiet';
   setCapabilities(changed);

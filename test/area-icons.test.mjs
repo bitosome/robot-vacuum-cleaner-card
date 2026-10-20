@@ -47,7 +47,7 @@ test('manual area appearance changes display without adding targets or changing 
   assert.equal(calls.length,0);
   await click(card,room(card,'kitchen_area'));await click(card,room(card,'living_area'));
   await click(card,action(card,'start'));
-  assert.deepEqual(calls[0].data.rooms,['kitchen_area','living_area']);
+  assert.deepEqual(calls[0].data.rooms,['living_area','kitchen_area']);
   assert.equal(calls[0].data.command,'start_manual');
 });
 

@@ -92,7 +92,7 @@ Robot tools—**Find, Dock, Map, Settings, Care and Details**—stay directly be
 
 Every room shows its mode, suction, water, route and repeat count as compact icon-and-value pills. Expand the settings row inside a tile to edit it, even before selecting the room. Only relevant native options appear: vacuum omits water/route; mop omits suction. **Use defaults** removes a room override. **Room defaults** affects rooms without overrides. **Apply to all rooms** explicitly replaces custom settings and loaded-plan overrides on the current map, while keeping the selected room order and other floors unchanged. Editing sends no robot command.
 
-Tap rooms in cleaning order. A selected room shows its position; tapping again removes it and renumbers the remaining rooms. **Start sequence · N rooms** starts exactly that order. **Select all** explicitly includes every room on the current map. No selection means Start is disabled.
+Drag rooms by their handles to arrange the cleaning order, then use each room’s toggle to include or exclude it. Toggling never changes the order or starts cleaning. Enabled rooms show their sequence numbers. Handles also support Arrow Up/Down and Home/End; Escape cancels a drag. The rest of each tile remains available for normal touch scrolling. **Start sequence · N rooms** starts exactly that order. **Select all** explicitly includes every room on the current map. No selection means Start is disabled.
 
 Each native room finishes all its passes before the next room. **Vacuum then mop ×2** vacuums that room twice, then mops it twice, then advances. Completion counts cleaning stages internally; room tiles only say Completed after all that room's stages finish.
 
