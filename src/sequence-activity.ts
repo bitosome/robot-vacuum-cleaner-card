@@ -18,6 +18,7 @@ export function renderSequenceActivity(options:ActivityOptions) {
   const liveFor=(item:CleaningRun)=>!item.previous && item.run_id===options.liveState?.runId && ['running','paused'].includes(item.state)?options.liveState:undefined;
   const live=liveFor(run);
   const edits=run.edits??[];
+  const faults=run.faults??[];
   const stateLabel=(item:CleaningRun)=>liveFor(item)?.label??runStateLabel(item);
   const format=(at:number,full=false)=>{
     const settings:Intl.DateTimeFormatOptions={day:'numeric',month:full?'long':'short',...(full?{year:'numeric' as const}:{}),hour:'2-digit',minute:'2-digit',...(options.timeZone?{timeZone:options.timeZone}: {})};
@@ -31,6 +32,10 @@ export function renderSequenceActivity(options:ActivityOptions) {
     <div class="activity-body">
       ${options.runs.length>1?html`<label class="activity-run-select"><span class="sr-only">Choose a cleaning sequence</span><select aria-label="Choose a cleaning sequence" .value=${run.run_id} @change=${(event:Event)=>options.select((event.target as HTMLSelectElement).value)}>${options.runs.map((item,index)=>html`<option value=${item.run_id} ?selected=${item.run_id===run.run_id}>${index===0?'Latest':'Earlier'} · ${item.assigned_at?format(item.assigned_at):'Time unavailable'} · ${runRooms(item).length} rooms · ${stateLabel(item)}</option>`)}</select></label>`:nothing}
       <div class="activity-meta"><span>${count} / ${run.stages.length} ${run.stages.length===1?'pass':'passes'} confirmed</span>${time(run.assigned_at,'Sequence assigned')}</div>
+      ${faults.length?html`<details class="activity-interruptions activity-faults" ?open=${faults.some(entry=>!entry.resolved_at)}>
+        <summary><ha-icon icon="mdi:alert-circle-outline" aria-hidden="true"></ha-icon>Errors & warnings · ${faults.length}<ha-icon icon="mdi:chevron-down" aria-hidden="true"></ha-icon></summary>
+        <ol>${faults.map(entry=>html`<li>${time(entry.at,'First reported')}<span>${entry.message}${entry.room_id?` · ${options.roomName(entry.room_id,run.rooms.find(room=>room.id===entry.room_id)?.name)}`:''}</span><span>${entry.resolved_at?html`Resolved ${time(entry.resolved_at,'Resolved')}`:run.previous?'Resolution not recorded':'Not yet confirmed resolved'}</span></li>`)}</ol>
+      </details>`:nothing}
       <ol class="activity-rooms">${rooms.map((room,index)=>html`<li class="activity-room" data-history-room=${room.id}><div class="activity-room-heading"><span class="activity-order">${index+1}</span><ha-icon .icon=${options.roomIcon(room.id)} aria-hidden="true"></ha-icon><strong>${room.id?options.roomName(room.id,room.name):'Whole home'}</strong>${room.completed?html`<ha-icon class="activity-room-done" icon="mdi:check-circle-outline" title="All passes confirmed" aria-label="All passes confirmed"></ha-icon>`:nothing}</div>
         <div class="activity-stages">${room.stages.map(stage=>{
           const when=stageTime(stage),same=room.stages.filter(item=>item.mode===stage.mode),number=same.indexOf(stage)+1;

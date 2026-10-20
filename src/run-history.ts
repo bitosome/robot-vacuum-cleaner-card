@@ -15,6 +15,7 @@ export interface CleaningRun {
   run_id: string; vacuum: string; state: string; assigned_at?: number; updated_at?: number; finished_at?: number;
   rooms: Array<{id:string;name?:string}>; stages: RunStage[];
   interruptions: Array<{at?:number;reason:string}>; edits?:RunEdit[]; legacy?: boolean; previous?:boolean;
+  faults?:Array<{at?:number;resolved_at?:number;source:string;code:string;message:string;room_id:string}>;
 }
 export interface RunRoom {id:string;name?:string;stages:RunStage[];completed:boolean;}
 const stageStates = new Set<RunStageState>(['pending','preparing','starting','running','paused','attention','completed','cancelled']);
@@ -45,6 +46,8 @@ function readRun(value:unknown,vacuum:string):CleaningRun|undefined {
       || typeof stage.target!=='string' || !modes.has(stage.mode) || !stageStates.has(stage.state))) return undefined;
   return {
     run_id:value.run_id,vacuum,state:value.state,assigned_at:timestamp(value.assigned_at),updated_at:timestamp(value.updated_at),finished_at:timestamp(value.finished_at),
+    faults:Array.isArray(value.faults)?value.faults.slice(-24).filter((entry:unknown)=>record(entry)&&['robot','dock','connection'].includes(entry.source)&&text(entry.message))
+      .map((entry:any)=>({at:timestamp(entry.at),resolved_at:timestamp(entry.resolved_at),source:entry.source,code:String(entry.code??'').slice(0,100),message:entry.message.slice(0,300),room_id:String(entry.room_id??'').slice(0,200)})):[],
     rooms:Array.isArray(value.rooms)?value.rooms.filter((room:unknown)=>record(room)&&typeof room.id==='string').map((room:any)=>({id:room.id,name:text(room.name)})):[],
     stages:value.stages.map((stage:any)=>({index:stage.index,target:stage.target,mode:stage.mode,state:stage.state,
       room_index:stage.room_index,pass_index:stage.pass_index,repeat_index:stage.repeat_index,

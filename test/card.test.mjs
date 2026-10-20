@@ -1006,3 +1006,27 @@ test('a running sequence displays frozen order and cannot be reordered or toggle
   assert.equal(root(card).querySelector('[data-drag-room]'),null);
   assert.equal(room(card,'0_3').disabled,true);await tap(card,'0_2');assert.deepEqual(calls,[]);
 });
+
+test('pending room controls work directly during cleaning without a separate edit-mode step',async()=>{
+  const {card,calls}=await editableFixture();
+  assert.equal(room(card,'0_1').disabled,true);
+  assert.equal(room(card,'0_2').disabled,true);
+  assert.equal(room(card,'0_3').disabled,false);
+  assert.equal(room(card,'0_5').disabled,false);
+  assert.equal(root(card).querySelector('[data-drag-room="0_3"]').disabled,false);
+  await tap(card,'0_5');
+  assert.equal(room(card,'0_5').getAttribute('aria-checked'),'true');
+  assert.equal(button(card,'apply-queue-edit').disabled,false);
+  assert.deepEqual(calls,[],'Toggling creates a draft, never a robot command');
+  button(card,'cancel-queue-edit').click();await settle(card);
+  assert.equal(room(card,'0_5').getAttribute('aria-checked'),'false');
+});
+
+test('keyboard reordering directly opens a pending-only queue draft',async()=>{
+  const {card,calls}=await editableFixture();
+  await moveKey(card,'0_4','Home');
+  assert.equal(order(card,'0_1'),'1');assert.equal(order(card,'0_2'),'2');
+  assert.equal(order(card,'0_4'),'3');assert.equal(order(card,'0_3'),'4');
+  assert.equal(button(card,'apply-queue-edit').disabled,false);
+  assert.deepEqual(calls,[]);
+});

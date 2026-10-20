@@ -2,7 +2,9 @@
 
 A dedicated Home Assistant robot control card with Space Hub's shared tile surfaces, typography and under-tile glow. See what the robot is doing, clean every room on the robot's current map, or choose an ordered sequence of its rooms with settings per room.
 
-Tap **Kitchen → Office → Bedroom**. Each tile gets its sequence number. Tap a selected room again to remove it; the remaining draft renumbers. Press **Start sequence · 3 rooms** to start. The committed sequence runs in Home Assistant, even after the dashboard closes.
+Drag rooms into the desired order, then toggle the rooms to include. Each enabled tile shows its sequence number. During cleaning, drag or toggle untouched rooms directly, then **Apply changes** to update the remaining queue. Current and completed rooms stay protected. Press **Start sequence · 3 rooms** to start. The committed sequence runs in Home Assistant, even after the dashboard closes.
+
+Faults appear under **Sequence activity → Errors & warnings**, with the affected room, reported time and resolution time. Resolved warnings remain in the shared history; they do not mean the robot still has a fault. This requires companion v0.14.1 or newer.
 
 ## Features
 

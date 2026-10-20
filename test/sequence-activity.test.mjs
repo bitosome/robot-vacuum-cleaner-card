@@ -132,3 +132,17 @@ test('activity does not add queue-change clutter for older runs and treats label
   assert.match(changes.textContent,/<img src=x onerror=alert\(1\)>/);
   assert.equal(changes.querySelector('time'),null);
 });
+
+test('fault journal shows source messages, affected room, onset and resolution times',async()=>{
+  const {card}=await fixture({history:()=>response(run({faults:[
+    {at:1791871600,resolved_at:1791871660,source:'robot',code:'water',message:'Clean-water tank warning',room_id:'0_1'},
+    {at:1791871661,resolved_at:null,source:'dock',code:'water_empty',message:'Clean-water tank empty',room_id:'0_1'},
+  ]}))});
+  const journal=activity(card).querySelector('.activity-faults');
+  assert.equal(journal.open,true);assert.match(journal.textContent,/Errors & warnings · 2/);
+  assert.match(journal.textContent,/Clean-water tank warning · Kitchen/);
+  assert.match(journal.textContent,/Resolved/);assert.match(journal.textContent,/Not yet confirmed resolved/);
+  assert.equal(journal.querySelectorAll('time').length,3);
+  await update(card,{'sensor.queue':queue(1,'completed')});
+  assert.match(activity(card).textContent,/Clean-water tank warning/);
+});
