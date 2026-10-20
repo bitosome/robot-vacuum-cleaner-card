@@ -124,6 +124,7 @@
             <select class="control" id="scenario">
               <option value="ready">Ready to clean</option>
               <option value="cleaning">Cleaning a sequence</option>
+              <option value="queue_edit">Edit remaining rooms · live sequence</option>
               <option value="paused">Paused</option>
               <option value="returning">Rooms clean · returning to dock</option>
               <option value="final_washing">Rooms clean · final mop wash</option>
@@ -386,7 +387,7 @@
         config: {unit_system: {length: 'km', temperature: '°C', mass: 'kg', volume: 'L'}, time_zone: 'Europe/London'},
         localize: () => undefined,
         callService, callWS, hassUrl: path=>path.startsWith('/api/image_proxy/') ? './demo-map.svg' : path,
-        services: {vacuum: {start: {}, pause: {}, return_to_base: {}, stop: {}}, button: {press: {}}, script: {turn_on: {}}, robot_cleaner_queue: {control: {}, get_capabilities: {}, get_history: {}, device_control:{}, save_preset:{}, save_preferences:{}}},
+        services: {vacuum: {start: {}, pause: {}, return_to_base: {}, stop: {}}, button: {press: {}}, script: {turn_on: {}}, robot_cleaner_queue: {control: {}, get_capabilities: {}, get_history: {}, device_control:{}, save_preset:{}, save_preferences:{}, update_queue:{}}},
         formatEntityState: state => state.state,
         formatEntityAttributeValue: (state, attribute) => state.attributes[attribute]
       };
@@ -420,6 +421,18 @@
       }
     }
     async function callService(domain, service, data = {}) {
+      if(domain==='robot_cleaner_queue' && service==='update_queue') {
+        const attrs=queueAttrs();
+        if(data.run_id!==attrs.run_id || data.revision!==attrs.queue_revision)throw new Error('Queue changed. Reload remaining rooms.');
+        if(!attrs.queue_editable || data.rooms.some(room=>attrs.protected_room_ids.includes(room.id)))throw new Error('Started rooms cannot be edited.');
+        const fixed=attrs.setup.rooms.filter(room=>attrs.protected_room_ids.includes(room.id));
+        const pending=data.rooms.map(({id,...setup})=>({id,name:capabilities().robot_rooms.find(room=>room.id===id)?.name,setup}));
+        const plan=[...fixed,...pending];
+        const stages=plan.flatMap((room,room_index)=>manualStages([room.id],room.setup).map(stage=>({...stage,room_index})));
+        set(config.queue_entity,queue().state,{...attrs,targets:plan.map(room=>room.id),setup:{rooms:plan},stages,
+          editable_room_ids:pending.map(room=>room.id),queue_revision:attrs.queue_revision+1});
+        log(domain,service,data);paint();return;
+      }
       if (domain==='robot_cleaner_queue' && service==='save_preferences') {
         if (data.revision!==preferences.revision) throw new Error('Shared settings changed. Reload shared settings.');
         preferences=structuredClone({revision:preferences.revision+1,defaults:data.defaults,rooms:data.rooms});
@@ -521,6 +534,14 @@
         set(id,value,{min:0,max:100,step:1,options:['smart','light','balanced','max'],entity_picture:'/api/image_proxy/demo',friendly_name:'Ground floor',unit_of_measurement:'h'});
       }
       if(value==='water_empty')set(config.dock_error_entity,'water_empty');
+      if(value==='queue_edit') {
+        startManual({rooms:[{id:'0_1',...capabilities().defaults},
+          {id:'0_2',...capabilities().defaults,mode:'vacuum_then_mop'},
+          {id:'0_3',...capabilities().defaults},{id:'0_5',...capabilities().defaults}]});
+        set(config.queue_entity,'running',{...queueAttrs(),run_id:`preview-edit-${fixtureRevision}`,queue_edit_version:1,queue_revision:1,queue_editable:true,
+          queue_edit_reason:'',protected_room_ids:['0_1','0_2'],editable_room_ids:['0_3','0_5'],current_index:1,completed:1});
+        robotState('cleaning','segment_cleaning','hallway');
+      }
       if (['cleaning', 'paused', 'error', 'recharging', 'washing'].includes(value)) {
         startManual({rooms:[{id:'0_1',...capabilities().defaults},{id:'0_3',...capabilities().defaults},{id:'0_5',...capabilities().defaults}]});
         set(config.queue_entity,value==='paused'?'paused':value==='error'?'attention':'running', {...queueAttrs(),current_index:1,completed:1,error:value==='error'?'Main brush jammed. Clear the brush before a new plan.':''});
@@ -597,12 +618,17 @@
         const completed = attrs.current_index + 1;
         const count = attrs.mode === 'manual' ? attrs.stages.length : attrs.presets.length;
         if (completed >= count) {
-          set(config.queue_entity, 'finishing', {...attrs, current_index:count, completed:count, floor_cleaning_complete:true, dock_status:'returning_home', dock_drying:false});
+          set(config.queue_entity, 'finishing', {...attrs, current_index:count, completed:count, floor_cleaning_complete:true, dock_status:'returning_home', dock_drying:false,
+            ...(attrs.queue_edit_version===1?{queue_revision:attrs.queue_revision+1,queue_editable:false,queue_edit_reason:'Final dock care is already in progress.',protected_room_ids:attrs.targets,editable_room_ids:[]}: {})});
           robotState('returning', 'returning_home');
           set(config.progress_entity, 100, {unit_of_measurement: '%'});
           set(config.last_clean_end_entity, stamp(), {device_class: 'timestamp'});
         } else {
-          set(config.queue_entity, 'running', {...attrs, current_index: completed, completed});
+          const currentTarget=attrs.stages?.[completed]?.target;
+          const boundary=attrs.targets?.indexOf(currentTarget)+1;
+          const edits=attrs.queue_edit_version===1?{queue_revision:attrs.queue_revision+1,
+            protected_room_ids:attrs.targets.slice(0,boundary),editable_room_ids:attrs.targets.slice(boundary)}:{};
+          set(config.queue_entity, 'running', {...attrs,...edits, current_index: completed, completed});
           const next = {...attrs, current_index: completed};
           robotState('cleaning', next.mode === 'manual' && next.stages[completed].mode === 'mop' ? 'mopping' : 'cleaning', currentRoom(next)?.id);
           set(config.progress_entity, 4, {unit_of_measurement: '%'});

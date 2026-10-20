@@ -7,10 +7,14 @@ export interface RunStage {
   room_index?: number; pass_index?: number; repeat_index?: number;
   started_at?: number; finished_at?: number; confirmed_at?: number; reason?: string;
 }
+export interface RunEdit {
+  at?:number; before_room_ids:string[]; after_room_ids:string[]; added_room_ids:string[];
+  removed_rooms:Array<{id:string;name?:string}>;
+}
 export interface CleaningRun {
   run_id: string; vacuum: string; state: string; assigned_at?: number; updated_at?: number; finished_at?: number;
   rooms: Array<{id:string;name?:string}>; stages: RunStage[];
-  interruptions: Array<{at?:number;reason:string}>; legacy?: boolean; previous?:boolean;
+  interruptions: Array<{at?:number;reason:string}>; edits?:RunEdit[]; legacy?: boolean; previous?:boolean;
 }
 export interface RunRoom {id:string;name?:string;stages:RunStage[];completed:boolean;}
 const stageStates = new Set<RunStageState>(['pending','preparing','starting','running','paused','attention','completed','cancelled']);
@@ -19,6 +23,19 @@ const modes = new Set(['vacuum','mop','vacuum_mop']);
 const record = (value:unknown):value is Record<string,any> => !!value && typeof value==='object' && !Array.isArray(value);
 const timestamp = (value:unknown):number|undefined => typeof value==='number' && Number.isFinite(value) && value>0 && value<8640000000000 ? value : undefined;
 const text = (value:unknown):string|undefined => typeof value==='string' && value.trim() ? value : undefined;
+const roomIds = (value:unknown):string[] => Array.isArray(value)
+  ? value.slice(0,32).filter((id:unknown):id is string=>typeof id==='string'&&!!id).map(id=>id.slice(0,200)) : [];
+
+function readEdits(value:unknown):RunEdit[] {
+  if(!Array.isArray(value))return [];
+  return value.slice(-12).filter(record).map(edit=>({
+    at:timestamp(edit.at),before_room_ids:roomIds(edit.before_room_ids),
+    after_room_ids:roomIds(edit.after_room_ids),added_room_ids:roomIds(edit.added_room_ids),
+    removed_rooms:Array.isArray(edit.removed_rooms)?edit.removed_rooms.slice(0,32)
+      .filter((room:unknown)=>record(room)&&typeof room.id==='string'&&!!room.id)
+      .map((room:any)=>({id:room.id.slice(0,200),name:text(room.name)?.slice(0,200)})):[],
+  }));
+}
 
 /** Consume the versioned server record; the browser never accumulates or invents evidence. */
 function readRun(value:unknown,vacuum:string):CleaningRun|undefined {
@@ -33,6 +50,7 @@ function readRun(value:unknown,vacuum:string):CleaningRun|undefined {
       room_index:stage.room_index,pass_index:stage.pass_index,repeat_index:stage.repeat_index,
       started_at:timestamp(stage.started_at),finished_at:timestamp(stage.finished_at),confirmed_at:timestamp(stage.confirmed_at),reason:text(stage.reason)})),
     interruptions:Array.isArray(value.interruptions)?value.interruptions.filter((entry:unknown)=>record(entry)&&text(entry.reason)).map((entry:any)=>({at:timestamp(entry.at),reason:entry.reason})):[],
+    edits:readEdits(value.edits),
   };
 }
 

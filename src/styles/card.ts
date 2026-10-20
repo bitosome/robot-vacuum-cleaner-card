@@ -68,6 +68,13 @@ export const cardStyles = css`
   .room-drag { flex:0 0 44px; width:44px; min-height:52px; border:0; background:transparent; color:var(--robot-muted); cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
   .room-drag:active { cursor:grabbing; }
   .room-drag:disabled { opacity:.3; cursor:default; }
+  .room-protected { display:grid;place-items:center;flex:0 0 36px;color:var(--robot-muted); }
+  .room-protected ha-icon { width:18px;height:18px;--mdc-icon-size:18px; }
+  .queue-edit-status { color:var(--robot-muted);font-size:12px;line-height:1.5;margin:0 0 12px; }
+  .queue-edit-status .error { margin-top:8px; }
+  .queue-edit-footer { display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding-top:14px; }
+  .queue-edit-footer > span { flex:1 1 130px;font-size:11px;color:var(--robot-muted); }
+  .queue-edit-footer .action { flex:0 1 auto;min-height:44px;font-size:13px; }
   .room-item.dragging .surface { border-color:var(--robot-accent); box-shadow:0 8px 24px #0004; }
   .room-toggle { display:flex; align-items:center; flex:0 0 36px; width:36px; height:22px; padding:3px; border-radius:999px; background:color-mix(in srgb,var(--robot-muted) 25%,transparent); }
   .room-toggle > span { width:16px; height:16px; border-radius:50%; background:var(--robot-muted); transition:transform .15s; }

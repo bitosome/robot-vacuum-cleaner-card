@@ -184,6 +184,161 @@ test('backend acknowledgement shows and locks the committed order', async () => 
   assert.equal(button(card, 'pause').disabled, false);
 });
 
+function editableRun(patch={}) {
+  return entity('running',{vacuum:'vacuum.robot',control_version:8,queue_edit_version:1,
+    run_id:'run-edit',queue_revision:4,queue_editable:true,queue_edit_reason:'',
+    protected_room_ids:['0_1','0_2'],editable_room_ids:['0_3','0_4'],
+    mode:'manual',presets:[],targets:['0_1','0_2','0_3','0_4'],
+    setup:{rooms:['0_1','0_2','0_3','0_4'].map(id=>({id,name:`Room ${id}`,setup:{...ROOM_DEFAULTS,...(id==='0_2'?{mode:'vacuum_then_mop'}:{})}}))},
+    stages:[
+      {target:'0_1',mode:'vacuum_mop',room_index:0,pass_index:0,repeat_index:0},
+      {target:'0_2',mode:'vacuum',room_index:1,pass_index:0,repeat_index:0},
+      {target:'0_2',mode:'mop',room_index:1,pass_index:1,repeat_index:0},
+      {target:'0_3',mode:'vacuum_mop',room_index:2,pass_index:0,repeat_index:0},
+      {target:'0_4',mode:'vacuum_mop',room_index:3,pass_index:0,repeat_index:0},
+    ],current_index:1,completed:1,...patch});
+}
+async function editableFixture(options={}) {
+  const caps=roomCapabilities();
+  caps.robot_rooms.push({id:'0_4',segment:4,name:'Bedroom'},{id:'0_5',segment:5,name:'Office'});
+  return fixture({services:{robot_cleaner_queue:{control:{},get_capabilities:{},save_preset:{},update_queue:{}}},
+    capabilities:caps,states:{'sensor.robot_queue':editableRun(),'vacuum.robot':entity('cleaning',{supported_features:FEATURES}),
+      'binary_sensor.robot_cleaning':entity('on'),'sensor.robot_status':entity('segment_cleaning')},...options});
+}
+test('live queue editing protects completed/current room and all its passes while changing only a draft',async()=>{
+  const {card,calls}=await editableFixture();
+  button(card,'edit-queue').click();await settle(card);
+  assert.equal(room(card,'0_1').disabled,true);assert.equal(room(card,'0_2').disabled,true);
+  assert.equal(root(card).querySelector('[data-drag-room="0_2"]'),null);
+  assert.equal(button(card,'apply-queue-edit').disabled,true);
+  await tap(card,'0_3');await tap(card,'0_5');await moveKey(card,'0_5','Home');
+  assert.equal(order(card,'0_1'),'1');assert.equal(order(card,'0_2'),'2');
+  assert.equal(order(card,'0_5'),'3');assert.equal(order(card,'0_4'),'4');
+  assert.equal(room(card,'0_3').getAttribute('aria-checked'),'false');
+  assert.match(room(card,'0_3').textContent,/Removed from queue/);
+  assert.equal(calls.length,0);assert.equal(button(card,'apply-queue-edit').disabled,false);
+  assert.equal(button(card,'save-preset'),null);
+  button(card,'apply-queue-edit').click();await settle(card);
+  assert.deepEqual(calls,[{domain:'robot_cleaner_queue',action:'update_queue',data:{
+    vacuum:'vacuum.robot',run_id:'run-edit',revision:4,rooms:[{id:'0_5',...ROOM_DEFAULTS},{id:'0_4',...ROOM_DEFAULTS}],
+  }}]);
+  assert.match(root(card).textContent,/Waiting for the shared queue/);
+  await changeStates(card,{'sensor.robot_queue':editableRun({queue_revision:5,editable_room_ids:['0_5','0_4'],targets:['0_1','0_2','0_5','0_4'],
+    setup:{rooms:['0_1','0_2','0_5','0_4'].map(id=>({id,setup:{...ROOM_DEFAULTS}}))}})});
+  assert.equal(button(card,'apply-queue-edit'),null);
+  assert.match(root(card).textContent,/Remaining rooms updated/);
+});
+test('cancel discards queue edits and all pending settings without saving defaults or wall-switch plan',async()=>{
+  const {card,calls}=await editableFixture();
+  button(card,'edit-queue').click();await settle(card);await tap(card,'0_3');await tap(card,'0_5');
+  const select=root(card).querySelector('[data-room-editor="0_4"] select');
+  select.value='vacuum';select.dispatchEvent(new browser.Event('change',{bubbles:true}));await settle(card);
+  button(card,'cancel-queue-edit').click();await settle(card);
+  assert.equal(room(card,'0_3').getAttribute('aria-checked'),'true');assert.equal(order(card,'0_5'),undefined);
+  button(card,'edit-queue').click();await settle(card);
+  assert.equal(root(card).querySelector('[data-room-editor="0_4"] select').value,'vacuum_mop');
+  assert.equal(button(card,'apply-queue-edit').disabled,true);assert.deepEqual(calls,[]);
+});
+test('current room advancement locks the draft and reload protects the newly started room',async()=>{
+  const {card,calls}=await editableFixture();
+  button(card,'edit-queue').click();await settle(card);await tap(card,'0_4');
+  await changeStates(card,{'sensor.robot_queue':editableRun({queue_revision:5,current_index:3,completed:3,
+    protected_room_ids:['0_1','0_2','0_3'],editable_room_ids:['0_4']})});
+  assert.match(root(card).textContent,/sequence changed/);
+  assert.equal(button(card,'apply-queue-edit').disabled,true);assert.equal(room(card,'0_3').disabled,true);
+  button(card,'apply-queue-edit').click();await settle(card);assert.deepEqual(calls,[]);
+  button(card,'reload-queue-edit').click();await settle(card);
+  assert.equal(room(card,'0_3').disabled,true);assert.equal(room(card,'0_4').disabled,false);
+  assert.equal(room(card,'0_4').getAttribute('aria-checked'),'true');
+});
+test('removing all untouched rooms submits an explicit empty tail rather than a whole-house clean',async()=>{
+  const {card,calls}=await editableFixture();
+  button(card,'edit-queue').click();await settle(card);await tap(card,'0_3');await tap(card,'0_4');
+  assert.match(root(card).textContent,/No more rooms after the current room/);
+  button(card,'apply-queue-edit').click();await settle(card);
+  assert.deepEqual(calls[0].data.rooms,[]);assert.equal(calls[0].action,'update_queue');
+});
+test('capability refresh cannot silently omit a missing pending room from queue edits',async()=>{
+  const caps=roomCapabilities();caps.robot_rooms.push({id:'0_5',segment:5,name:'Office'});
+  const {card,calls}=await editableFixture({capabilities:caps});
+  button(card,'edit-queue').click();await settle(card);
+  assert.ok(room(card,'0_4'));assert.equal(room(card,'0_4').getAttribute('aria-checked'),'true');
+  await tap(card,'0_3');assert.equal(button(card,'apply-queue-edit').disabled,true);
+  await tap(card,'0_4');assert.equal(button(card,'apply-queue-edit').disabled,false);
+  button(card,'apply-queue-edit').click();await settle(card);assert.deepEqual(calls[0].data.rooms,[]);
+});
+test('stale server rejection preserves the unsaved queue draft and exposes the error',async()=>{
+  const {card,calls}=await editableFixture({service(){throw new Error('Queue changed elsewhere. Reload remaining rooms.');}});
+  button(card,'edit-queue').click();await settle(card);await tap(card,'0_3');
+  button(card,'apply-queue-edit').click();await settle(card);
+  assert.equal(room(card,'0_3').getAttribute('aria-checked'),'false');
+  assert.match(root(card).textContent,/Queue changed elsewhere/);
+  assert.equal(calls.length,1);assert.equal(button(card,'cancel-queue-edit').disabled,false);
+});
+test('water warnings do not block queue edits while attention eligibility comes from the backend',async()=>{
+  const q=editableRun();q.state='attention';
+  const {card,calls}=await editableFixture({states:{'sensor.robot_queue':q,
+    'sensor.robot_dock_error':entity('water_empty'),'vacuum.robot':entity('docked',{supported_features:FEATURES})}});
+  assert.equal(button(card,'edit-queue').disabled,false);
+  button(card,'edit-queue').click();await settle(card);
+  assert.equal(room(card,'0_2').disabled,true);
+  await tap(card,'0_3');assert.equal(button(card,'apply-queue-edit').disabled,false);assert.deepEqual(calls,[]);
+});
+test('a different run or malformed pending boundary never accepts an old draft',async()=>{
+  const {card,calls}=await editableFixture();button(card,'edit-queue').click();await settle(card);await tap(card,'0_3');
+  await changeStates(card,{'sensor.robot_queue':editableRun({run_id:'another-run'})});
+  assert.equal(button(card,'apply-queue-edit').disabled,true);
+  button(card,'apply-queue-edit').click();await settle(card);assert.deepEqual(calls,[]);
+  button(card,'cancel-queue-edit').click();await settle(card);
+  await changeStates(card,{'sensor.robot_queue':editableRun({protected_room_ids:['0_2'],editable_room_ids:['0_3','0_4']})});
+  assert.equal(button(card,'edit-queue'),null);
+});
+test('finishing a run never claims that an unsubmitted added room was cleaned',async()=>{
+  const {card}=await editableFixture();button(card,'edit-queue').click();await settle(card);await tap(card,'0_5');
+  const q=editableRun({queue_revision:8,current_index:5,completed:5,floor_cleaning_complete:true,
+    protected_room_ids:['0_1','0_2','0_3','0_4'],editable_room_ids:[],queue_editable:false});q.state='finishing';
+  await changeStates(card,{'sensor.robot_queue':q});
+  assert.match(room(card,'0_1').textContent,/Completed/);
+  assert.doesNotMatch(room(card,'0_5').textContent,/Completed/);
+  assert.equal(button(card,'apply-queue-edit').disabled,true);
+});
+test('unavailable live setting controls still allow removing and reordering the frozen pending tail',async()=>{
+  const caps={...roomCapabilities(),supported:false,modes:[],suction:[],water:[],routes:[],repeats:[],robot_rooms:[]};
+  const {card,calls}=await editableFixture({capabilities:caps});
+  assert.equal(button(card,'edit-queue').disabled,false);
+  button(card,'edit-queue').click();await settle(card);
+  assert.equal(room(card,'0_2').disabled,true);assert.equal(room(card,'0_3').disabled,false);
+  await moveKey(card,'0_4','Home');await tap(card,'0_3');
+  assert.equal(order(card,'0_4'),'3');assert.equal(button(card,'apply-queue-edit').disabled,false);
+  button(card,'apply-queue-edit').click();await settle(card);
+  assert.deepEqual(calls[0].data.rooms,[{id:'0_4',...ROOM_DEFAULTS}]);
+});
+test('an added room stays visible and removable if capabilities disappear during queue editing',async()=>{
+  const {card,calls,setCapabilities}=await editableFixture();
+  button(card,'edit-queue').click();await settle(card);await tap(card,'0_5');
+  setCapabilities({...roomCapabilities(),supported:false,modes:[],suction:[],water:[],routes:[],repeats:[],robot_rooms:[],room_targets:[]});
+  await changeStates(card,{'sensor.robot_queue':editableRun({preferences_revisions:{'vacuum.robot':1}})});
+  assert.match(room(card,'0_5').textContent,/Office/);
+  assert.equal(room(card,'0_5').getAttribute('aria-checked'),'true');
+  assert.equal(button(card,'apply-queue-edit').disabled,true);
+  await tap(card,'0_5');await moveKey(card,'0_4','Home');
+  assert.equal(button(card,'apply-queue-edit').disabled,false);
+  await tap(card,'0_3');await tap(card,'0_3');
+  assert.equal(room(card,'0_3').getAttribute('aria-checked'),'true');
+  button(card,'apply-queue-edit').click();await settle(card);
+  assert.deepEqual(calls[0].data.rooms,[{id:'0_4',...ROOM_DEFAULTS},{id:'0_3',...ROOM_DEFAULTS}]);
+});
+test('keyboard queue reordering keeps focus on the same handle for repeated movement',async()=>{
+  const {card}=await editableFixture();
+  button(card,'edit-queue').click();await settle(card);
+  root(card).querySelector('[data-drag-room="0_4"]').focus();
+  await moveKey(card,'0_4','Home');
+  assert.equal(root(card).activeElement.dataset.dragRoom,'0_4');
+  await moveKey(card,'0_4','ArrowDown');
+  assert.equal(root(card).activeElement.dataset.dragRoom,'0_4');
+  assert.equal(order(card,'0_4'),'4');
+});
+
 test('a queue started elsewhere also blocks new starts and preserves backend order', async () => {
   const { card, calls } = await fixture({ states: {
     'sensor.robot_queue': entity('starting', { vacuum: 'vacuum.robot', control_version: 5, mode: 'manual', presets: [],

@@ -4,6 +4,7 @@ import { repeat } from 'lit/directives/repeat.js';
 import { matchesSetup, MODE_LABELS, normalizeSetup, renderZoneReport, roomLabel, roomsPayload, savedRoomSetup, setupSummary, type CleaningSource, type ManualCapabilities, type ManualSetup, type ManualStage, type PlanRoom, type RobotRoom, type SavedPreset, type SavedRoom, type SetupRoom } from './manual-setup';
 import {planKey} from './saved-plan';
 import {reconcileOrder, moveRoom, RoomDrag} from './room-order';
+import {createQueueDraft, queueDraftChanged, queueDraftCurrent, queueDraftRooms, queueEditSnapshot, queueRoomsKey, reorderQueueDraft, type QueueEditDraft} from './queue-edit';
 import {sequenceProgress} from './sequence-progress';
 import {cleaningRuns, type CleaningRun} from './run-history';
 import {renderSequenceActivity} from './sequence-activity';
@@ -33,6 +34,11 @@ export class RobotVacuumCleanerCard extends LitElement {
   @state() private manualSelected: string[] = [];
   @state() private roomOrder: string[] = [];
   @state() private draggingRoom?: string;
+  @state() private queueDraft?: QueueEditDraft;
+  @state() private savingQueue = false;
+  @state() private queueEditMessage = '';
+  private queueEditAccepted?: {runId:string;revision:number};
+  private queueEditTimer?: ReturnType<typeof setTimeout>;
   private roomDrag = new RoomDrag(this,{
     enabled:()=>this.canArrangeRooms, order:()=>this.orderedRooms.map(room=>room.id),
     change:order=>this.reorderRooms(order), active:id=>{this.draggingRoom=id;},
@@ -77,7 +83,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   private barrierTimer?: ReturnType<typeof setTimeout>;
   private requestTimer?: ReturnType<typeof setTimeout>;
 
-  setConfig(config: CardConfig) { if (this.config?.entity !== config.entity) { this.roomDrag.cancel(); this.roomOrder=[]; this.closeRecoveryPrompt(); this.configEpoch++; this.historyRunId=undefined; this.historyRecords=[]; this.historyFor=''; this.historyRequest++; this.historyLoading=false; this.historyError=''; this.capsRequest++; this.capsLoading=false; this.refreshPending=false; this.mapState=undefined; this.savingPreset=false; this.savingPreferences=false; this.deviceSending=false; clearTimeout(this.requestTimer); this.request=undefined; this.commandError=''; this.feedback=''; this.capsFor=''; this.caps=undefined; this.savedPreset=undefined; this.preferencesDirty=false; this.preferencesRevision=0; this.preferencesFetchedRevision=0; this.preferencesMessage=''; this.presetFeedback=''; this.manualSelected=[]; this.roomSetups={}; this.planSetups={}; this.planDraftTouched=false; this.loadedPlanSignature=''; this.planBaseRevision=0; this.savedPlanFetchedRevision=0; this.setup={mode:'vacuum_mop',repeat:1}; this.planEdited=false; this.source='rooms'; } this.config = validateConfig(config); this.selected = []; }
+  setConfig(config: CardConfig) { if (this.config?.entity !== config.entity) { this.roomDrag.cancel(); this.roomOrder=[]; clearTimeout(this.queueEditTimer); this.queueEditAccepted=undefined; this.queueDraft=undefined; this.savingQueue=false; this.queueEditMessage=''; this.closeRecoveryPrompt(); this.configEpoch++; this.historyRunId=undefined; this.historyRecords=[]; this.historyFor=''; this.historyRequest++; this.historyLoading=false; this.historyError=''; this.capsRequest++; this.capsLoading=false; this.refreshPending=false; this.mapState=undefined; this.savingPreset=false; this.savingPreferences=false; this.deviceSending=false; clearTimeout(this.requestTimer); this.request=undefined; this.commandError=''; this.feedback=''; this.capsFor=''; this.caps=undefined; this.savedPreset=undefined; this.preferencesDirty=false; this.preferencesRevision=0; this.preferencesFetchedRevision=0; this.preferencesMessage=''; this.presetFeedback=''; this.manualSelected=[]; this.roomSetups={}; this.planSetups={}; this.planDraftTouched=false; this.loadedPlanSignature=''; this.planBaseRevision=0; this.savedPlanFetchedRevision=0; this.setup={mode:'vacuum_mop',repeat:1}; this.planEdited=false; this.source='rooms'; } this.config = validateConfig(config); this.selected = []; }
   getCardSize() { return 8; }
   getGridOptions() { return { columns: 12, min_columns: 6, rows: 9, min_rows: 6 }; }
   static async getConfigElement() { await import('./editor'); return document.createElement('robot-vacuum-cleaner-card-editor'); }
@@ -85,7 +91,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     return {type:'custom:robot-vacuum-cleaner-card',entity:Object.keys(hass?.states ?? {}).find(id => id.startsWith('vacuum.')) ?? 'vacuum.robot',rooms:[]};
   }
   connectedCallback() { super.connectedCallback(); void this.readHistory(); }
-  disconnectedCallback() { this.roomDrag.cancel(); super.disconnectedCallback(); this.historyRequest++; this.historyFor=''; this.historyLoading=false; clearTimeout(this.requestTimer); clearTimeout(this.barrierTimer); this.request = undefined; }
+  disconnectedCallback() { this.roomDrag.cancel(); super.disconnectedCallback(); this.historyRequest++; this.historyFor=''; this.historyLoading=false; clearTimeout(this.requestTimer); clearTimeout(this.barrierTimer); clearTimeout(this.queueEditTimer); this.queueEditAccepted=undefined; this.savingQueue=false; this.request = undefined; }
   private entity(id?: string) { return id ? this.hass?.states[id] : undefined; }
   private get vacuum() {
     const native=this.entity(this.config?.entity);
@@ -162,7 +168,7 @@ export class RobotVacuumCleanerCard extends LitElement {
    * A command is genuinely in flight. This is what freezes editing, because the
    * dashboard is about to change underneath the user.
    */
-  private get blocked() { return this.savingPreferences || this.savingPreset || this.deviceSending || this.phase === 'controlling' || !!this.request || (this.queueActive && !!this.queue?.attributes.pending_command); }
+  private get blocked() { return this.savingQueue || this.savingPreferences || this.savingPreset || this.deviceSending || this.phase === 'controlling' || !!this.request || (this.queueActive && !!this.queue?.attributes.pending_command); }
   /**
    * The engine's uncertainty window only forbids motion. Selecting rooms, editing
    * settings, saving a plan and clearing a finished sequence are all local.
@@ -189,7 +195,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     const dock = this.entity(this.config?.dock_error_entity)?.state;
     return !quietError(err) ? humanize(err) : !quietError(dock) && !(dock==='water_empty' && (this.waterAllowed||this.waterAcknowledged)) ? humanize(dock) : this.vacuum?.state === 'error' ? 'Robot needs attention' : '';
   }
-  private get canStart() { return (this.phase !== 'attention' || this.recoveryReady) && (!this.config?.require_queue || this.queueReady) && this.robotReady && !this.jobActive && !this.queueActive && !this.dockServicing && !this.dispatchBlocked && !this.fault && ['docked','idle'].includes(this.vacuum?.state ?? ''); }
+  private get canStart() { return !this.queueDraft && (this.phase !== 'attention' || this.recoveryReady) && (!this.config?.require_queue || this.queueReady) && this.robotReady && !this.jobActive && !this.queueActive && !this.dockServicing && !this.dispatchBlocked && !this.fault && ['docked','idle'].includes(this.vacuum?.state ?? ''); }
   /** Stopping ends a job, not the trip home: native idle does not mean docked. */
   private get canReturnToDock() { return this.feature(16) && !['returning','docked'].includes(this.vacuum?.state ?? '') && !this.dockServicing; }
   private get queueReady() { return available(this.queue) && (!!this.hass?.services?.robot_cleaner_queue?.control || available(this.entity(this.config?.queue_script))); }
@@ -236,10 +242,22 @@ export class RobotVacuumCleanerCard extends LitElement {
     return this.roomMode || this.source === 'manual';
   }
   private get selection() { return this.manual ? this.manualSelected : this.selected; }
+  private retainDraftRooms(rooms:RoomConfig[]):RoomConfig[] {
+    if(!this.queueDraft)return rooms;
+    return [...rooms,...this.queueDraft.order.filter(id=>!rooms.some(room=>room.id===id))
+      .map(id=>({id,name:this.queueDraft!.names[id]??id,preset:id,icon:this.roomIcon({id})}))];
+  }
   private get rooms(): RoomConfig[] {
     // Robot rooms first: the tiles are the robot's own map, not a configuration list.
-    if (this.roomMode) return this.robotRooms.map(room => ({id:room.id,name:this.roomName(room),preset:room.id,icon:this.roomIcon(room)}));
-    if (this.queueActive && this.queueRooms) return this.queueRoomSetups.map(room => ({id:room.id,name:this.roomName({id:room.id,name:room.name}),preset:room.id,icon:this.roomIcon({id:room.id})}));
+    if (this.roomMode) {
+      const rooms=this.robotRooms.map(room => ({id:room.id,name:this.roomName(room),preset:room.id,icon:this.roomIcon(room)}));
+      // A map/capability refresh must not silently remove a committed room from an edit.
+      if(this.queueDraft)for(const room of this.queueRoomSetups) {
+        if(!rooms.some(current=>current.id===room.id))rooms.push({id:room.id,name:this.roomName({id:room.id,name:room.name}),preset:room.id,icon:this.roomIcon({id:room.id})});
+      }
+      return this.retainDraftRooms(rooms);
+    }
+    if ((this.queueActive || this.queueDraft) && this.queueRooms) return this.retainDraftRooms(this.queueRoomSetups.map(room => ({id:room.id,name:this.roomName({id:room.id,name:room.name}),preset:room.id,icon:this.roomIcon({id:room.id})})));
     if (!this.manual) return [];   // Roborock app routines are no longer a tile model
     if (!this.caps) return this.queueTargets.map(id=>({id,name:humanize(id),preset:id,icon:'mdi:floor-plan'}));
     return this.caps.room_targets.map(target=>{
@@ -250,18 +268,71 @@ export class RobotVacuumCleanerCard extends LitElement {
   }
   private roomAvailable(room: RoomConfig) {
     if (this.roomMode) return this.robotRooms.some(candidate => candidate.id === room.id);
-    if (this.queueActive && this.queueRooms) return true;
+    if ((this.queueActive || this.queueDraft) && this.queueRooms) return this.queueRoomSetups.some(item=>item.id===room.id);
     return !!this.caps?.room_targets.some(target=>target.id===room.id);
   }
   private get orderedRooms() {
-    const preferred=this.showCommitted?this.queueTargets:this.roomOrder;
+    const preferred=this.queueDraft?.order??(this.showCommitted?this.queueTargets:this.roomOrder);
     const order=reconcileOrder(preferred,this.rooms.map(room=>room.id));
     const rooms=new Map(this.rooms.map(room=>[room.id,room]));
     return order.map(id=>rooms.get(id)!);
   }
-  private get canArrangeRooms() { return !this.queueActive && !this.jobActive && !this.blocked && !!this.caps?.supported; }
+  private get queueEditSnapshot() { return this.config?queueEditSnapshot(this.queue,this.config.entity):undefined; }
+  private get queueEditSupported() { return !!this.hass?.services?.robot_cleaner_queue?.update_queue && !!this.queueEditSnapshot && (this.queueActive || this.phase==='attention'); }
+  private get queueDraftStale() { return !!this.queueDraft && !queueDraftCurrent(this.queueDraft,this.queueEditSnapshot); }
+  private get canEditQueue() { return this.queueEditSupported && this.queueEditSnapshot!.editable && !this.blocked; }
+  private get canChangeQueueDraft() { return !!this.queueDraft && !this.queueDraftStale && this.canEditQueue; }
+  private get canArrangeRooms() { return this.queueDraft?this.canChangeQueueDraft:!this.queueActive && !this.jobActive && !this.blocked && !!this.caps?.supported; }
+  private canArrangeRoom(id:string) { return this.canArrangeRooms && !this.queueDraft?.protectedIds.includes(id); }
+  private beginQueueEdit() {
+    const snapshot=this.queueEditSnapshot;
+    if(!snapshot || !this.canEditQueue)return;
+    this.roomDrag.cancel();
+    this.queueDraft=createQueueDraft(snapshot,this.rooms.map(room=>room.id),id=>this.roomSetups[id]??this.setup,Object.fromEntries(this.rooms.map(room=>[room.id,room.name])));
+    this.queueEditMessage='';
+  }
+  private cancelQueueEdit() {
+    if(this.savingQueue)return;
+    this.roomDrag.cancel();this.queueDraft=undefined;this.queueEditMessage='';this.preloadPlan();
+  }
+  private get validQueueDraft() {
+    const draft=this.queueDraft;
+    return !!draft && queueDraftRooms(draft).every(room=>{
+      const frozen=draft.pending.find(item=>item.id===room.id);
+      // Removing/reordering the server's frozen tail needs no live setting controls.
+      if(frozen && queueRoomsKey([room])===queueRoomsKey([frozen]))
+        return !this.caps?.supported || this.roomAvailable({id:room.id,name:room.id});
+      return !!this.caps?.supported && this.roomMode && this.roomAvailable({id:room.id,name:room.id})
+        && matchesSetup(this.caps,{id:room.id,...room.setup});
+    });
+  }
+  private async applyQueueEdit() {
+    const draft=this.queueDraft,hass=this.hass,vacuum=this.config?.entity,epoch=this.configEpoch;
+    if(!draft || !hass || !vacuum || !this.canChangeQueueDraft || !this.validQueueDraft || !queueDraftChanged(draft))return;
+    this.roomDrag.cancel();this.savingQueue=true;this.queueEditMessage='';
+    try {
+      await hass.callService('robot_cleaner_queue','update_queue',{vacuum,run_id:draft.runId,revision:draft.revision,rooms:roomsPayload(queueDraftRooms(draft))});
+      if(this.configEpoch!==epoch)return;
+      this.queueEditAccepted={runId:draft.runId,revision:draft.revision};
+      this.queueEditMessage='Update accepted. Waiting for the shared queue…';
+      this.confirmQueueEdit();
+      if(this.queueEditAccepted)this.queueEditTimer=setTimeout(()=>{
+        this.queueEditAccepted=undefined;this.savingQueue=false;
+        this.queueEditMessage='Update accepted, but the shared queue has not refreshed. Reload remaining rooms before making another change.';
+      },20000);
+    } catch(error) {
+      if(this.configEpoch===epoch) {this.savingQueue=false;this.queueEditMessage=error instanceof Error?error.message:'Could not update the queue. Reload remaining rooms before trying again.';}
+    }
+  }
+  private confirmQueueEdit() {
+    const accepted=this.queueEditAccepted,a=this.queue?.attributes;
+    if(!accepted || a?.run_id!==accepted.runId || !(a.queue_revision>accepted.revision))return;
+    clearTimeout(this.queueEditTimer);this.queueEditAccepted=undefined;this.savingQueue=false;this.queueDraft=undefined;
+    this.queueEditMessage='Remaining rooms updated. Saved plan unchanged.';this.feedback=this.queueEditMessage;
+  }
   private reorderRooms(order:string[]) {
     if(!this.canArrangeRooms)return;
+    if(this.queueDraft) {this.queueDraft=reorderQueueDraft(this.queueDraft,order);return;}
     this.roomOrder=reconcileOrder(order,this.rooms.map(room=>room.id));
     this.planEdited=true;
     this.setSelection(this.selection);
@@ -270,13 +341,18 @@ export class RobotVacuumCleanerCard extends LitElement {
     const room=this.rooms.find(room=>room.id===id);
     this.feedback=`${room?.name??'Room'} moved to position ${this.orderedRooms.findIndex(room=>room.id===id)+1}.`;
   }
-  private reorderKey(event:KeyboardEvent,id:string) {
-    if(!this.canArrangeRooms)return;
+  private async reorderKey(event:KeyboardEvent,id:string) {
+    if(!this.canArrangeRoom(id))return;
+    const focused=this.shadowRoot?.activeElement===event.currentTarget;
+    const epoch=this.configEpoch;
     const order=this.orderedRooms.map(room=>room.id),index=order.indexOf(id);
     const next=event.key==='ArrowUp'?index-1:event.key==='ArrowDown'?index+1:event.key==='Home'?0:event.key==='End'?order.length-1:undefined;
     if(next===undefined)return;
     event.preventDefault();event.stopPropagation();
     this.reorderRooms(moveRoom(order,id,next));this.announceOrder(id);
+    await this.updateComplete;
+    if(focused && this.isConnected && epoch===this.configEpoch && this.canArrangeRoom(id))
+      [...this.renderRoot.querySelectorAll<HTMLElement>('[data-drag-room]')].find(handle=>handle.dataset.dragRoom===id)?.focus();
   }
   private get manualReady() { return this.queueReady && !!this.hass?.services?.robot_cleaner_queue?.control && !!this.caps?.supported && !this.capsError; }
   /** What the room being cleaned right now is actually running with. */
@@ -400,7 +476,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       : {source:'manual',presets:[],rooms:[...this.manualSelected],setup:{...this.planCommonSetup},map_id:this.caps?.current_map};
   }
   private get planChanged() { return planKey(this.draftPlan(),this.caps)!==planKey(this.savedPreset,this.caps); }
-  private get canSavePreset() { return !!this.hass?.services?.robot_cleaner_queue?.save_preset && !this.blocked && !this.queueActive && !this.jobActive && this.manualReady && this.manualSelected.length>0 && this.validSelection && this.planChanged; }
+  private get canSavePreset() { return !this.queueDraft && !!this.hass?.services?.robot_cleaner_queue?.save_preset && !this.blocked && !this.queueActive && !this.jobActive && this.manualReady && this.manualSelected.length>0 && this.validSelection && this.planChanged; }
   private async savePreset() {
     if (!this.canSavePreset || !this.hass || !this.config) return;
     const plan=this.draftPlan(), vacuum=this.config.entity, epoch=this.configEpoch;
@@ -418,7 +494,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     } finally { if (this.configEpoch===epoch) this.savingPreset=false; }
   }
   private preloadPlan() {
-    if (!this.savedPreset || !this.caps?.supported || this.queueActive || this.jobActive || this.request) return;
+    if (!this.savedPreset || !this.caps?.supported || this.queueActive || this.jobActive || this.request || this.queueDraft) return;
     const signature=JSON.stringify([this.savedPreset.revision ?? 0,this.savedPreset,this.caps.current_map]);
     if (signature===this.loadedPlanSignature) return;
     if (this.planDraftTouched && this.planChanged) {
@@ -429,7 +505,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   }
   private loadPreset(automatic=false) {
     const plan=this.savedPreset;
-    if (!plan || (!automatic && this.blocked) || this.queueActive || this.jobActive) return;
+    if (!plan || (!automatic && this.blocked) || this.queueActive || this.jobActive || this.queueDraft) return;
     const fail=(message:string)=>{ this.presetFeedback=message; };
     if (!this.caps?.supported) return;
     if (plan.map_id!==undefined && plan.map_id!==this.caps.current_map) { fail('Saved plan belongs to another map. Select that map to load it.'); return; }
@@ -487,9 +563,10 @@ export class RobotVacuumCleanerCard extends LitElement {
     }
   }
   private get selectedRooms() { return this.selection.map(id => this.rooms.find(room => room.id === id)).filter((room):room is RoomConfig => !!room); }
-  private get showCommitted() { return this.queueActive && (this.queuePresets.length > 0 || this.queueManual); }
+  private get showCommitted() { return !!this.queueDraft || this.queueActive && (this.queuePresets.length > 0 || this.queueManual); }
 
   protected updated(changed: PropertyValues) {
+    if(changed.has('hass'))this.confirmQueueEdit();
     if(this.draggingRoom && !this.canArrangeRooms)this.roomDrag.cancel();
     if (changed.has('hass') || changed.has('config')) {
       if(this.historyOnline && !this.historySupported) this.historyFor='';
@@ -537,6 +614,14 @@ export class RobotVacuumCleanerCard extends LitElement {
   }
 
   private toggleRoom(room: RoomConfig) {
+    if(this.queueDraft) {
+      const selected=this.queueDraft.selected;
+      const known=this.queueDraft.pending.some(item=>item.id===room.id);
+      if(!this.canChangeQueueDraft || this.queueDraft.protectedIds.includes(room.id) || !selected.includes(room.id)&&(!this.roomAvailable(room) || !known&&!this.caps?.supported))return;
+      this.queueDraft={...this.queueDraft,selected:selected.includes(room.id)?selected.filter(id=>id!==room.id):[...selected,room.id]};
+      this.queueEditMessage='';
+      return;
+    }
     if (this.queueActive || this.jobActive || this.blocked || (!this.selection.includes(room.id) && !this.roomAvailable(room))) return;
     this.planEdited=true;
     this.setSelection(this.selection.includes(room.id) ? this.selection.filter(id => id !== room.id) : [...this.selection,room.id]);
@@ -841,6 +926,11 @@ export class RobotVacuumCleanerCard extends LitElement {
     </div>`;
   }
   private editSetup(id:string|undefined, patch:Partial<ManualSetup>) {
+    if(this.queueDraft) {
+      if(!id || !this.caps || !this.canChangeQueueDraft || this.queueDraft.protectedIds.includes(id))return;
+      this.queueDraft={...this.queueDraft,setups:{...this.queueDraft.setups,[id]:normalizeSetup(this.caps,{...this.queueDraft.setups[id],...patch})}};
+      this.queueEditMessage='';return;
+    }
     if (!this.caps || this.queueActive || this.blocked || this.jobActive) return;
     this.planEdited=true; this.planDraftTouched=true; this.preferencesDirty=true; this.preferencesMessage=''; this.commandError=''; this.presetFeedback='';
     if (id) {
@@ -884,6 +974,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     </section>`;
   }
   private displayedRoomSetup(id:string):ManualSetup {
+    if(this.queueDraft && !this.queueDraft.protectedIds.includes(id))return this.queueDraft.setups[id]??this.setupFor(id);
     if (!this.showCommitted) return this.setupFor(id);
     const stored=this.queueRoomSetups.find(room=>room.id===id)?.setup;
     const common=this.queue?.attributes.setup;
@@ -891,26 +982,42 @@ export class RobotVacuumCleanerCard extends LitElement {
   }
   private renderRoom(room: RoomConfig) {
     const committed = this.showCommitted;
-    const position = committed ? (this.manual ? this.queueTargets.indexOf(room.id) : this.queuePresets.indexOf(room.preset ?? '')) : this.selection.indexOf(room.id);
+    const draft=this.queueDraft;
+    const protectedRoom=!!draft?.protectedIds.includes(room.id);
+    const sequenceIds=draft?[...draft.protectedIds,...queueDraftRooms(draft).map(room=>room.id)]:this.queueTargets;
+    const position = committed ? (this.manual || draft ? sequenceIds.indexOf(room.id) : this.queuePresets.indexOf(room.preset ?? '')) : this.selection.indexOf(room.id);
     const roomStages = this.stages.map((stage,index)=>({stage,index})).filter(item=>item.stage.target===room.id);
-    const done = committed && position >= 0 && (this.floorCleaningComplete || (this.manual ? roomStages.length>0 && roomStages.every(item=>item.index<this.completed) : position < this.completed));
+    const assigned = this.manual || draft ? this.queueTargets.includes(room.id) && roomStages.length>0 : this.queuePresets.includes(room.preset??'');
+    const done = committed && assigned && position >= 0 && (this.manual || draft ? roomStages.every(item=>item.index<this.completed) : this.floorCleaningComplete || position < this.completed);
     const vacuumDone = committed && this.manual && this.activeSetup.mode==='vacuum_then_mop' && roomStages.some(item=>item.stage.mode==='vacuum' && item.index<this.completed);
     const active = committed && !this.floorCleaningComplete && (this.manual ? this.stages[this.index]?.target===room.id : position === this.index) && this.queueActive && !this.queue?.attributes.waiting_for_dock;
     const moving = active && !this.restartRecovering && !['preparing','starting'].includes(this.phase) && this.vacuum?.state === 'cleaning';
     const selected = position >= 0 && !done;
-    const unavailable = !this.roomAvailable(room) && !committed;
+    const unavailable = !this.roomAvailable(room) && (!committed || !!draft&&!protectedRoom);
     const roomActivity = this.entity(room.activity_entity)?.state;
     const externalActive = !this.queueActive && ['cleaning','active','on'].includes(roomActivity ?? '') && this.vacuum?.state === 'cleaning';
     const glow = buildGlow(moving || externalActive ? BLUE:ACCENT,moving || externalActive ? 'pulse':'static',selected || moving || externalActive);
-    const text = unavailable ? (this.manual ? 'Area unavailable':'Room unavailable') : done ? 'Completed' : active ? (this.restartRecovering?'Checking status':this.chargingBreak?'Charging':this.phase === 'preparing' ? 'Preparing…' : this.phase === 'starting' ? 'Starting…' : this.vacuum?.state === 'paused' ? 'Paused' : moving ? 'Cleaning':'In progress') : externalActive ? 'Cleaning' : vacuumDone && selected && this.queueActive ? 'Vacuumed · mop next' : selected ? (committed && ['cancelled','attention'].includes(this.phase) ? 'Not completed':committed?'Queued':'Selected') : this.queueActive ? 'Not in this clean' : 'Tap to select';
-    const disabled = this.queueActive || this.jobActive || this.blocked || (unavailable && !this.selection.includes(room.id));
+    const text = unavailable ? (this.manual ? 'Area unavailable':'Room unavailable') : done ? 'Completed' : active ? (this.restartRecovering?'Checking status':this.chargingBreak?'Charging':this.phase === 'preparing' ? 'Preparing…' : this.phase === 'starting' ? 'Starting…' : this.vacuum?.state === 'paused' ? 'Paused' : moving ? 'Cleaning':'In progress') : externalActive ? 'Cleaning' : vacuumDone && selected && this.queueActive ? 'Vacuumed · mop next' : selected ? (committed && ['cancelled','attention'].includes(this.phase) ? 'Not completed':committed?'Queued':'Selected') : draft?.pending.some(item=>item.id===room.id)?'Removed from queue':this.queueActive || draft ? 'Not in this clean' : 'Tap to select';
+    const disabled = draft ? !this.canChangeQueueDraft || protectedRoom || !draft.selected.includes(room.id)&&(unavailable || !draft.pending.some(item=>item.id===room.id)&&!this.caps?.supported) : this.queueActive || this.jobActive || this.blocked || (unavailable && !this.selection.includes(room.id));
     const setup=this.displayedRoomSetup(room.id);
-    const locked=disabled||this.jobActive||this.showCommitted;
+    const locked=draft?disabled:disabled||this.jobActive||this.showCommitted;
     return html`<div class="tile-wrap room-item ${this.draggingRoom===room.id?'dragging':''}" data-room-item=${room.id}><div class="glow-under" style=${glow.style}>${glow.overlay}</div><section class="surface room ${selected?'selected':''} ${moving||externalActive?'active':''} ${done?'done':''}">
-      <div class="room-header">${!committed?html`<button class="room-drag" data-drag-room=${room.id} aria-label=${`Move ${room.name}`} aria-describedby="room-reorder-help" ?disabled=${!this.canArrangeRooms} @pointerdown=${(event:PointerEvent)=>this.roomDrag.start(event,room.id)} @keydown=${(event:KeyboardEvent)=>this.reorderKey(event,room.id)}>${icon('mdi:drag-horizontal')}</button>`:nothing}
-      <button class="room-select" data-room=${room.id} role="switch" aria-checked=${position>=0?'true':'false'} aria-label=${`${room.name}, ${text.toLowerCase()}${position>=0?`, position ${position+1}`:''}`} ?disabled=${disabled} @click=${()=>this.toggleRoom(room)}><ha-icon class="room-icon" .icon=${room.icon??'mdi:floor-plan'}></ha-icon><span class="room-title"><span class="room-name">${room.name}</span>${!['Tap to select','Selected'].includes(text)?html`<span class="room-state">${text}</span>`:nothing}</span>${position>=0?html`<span class="order">${position+1}</span>`:nothing}<span class="room-toggle ${position>=0?'on':''}" aria-hidden="true"><span></span></span></button></div>
+      <div class="room-header">${!committed||draft&&!protectedRoom?html`<button class="room-drag" data-drag-room=${room.id} aria-label=${`Move ${room.name}`} aria-describedby="room-reorder-help" ?disabled=${!this.canArrangeRoom(room.id)} @pointerdown=${(event:PointerEvent)=>this.roomDrag.start(event,room.id)} @keydown=${(event:KeyboardEvent)=>this.reorderKey(event,room.id)}>${icon('mdi:drag-horizontal')}</button>`:nothing}
+      <button class="room-select" data-room=${room.id} role="switch" aria-checked=${position>=0?'true':'false'} aria-label=${`${room.name}, ${text.toLowerCase()}${position>=0?`, position ${position+1}`:''}${protectedRoom?', protected from queue edits':''}`} ?disabled=${disabled} @click=${()=>this.toggleRoom(room)}><ha-icon class="room-icon" .icon=${room.icon??'mdi:floor-plan'}></ha-icon><span class="room-title"><span class="room-name">${room.name}</span>${!['Tap to select','Selected'].includes(text)?html`<span class="room-state">${text}</span>`:nothing}</span>${position>=0?html`<span class="order">${position+1}</span>`:nothing}${protectedRoom?html`<span class="room-protected" title="Started rooms keep all their passes">${icon(done?'mdi:check':'mdi:lock-outline')}</span>`:html`<span class="room-toggle ${position>=0?'on':''}" aria-hidden="true"><span></span></span>`}</button></div>
       <details class="room-inline" data-room-editor=${room.id}><summary aria-label=${`Settings for ${room.name}: ${settingsSummary(setup)}`}><span class="room-settings-summary">${renderSettingPills(setup)}</span><ha-icon class="settings-edit-icon" icon="mdi:tune-variant" aria-hidden="true"></ha-icon></summary>${this.caps?.supported?renderRoomSettings({id:room.id,name:room.name,setup,caps:this.caps,disabled:locked||!this.roomMode,change:patch=>this.editSetup(room.id,patch)}):nothing}${(this.roomSetups[room.id]||this.planSetups[room.id])&&!this.showCommitted?html`<button class="text-button" data-action="reset-room" data-room-id=${room.id} ?disabled=${locked} @click=${()=>{const next={...this.roomSetups};delete next[room.id];this.roomSetups=next;const overlays={...this.planSetups};delete overlays[room.id];this.planSetups=overlays;this.planEdited=true;this.planDraftTouched=true;this.preferencesDirty=true;this.preferencesMessage='';}}>Use defaults</button>`:nothing}</details>
     </section></div>`;
+  }
+
+  private renderQueueEditStatus() {
+    const draft=this.queueDraft;
+    if(!draft)return this.queueEditMessage?html`<p class="hint queue-edit-status" role="status">${this.queueEditMessage}</p>`:nothing;
+    const stale=this.queueDraftStale;
+    return html`<div class="queue-edit-status" role="status">
+      <p>${this.savingQueue?this.queueEditMessage||'Updating the shared queue…':stale?'The sequence changed. Reload remaining rooms before applying your changes.':!this.canEditQueue?this.queueEditSnapshot?.reason||'Queue editing is temporarily unavailable.':queueDraftRooms(draft).length?`${queueDraftRooms(draft).length} rooms remaining · Started rooms keep all their passes.`:'No more rooms after the current room and its dock care.'}</p>
+      ${!this.savingQueue&&this.queueEditMessage?html`<p class="error">${this.queueEditMessage}</p>`:nothing}
+      ${!stale&&!this.validQueueDraft?html`<p class="error">A room or setting is unavailable. Remove it or refresh rooms before applying.</p>`:nothing}
+      ${stale?html`<button class="text-button" data-action="reload-queue-edit" ?disabled=${!this.canEditQueue} @click=${()=>this.beginQueueEdit()}>Reload remaining</button>`:nothing}
+    </div>`;
   }
 
   private metric(entityId: string | undefined, fallbackUnit: string) {
@@ -953,12 +1060,14 @@ export class RobotVacuumCleanerCard extends LitElement {
       ${this.commandError && this.commandError!==this.queue?.attributes.error ? html`<div class="error" role="alert">${this.commandError}<button class="text-button" @click=${()=>this.commandError=''}>Dismiss</button></div>`:nothing}
       ${this.request ? html`<div class="note">${this.feedback}</div>`:nothing}
       ${!this.queueReady && (this.rooms.length || this.config?.require_queue) ? html`<div class="note">${this.config?.require_queue ? 'The shared cleaning controller is unavailable. Controls will return when it reconnects.' : 'Install and configure the Home Assistant queue companion to clean rooms in order. Select rooms after the controller reconnects.'}</div>`:nothing}
-      <section class="surface plan-section" aria-label="Cleaning plan settings">
+      ${!this.queueDraft?html`<section class="surface plan-section" aria-label="Cleaning plan settings">
       ${this.hass.services?.robot_cleaner_queue?.save_preset ? html`<section class="plan-bar" aria-label="Saved cleaning plan"><div class="plan-toolbar"><span class="plan-label">${!this.savedPreset?'Wall switch':this.presetFeedback && !this.selection.length?'Review saved plan':this.planChanged&&!this.queueActive?'Unsaved changes':'Saved plan'}</span>${this.savedPreset && !this.queueActive && (this.planChanged||this.presetFeedback) ? html`<button class="text-button" data-action="load-preset" title="Restore the saved wall-switch plan" ?disabled=${this.blocked||this.queueActive||this.jobActive} @click=${()=>this.loadPreset()}>Reload</button>`:nothing}<button class="action" data-action="save-preset" ?disabled=${!this.canSavePreset} @click=${()=>this.savePreset()}>${icon('mdi:content-save-outline')}${this.savingPreset?'Saving…':'Save plan'}</button></div>${this.presetFeedback ? html`<p class="hint" role="status">${this.presetFeedback}</p>`:nothing}</section>`:nothing}
       ${this.renderPreferences()}
-      </section>
-      <section class="room-section" aria-label="Rooms"><div class="section-heading"><h3>${this.queueActive?'Cleaning sequence':runs.length?'Next plan':'Rooms'}</h3>${!this.queueActive?html`<button class="text-button" data-action="select-all" ?disabled=${this.blocked||!this.rooms.length} @click=${()=>{this.planEdited=true;this.setSelection(this.selection.length===this.rooms.length?[]:this.orderedRooms.map(room=>room.id));}}>${this.selection.length===this.rooms.length&&this.rooms.length?'Clear selection':'Select all'}</button>`:nothing}</div>
-        <span class="sr-only" id="room-reorder-help">Drag to reorder rooms, or use the arrow keys, Home and End. Toggle rooms to include them, then start the sequence.</span><div class="rooms">${repeat(this.orderedRooms,room=>room.id,room=>this.renderRoom(room))}</div>
+      </section>`:nothing}
+      <section class="room-section" aria-label="Rooms"><div class="section-heading"><h3>${this.queueDraft?'Edit remaining':this.queueActive?'Cleaning sequence':runs.length?'Next plan':'Rooms'}</h3>${this.queueDraft?html`<button class="text-button" data-action="cancel-queue-edit" ?disabled=${this.savingQueue} @click=${()=>this.cancelQueueEdit()}>Cancel</button>`:this.queueEditSupported?html`<button class="text-button" data-action="edit-queue" title=${this.queueEditSnapshot?.reason||'Change rooms that have not started'} ?disabled=${!this.canEditQueue} @click=${()=>this.beginQueueEdit()}>Edit remaining</button>`:!this.queueActive?html`<button class="text-button" data-action="select-all" ?disabled=${this.blocked||!this.rooms.length} @click=${()=>{this.planEdited=true;this.setSelection(this.selection.length===this.rooms.length?[]:this.orderedRooms.map(room=>room.id));}}>${this.selection.length===this.rooms.length&&this.rooms.length?'Clear selection':'Select all'}</button>`:nothing}</div>
+        ${this.renderQueueEditStatus()}
+        <span class="sr-only" id="room-reorder-help">${this.queueDraft?'Drag to reorder remaining rooms, or use the arrow keys, Home and End. Started rooms stay fixed. Toggle remaining rooms, then apply changes.':this.queueActive?'Use Edit remaining to change rooms that have not started.':'Drag to reorder rooms, or use the arrow keys, Home and End. Toggle rooms to include them, then start the sequence.'}</span><div class="rooms">${repeat(this.orderedRooms,room=>room.id,room=>this.renderRoom(room))}</div>
+        ${this.queueDraft?html`<div class="queue-edit-footer"><span>Saved plan stays unchanged</span><button class="action primary" data-action="apply-queue-edit" ?disabled=${!this.canChangeQueueDraft||!this.validQueueDraft||!queueDraftChanged(this.queueDraft)} @click=${()=>this.applyQueueEdit()}>${icon('mdi:check')}${this.savingQueue?'Updating…':'Apply changes'}</button></div>`:nothing}
         ${!this.rooms.length ? html`<p class="note">${this.roomMode ? 'The robot reports no rooms on its current map.' : this.manual ? 'No mapped areas available. Map areas to this robot in Home Assistant.' : 'Room cleaning needs the updated queue companion and an available robot map.'}</p>`:nothing}
         ${this.manual && this.selection.some(id=>!this.rooms.some(room=>room.id===id)) ? html`<p class="note">${this.roomMode ? 'A room in your selection is no longer on this map.' : 'An area in your selection is no longer mapped.'} Clear the selection and choose the available rooms again.</p>`:nothing}
 
@@ -975,4 +1084,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.14.1');
+console.info('ROBOT VACUUM CLEANER CARD 0.15.0');

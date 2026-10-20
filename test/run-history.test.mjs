@@ -67,3 +67,36 @@ test('legacy queue falls back to verified counts, survives attention, and never 
   assert.equal(stageTime(cleaningRuns(queue,vacuum)[0].stages[0]),undefined);
   assert.deepEqual(cleaningRuns({...queue,state:'idle'},vacuum),[]);
 });
+
+test('queue edits retain removed and re-added room evidence without altering completed passes',()=>{
+  const original=history({edits:[
+    {at:1791871700,before_room_ids:['0_1','0_2'],after_room_ids:['0_1'],added_room_ids:[],removed_rooms:[{id:'0_2',name:'Hall',state:'removed'}]},
+    {at:1791871800,before_room_ids:['0_1'],after_room_ids:['0_1','0_2'],added_room_ids:['0_2'],removed_rooms:[]},
+  ]});
+  const [run]=cleaningRuns(sensor(original),vacuum);
+  assert.equal(run.edits.length,2);
+  assert.equal(run.edits[0].removed_rooms[0].name,'Hall');
+  assert.deepEqual(run.edits[1].added_room_ids,['0_2']);
+  assert.equal(run.stages[0].finished_at,1791871500);
+  assert.equal(run.stages[2].state,'pending');
+  run.edits[0].removed_rooms[0].name='Changed';
+  run.edits[1].added_room_ids.push('0_3');
+  assert.equal(original.edits[0].removed_rooms[0].name,'Hall');
+  assert.deepEqual(original.edits[1].added_room_ids,['0_2']);
+});
+
+test('malformed or older queue-change fields do not discard cleaning evidence or invent edit times',()=>{
+  for(const edits of [undefined,null,{},'invalid']){
+    const [run]=cleaningRuns(sensor(history({edits})),vacuum);
+    assert.deepEqual(run.edits,[]);
+    assert.equal(run.stages[0].finished_at,1791871500);
+  }
+  const edits=Array.from({length:15},()=>({at:-1,before_room_ids:['0_1',null],after_room_ids:'bad',added_room_ids:[false,'0_2'],removed_rooms:[null,{id:1},{id:'0_3',name:'Office'}]}));
+  const [run]=cleaningRuns(sensor(history({edits})),vacuum);
+  assert.equal(run.edits.length,12);
+  assert.equal(run.edits[0].at,undefined);
+  assert.deepEqual(run.edits[0].before_room_ids,['0_1']);
+  assert.deepEqual(run.edits[0].after_room_ids,[]);
+  assert.deepEqual(run.edits[0].added_room_ids,['0_2']);
+  assert.deepEqual(run.edits[0].removed_rooms,[{id:'0_3',name:'Office'}]);
+});

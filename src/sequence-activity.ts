@@ -17,6 +17,7 @@ export function renderSequenceActivity(options:ActivityOptions) {
   const count=run.stages.filter(stage=>stage.state==='completed').length;
   const liveFor=(item:CleaningRun)=>!item.previous && item.run_id===options.liveState?.runId && ['running','paused'].includes(item.state)?options.liveState:undefined;
   const live=liveFor(run);
+  const edits=run.edits??[];
   const stateLabel=(item:CleaningRun)=>liveFor(item)?.label??runStateLabel(item);
   const format=(at:number,full=false)=>{
     const settings:Intl.DateTimeFormatOptions={day:'numeric',month:full?'long':'short',...(full?{year:'numeric' as const}:{}),hour:'2-digit',minute:'2-digit',...(options.timeZone?{timeZone:options.timeZone}: {})};
@@ -40,6 +41,15 @@ export function renderSequenceActivity(options:ActivityOptions) {
         })}</div>
       </li>`)}</ol>
       ${run.stages.every(stage=>stage.state==='completed') && run.state!=='completed'?html`<p class="activity-note">Floor cleaning is confirmed. Final docking and dock care are not yet confirmed.</p>`:nothing}
+      ${edits.length?html`<details class="activity-interruptions activity-edits"><summary><ha-icon icon="mdi:playlist-edit" aria-hidden="true"></ha-icon>Queue changes · ${edits.length}<ha-icon icon="mdi:chevron-down" aria-hidden="true"></ha-icon></summary><ol>${edits.map(entry=>{
+        const changes:string[]=[];
+        if(entry.removed_rooms.length)changes.push(`Removed: ${entry.removed_rooms.map(room=>options.roomName(room.id,room.name)).join(', ')}`);
+        if(entry.added_room_ids.length)changes.push(`Added: ${entry.added_room_ids.map(id=>options.roomName(id,run.rooms.find(room=>room.id===id)?.name)).join(', ')}`);
+        const before=entry.before_room_ids.filter(id=>entry.after_room_ids.includes(id));
+        const after=entry.after_room_ids.filter(id=>entry.before_room_ids.includes(id));
+        if(before.join('\0')!==after.join('\0'))changes.push('Room order changed');
+        return html`<li>${time(entry.at,'Queue updated')}<span>${changes.join(' · ')||'Remaining room settings updated'}</span></li>`;
+      })}</ol></details>`:nothing}
       ${run.interruptions.length?html`<details class="activity-interruptions"><summary><ha-icon icon="mdi:alert-circle-outline" aria-hidden="true"></ha-icon>${run.interruptions.length} ${run.interruptions.length===1?'interruption':'interruptions'}<ha-icon icon="mdi:chevron-down" aria-hidden="true"></ha-icon></summary><ol>${run.interruptions.map(entry=>html`<li>${time(entry.at,'Interrupted')}<span>${entry.reason}</span></li>`)}</ol></details>`:nothing}
       ${run.legacy?html`<p class="activity-note">This companion reports completed passes without timestamps. Update it to keep activity after clearing or starting another sequence.</p>`:nothing}
     </div>

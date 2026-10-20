@@ -241,3 +241,23 @@ retained stage/count evidence, without fabricated timestamps or browser-only sto
 ### Robot overview
 
 The overview groups robot status, overall progress, contextual actions, the always-visible Find/Dock/Map/settings tools, and expandable sequence activity on one surface. Saved-plan controls and room defaults share a separate compact panel above the rooms. During dock care, the next room remains visible without repeating the status or showing inactive floor-cleaning counters. All actions, command safeguards and saved-plan behavior are unchanged.
+
+### Edit an in-progress sequence
+
+With a queue companion exposing `queue_edit_version: 1`, choose **Edit remaining** to
+remove, add or drag rooms that have not started. The current room, all its remaining
+passes/repeats and completed rooms stay fixed. Remaining rooms keep their frozen
+settings; newly added rooms begin with the shared room settings, which can also be
+adjusted within this draft.
+
+Toggling, dragging and editing settings only changes the draft. **Apply changes**
+updates the shared queue through `robot_cleaner_queue.update_queue`; it does not
+send a robot command or change the saved wall-switch plan or shared room defaults.
+Removing every pending room leaves the current room and normal dock care to finish.
+**Cancel** discards the draft.
+
+The server supplies the protected/pending room boundary and a run/revision guard.
+If the robot advances to another room or another user changes the queue, the draft
+locks and offers **Reload remaining**. It never silently overwrites newer progress.
+The card waits for the shared queue revision before reporting an applied change.
+Restart recovery and final dock care may temporarily make editing unavailable.

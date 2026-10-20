@@ -105,3 +105,30 @@ test('untrusted room labels and errors render as text and no synthetic completio
   assert.match(activity(card).querySelector('[data-history-stage="0"]').textContent,/Time unavailable/);
   assert.equal(activity(card).querySelector('[data-history-stage="0"] time'),null);
 });
+
+test('queue changes are collapsed and distinguish removed rooms from confirmed cleaning',async()=>{
+  const entry=run({edits:[
+    {at:1791871700,before_room_ids:['0_1','0_2'],after_room_ids:['0_1','0_3'],added_room_ids:['0_3'],removed_rooms:[{id:'0_2',name:'Hall'}]},
+    {at:1791871800,before_room_ids:['0_1','0_3','0_2'],after_room_ids:['0_1','0_2','0_3'],added_room_ids:[],removed_rooms:[]},
+  ],rooms:[{id:'0_1',name:'Kitchen'},{id:'0_3',name:'Office'}]});
+  const {card}=await fixture({history:()=>response(entry)});
+  const changes=activity(card).querySelector('.activity-edits');
+  assert.equal(changes.open,false);
+  assert.match(changes.querySelector('summary').textContent,/Queue changes · 2/);
+  assert.match(changes.textContent,/Removed: Hall · Added: Office/);
+  assert.match(changes.textContent,/Room order changed/);
+  assert.match(changes.querySelector('time').title,/Queue updated:/);
+  assert.match(activity(card).querySelector('[data-history-stage="0"]').textContent,/Vacuum · Done/);
+  assert.match(activity(card).querySelector('[data-history-stage="2"]').textContent,/Not run/);
+});
+
+test('activity does not add queue-change clutter for older runs and treats labels as text',async()=>{
+  const plain=await fixture();
+  assert.equal(activity(plain.card).querySelector('.activity-edits'),null);
+  const entry=run({edits:[{before_room_ids:['0_9'],after_room_ids:[],added_room_ids:[],removed_rooms:[{id:'0_9',name:'<img src=x onerror=alert(1)>'}]}]});
+  const {card}=await fixture({history:()=>response(entry)});
+  const changes=activity(card).querySelector('.activity-edits');
+  assert.equal(changes.querySelector('img'),null);
+  assert.match(changes.textContent,/<img src=x onerror=alert\(1\)>/);
+  assert.equal(changes.querySelector('time'),null);
+});
