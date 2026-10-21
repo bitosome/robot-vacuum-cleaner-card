@@ -939,20 +939,6 @@ test('historical attention does not remove controls for an external active clean
 });
 
 function visibleRooms(card) { return [...root(card).querySelectorAll('[data-room-item]')].map(node=>node.dataset.roomItem); }
-function pointer(card,id,type,y,pointerId=7) {
-  const target=type==='pointerdown'?root(card).querySelector(`[data-drag-room="${id}"]`):window;
-  target.dispatchEvent(new browser.PointerEvent(type,{pointerId,pointerType:'touch',isPrimary:true,button:0,clientY:y,bubbles:true,cancelable:true}));
-}
-function mockRoomGeometry(card) {
-  for(const node of root(card).querySelectorAll('[data-room-item]'))node.getBoundingClientRect=()=>{
-    const i=visibleRooms(card).indexOf(node.dataset.roomItem);
-    return {top:i*100,bottom:i*100+90,height:90,left:0,right:360,width:360};
-  };
-  globalThis.requestAnimationFrame=callback=>browser.requestAnimationFrame(callback);
-  globalThis.cancelAnimationFrame=id=>browser.cancelAnimationFrame(id);
-  globalThis.getComputedStyle=node=>browser.getComputedStyle(node);
-}
-
 test('keyboard handles reorder disabled and enabled rooms without altering membership or settings',async()=>{
   const {card,calls}=await fixture();
   await tap(card,'0_3');await tap(card,'0_1');
@@ -967,36 +953,35 @@ test('keyboard handles reorder disabled and enabled rooms without altering membe
   assert.deepEqual(calls,[]);
 });
 
-test('touch drag reorders the actual room tiles and the eventual start payload',async()=>{
+async function nativeMove(card,oldIndex,newIndex) {
+  const sortable=root(card).querySelector('ha-sortable');
+  sortable.dispatchEvent(new browser.CustomEvent('drag-start'));
+  sortable.dispatchEvent(new browser.CustomEvent('item-moved',{detail:{oldIndex,newIndex}}));
+  sortable.dispatchEvent(new browser.CustomEvent('drag-end'));
+  await new Promise(resolve=>setTimeout(resolve,5));await settle(card);
+}
+for(const [from,to,expected] of [[2,0,['0_3','0_1','0_2']],[0,2,['0_2','0_3','0_1']]])test(`native sortable moves room ${from} to ${to}`,async()=>{
   const {card,calls}=await fixture();await tap(card,'0_1');await tap(card,'0_3');
-  mockRoomGeometry(card);
-  pointer(card,'0_3','pointerdown',245);pointer(card,'0_3','pointermove',35);await settle(card);
-  assert.deepEqual(visibleRooms(card),['0_3','0_1','0_2']);
-  assert.ok(root(card).querySelector('[data-room-item="0_3"]').classList.contains('dragging'));
-  pointer(card,'0_3','pointerup',35);await settle(card);
-  assert.equal(root(card).querySelector('.dragging'),null);
-  assert.deepEqual(calls,[]);
+  await nativeMove(card,from,to);
+  assert.deepEqual(visibleRooms(card),expected);assert.deepEqual(calls,[]);
   button(card,'start').click();await settle(card);
-  assert.deepEqual(calls[0].data.rooms.map(room=>room.id),['0_3','0_1']);
+  assert.deepEqual(calls[0].data.rooms.map(room=>room.id),expected.filter(id=>id!=='0_2'));
 });
-
-for(const cancel of ['pointercancel','Escape','lostpointercapture','blur'])test(`cancelled touch drag restores the draft (${cancel})`,async()=>{
-  const {card,calls}=await fixture();await tap(card,'0_1');await tap(card,'0_3');mockRoomGeometry(card);
-  pointer(card,'0_3','pointerdown',245);pointer(card,'0_3','pointermove',35);await settle(card);
-  if(cancel==='Escape')window.dispatchEvent(new browser.KeyboardEvent('keydown',{key:'Escape',cancelable:true}));
-  else if(cancel==='blur')window.dispatchEvent(new browser.Event('blur'));
-  else if(cancel==='lostpointercapture')root(card).querySelector('[data-drag-room="0_3"]').dispatchEvent(new browser.PointerEvent(cancel,{pointerId:7}));
-  else pointer(card,'0_3','pointercancel',35);
-  await settle(card);
-  assert.deepEqual(visibleRooms(card),['0_1','0_2','0_3']);assert.deepEqual(card.manualSelected,['0_1','0_3']);
-  assert.deepEqual(calls,[]);
+test('cancelled native sorting and invalid indices do not change the plan',async()=>{
+  const {card,calls}=await fixture();
+  root(card).querySelector('ha-sortable').dispatchEvent(new browser.CustomEvent('drag-start'));
+  root(card).querySelector('ha-sortable').dispatchEvent(new browser.CustomEvent('drag-end'));
+  await new Promise(resolve=>setTimeout(resolve,5));await settle(card);
+  await nativeMove(card,-1,2);await nativeMove(card,0,99);
+  assert.deepEqual(visibleRooms(card),['0_1','0_2','0_3']);assert.deepEqual(calls,[]);
 });
-
-test('handle tap and a second pointer cannot select or move a room',async()=>{
-  const {card,calls}=await fixture();mockRoomGeometry(card);
-  pointer(card,'0_3','pointerdown',245);pointer(card,'0_3','pointermove',15,99);
-  pointer(card,'0_3','pointermove',242);pointer(card,'0_3','pointerup',242);await settle(card);
-  assert.deepEqual(visibleRooms(card),['0_1','0_2','0_3']);assert.deepEqual(card.manualSelected,[]);assert.deepEqual(calls,[]);
+test('native sorting during cleaning protects the prefix and edits only the pending suffix',async()=>{
+ const {card,calls}=await editableFixture();
+ await nativeMove(card,0,4);
+ assert.equal(card.queueDraft,undefined);
+ await nativeMove(card,3,2);
+ assert.equal(order(card,'0_1'),'1');assert.equal(order(card,'0_2'),'2');
+ assert.equal(order(card,'0_4'),'3');assert.deepEqual(calls,[]);
 });
 
 test('a running sequence displays frozen order and cannot be reordered or toggled',async()=>{

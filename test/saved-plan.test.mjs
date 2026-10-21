@@ -69,7 +69,7 @@ async function fixture(options = {}) {
       if (options.service) return options.service(domain, action, data);
       if (action === 'save_preset') {
         current.saved_preset = {source: data.source, revision: (current.saved_preset?.revision ?? 0) + 1,
-          map_id: current.current_map, rooms: structuredClone(data.rooms), setup: structuredClone(data.setup), presets: []};
+          map_id: current.current_map, ...(data.room_order?{room_order:structuredClone(data.room_order)}:{}), rooms: structuredClone(data.rooms), setup: structuredClone(data.setup), presets: []};
       }
     },
   };
@@ -350,4 +350,51 @@ for (const control of ['save-preferences','reload-preferences']) test(`${control
   assert.equal(card.preferencesMessage,'');
   assert.equal(card.preferencesDirty,false);
   assert.doesNotMatch(root(card).textContent,/Room settings saved for everyone|Shared room settings loaded/);
+});
+
+const sharedCaps=()=>({...capabilities(),shared_plan_version:1});
+const saved=async card=>{await new Promise(resolve=>setTimeout(resolve,380));await settle(card);};
+test('shared order and selection autosave without CTA, restore on reload, and include disabled rooms',async()=>{
+ const {card,calls}=await fixture({capabilities:sharedCaps()});
+ assert.equal(action(card,'save-preset'),null);assert.deepEqual(calls,[]);
+ await click(card,room(card,'0_12'));
+ await card.reorderKey(new browser.KeyboardEvent('keydown',{key:'Home'}),'0_13');await settle(card);
+ await saved(card);
+ assert.equal(calls.length,1);assert.equal(calls[0].action,'save_preset');
+ assert.deepEqual(calls[0].data.room_order,['0_13','0_5','0_12']);
+ assert.deepEqual(calls[0].data.rooms.map(r=>r.id),['0_5']);
+ await card.readCapabilities();await settle(card);
+ assert.deepEqual(card.orderedRooms.map(r=>r.id),['0_13','0_5','0_12']);
+ const fresh=await fixture({capabilities:{...sharedCaps(),saved_preset:structuredClone(card.savedPreset)}});
+ assert.deepEqual(fresh.card.orderedRooms.map(r=>r.id),['0_13','0_5','0_12']);
+ assert.deepEqual(fresh.card.manualSelected,['0_5']);assert.deepEqual(fresh.calls,[]);
+});
+test('shared plan saves empty selection and does not silently restore previously selected rooms',async()=>{
+ const {card,calls}=await fixture({capabilities:sharedCaps()});
+ await click(card,room(card,'0_5'));await click(card,room(card,'0_12'));await saved(card);
+ assert.deepEqual(calls[0].data.rooms,[]);assert.deepEqual(card.manualSelected,[]);
+ await card.readCapabilities();await settle(card);assert.deepEqual(card.manualSelected,[]);
+ assert.equal(action(card,'start').disabled,true);
+});
+test('failed autosave stays visible and does not continuously retry or lose the local plan',async()=>{
+ const {card,calls}=await fixture({capabilities:sharedCaps(),service:async()=>{throw new Error('Another user saved the cleaning plan.');}});
+ await click(card,room(card,'0_12'));await saved(card);
+ assert.match(root(card).textContent,/Plan not saved/);assert.match(root(card).textContent,/Reload shared plan/);
+ const selection=[...card.manualSelected];await saved(card);
+ assert.equal(calls.length,1);assert.deepEqual(card.manualSelected,selection);
+});
+test('other users receive the shared tile order and selection through the published revision',async()=>{
+ const {card,calls,setCapabilities}=await fixture({capabilities:sharedCaps()});
+ setCapabilities({...sharedCaps(),saved_preset:{...savedPlan(),revision:5,room_order:['0_13','0_12','0_5'],rooms:[savedPlan().rooms[1]]}});
+ card.hass={...card.hass,states:{...card.hass.states,'sensor.robot_cleaner_queue':queue({saved_plan_revisions:{'vacuum.rover':5}})}};
+ await settle(card);
+ assert.deepEqual(card.orderedRooms.map(r=>r.id),['0_13','0_12','0_5']);assert.deepEqual(card.manualSelected,['0_12']);assert.deepEqual(calls,[]);
+});
+
+test('starting immediately flushes the shared plan before sending the cleaning command',async()=>{
+ const {card,calls}=await fixture({capabilities:sharedCaps()});
+ await click(card,room(card,'0_12'));
+ await card.command('start_manual');await settle(card);
+ assert.equal(calls[0].action,'save_preset');assert.equal(calls[1].action,'control');
+ assert.equal(calls[1].data.command,'start_manual');
 });

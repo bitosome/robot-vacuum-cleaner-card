@@ -16,5 +16,5 @@ export function planKey(plan: SavedPreset|undefined, caps?: ManualCapabilities):
     const setup=caps && matchesSetup(caps,{id,...input}) ? normalizeSetup(caps,input) : input;
     return [id,settingsKey(setup)];
   });
-  return JSON.stringify([map,rooms]);
+  return JSON.stringify([map,rooms,...(plan.room_order ? [plan.room_order] : [])]);
 }

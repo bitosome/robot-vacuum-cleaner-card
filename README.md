@@ -263,3 +263,10 @@ If the robot advances to another room or another user changes the queue, the dra
 locks and offers **Reload remaining**. It never silently overwrites newer progress.
 The card waits for the shared queue revision before reporting an applied change.
 Restart recovery and final dock care may temporarily make editing unavailable.
+
+
+### Automatically shared plan (companion v0.15.0+)
+
+Your idle room selection **is** the saved wall-switch plan. Toggling, reordering or changing selected-room settings saves automatically after a short pause; there is no Save plan button. The full tile order includes disabled rooms. It is stored in Home Assistant, shared by authorized users, restored on reload/restart and retained through updates. Saving status and failures are visible. Conflicting saves never overwrite another user's changes silently: reload the shared plan or review the failure. Empty selection disables wall-switch launch rather than cleaning the whole house. Live **Edit remaining / Apply changes** still changes only the current run.
+
+Sorting uses Home Assistant's native `ha-sortable`, loaded through its built-in entities editor, with native autoscrolling and drop rollback before Lit updates the room order. Drag from the handle in either direction; keyboard arrows/Home/End also work. No custom pointer-driven sort implementation is shipped. If the HA component cannot load, keyboard sorting remains available; a standalone preview cannot reproduce HA sorting without loading that native component.

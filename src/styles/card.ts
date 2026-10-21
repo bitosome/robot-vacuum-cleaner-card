@@ -65,6 +65,10 @@ export const cardStyles = css`
   .room { display:block; width:100%; min-width:0; border:1px solid transparent; text-align:left; padding:0; transition:border-color .15s,background .15s; }
   .room-header { display:flex; align-items:center; min-width:0; }
   .room-header .room-select { flex:1; min-width:0; }
+  ha-sortable { display:block; }
+  .sortable-ghost { opacity:.4; }
+  .sortable-fallback { display:none !important; }
+  .sortable-drag { cursor:grabbing; }
   .room-drag { flex:0 0 44px; width:44px; min-height:52px; border:0; background:transparent; color:var(--robot-muted); cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
   .room-drag:active { cursor:grabbing; }
   .room-drag:disabled { opacity:.3; cursor:default; }
