@@ -154,17 +154,20 @@ This is a public, reusable project. Examples contain no production configuration
 
 ### Shared room settings
 
-With queue companion v0.9.0+, edit **Room defaults** and each room’s inline
-controls, then press **Save room settings**. This saves defaults and all current-map
-room overrides, including unselected rooms, in Home Assistant. They survive browser
-refreshes and HA restarts and are shared by all authorized users. Other dashboards
-refresh automatically. Unsaved edits stay local; conflicting saves require **Reload
-shared settings** so one user cannot silently overwrite another. **Use defaults**
-removes a room override when you save. **Apply to all rooms** makes every room on the current map inherit the defaults, including rooms preloaded from the wall-switch plan. This is a local draft until you save. Save room settings persists the shared preferences; Save plan separately updates the wall-switch plan. Other floors retain their preferences.
+With queue companion v0.15.0+, defaults, individual room settings (including
+unselected rooms), selection and tile order save automatically to Home Assistant.
+They survive browser refreshes, integration updates and HA restarts, and are shared
+by all authorized users. Other dashboards refresh from published revisions.
+Wait for the saving indicator to finish before closing the dashboard. A failed or
+conflicting save retains the local edits and offers Retry/Reload; it never silently
+overwrites another user's revision.
 
-**Save plan** remains separate: it freezes the selected room order and settings for
-the wall switch. Updating preferences never alters that saved sequence or an active
-clean, and saving either kind of data never starts the robot.
+**Apply to all rooms** remains explicit: it makes every room on the current map
+inherit the defaults and autosaves the result. **Use defaults** removes one room's
+override. Other floors retain their preferences. Selected-room changes also update
+the shared wall-switch plan after preferences finish saving. Saving never starts a
+robot or alters a running sequence; pending-run edits still use their separate Apply
+operation. Older companions retain manual save controls for compatibility.
 
 ### Saved plan on opening the card
 

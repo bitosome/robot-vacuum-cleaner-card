@@ -67,6 +67,9 @@ async function fixture(options = {}) {
     async callService(domain, action, data) {
       calls.push({domain, action, data: structuredClone(data)});
       if (options.service) return options.service(domain, action, data);
+      if (action === 'save_preferences' && current.shared_plan_version) {
+        current.preferences={revision:current.preferences.revision+1,defaults:structuredClone(data.defaults),rooms:structuredClone(data.rooms)};
+      }
       if (action === 'save_preset') {
         current.saved_preset = {source: data.source, revision: (current.saved_preset?.revision ?? 0) + 1,
           map_id: current.current_map, ...(data.room_order?{room_order:structuredClone(data.room_order)}:{}), rooms: structuredClone(data.rooms), setup: structuredClone(data.setup), presets: []};
@@ -397,4 +400,49 @@ test('starting immediately flushes the shared plan before sending the cleaning c
  await card.command('start_manual');await settle(card);
  assert.equal(calls[0].action,'save_preset');assert.equal(calls[1].action,'control');
  assert.equal(calls[1].data.command,'start_manual');
+});
+
+
+test('shared defaults and disabled room settings autosave and restore for a new user session',async()=>{
+ const {card,calls}=await fixture({capabilities:sharedCaps()});
+ assert.equal(action(card,'save-preferences'),null);
+ await edit(card,'0_13','suction','max');await saved(card);
+ assert.equal(calls[0].action,'save_preferences');
+ assert.equal(calls[0].data.rooms['0_13'].suction,'max');
+ assert.equal(card.preferencesDirty,false);
+ const fresh=await fixture({capabilities:structuredClone(card.caps)});
+ assert.equal(fresh.card.setupFor('0_13').suction,'max');
+ assert.ok(!fresh.card.manualSelected.includes('0_13'));
+ await card.editSetup(undefined,{water:'high'});await settle(card);await saved(card);
+ assert.equal(card.caps.preferences.defaults.water,'high');
+ assert.equal(action(card,'save-preferences'),null);
+ assert.ok(action(card,'apply-defaults'));
+});
+test('selected room edit persists preferences before the shared plan',async()=>{
+ const {card,calls}=await fixture({capabilities:sharedCaps()});
+ await edit(card,'0_5','suction','turbo');await saved(card);await saved(card);
+ assert.deepEqual(calls.map(c=>c.action),['save_preferences','save_preset']);
+ assert.equal(card.savedPreset.rooms.find(r=>r.id==='0_5').suction,'turbo');
+ assert.equal(card.preferencesDirty,false);
+});
+test('failed preference autosave retains edits and offers recovery without a retry loop',async()=>{
+ const {card,calls}=await fixture({capabilities:sharedCaps(),service:async()=>{throw new Error('Settings changed elsewhere');}});
+ await edit(card,'0_13','suction','max');await saved(card);await saved(card);
+ assert.equal(calls.length,1);assert.equal(card.preferencesDirty,true);
+ assert.equal(card.setupFor('0_13').suction,'max');
+ assert.match(root(card).textContent,/Settings not saved/);assert.match(root(card).textContent,/Retry/);
+});
+test('apply to all remains explicit and autosaves the resulting shared defaults',async()=>{
+ const {card,calls}=await fixture({capabilities:sharedCaps()});
+ await click(card,action(card,'apply-defaults'));await saved(card);await saved(card);
+ assert.deepEqual(calls[0].data.rooms,{});
+ assert.equal(calls[0].action,'save_preferences');
+ assert.deepEqual(card.manualSelected,['0_5','0_12']);
+});
+
+test('immediate start flushes room preferences and plan before control',async()=>{
+ const {card,calls}=await fixture({capabilities:sharedCaps()});
+ await edit(card,'0_5','suction','turbo');
+ await card.command('start_manual');await settle(card);
+ assert.deepEqual(calls.map(c=>c.action),['save_preferences','save_preset','control']);
 });

@@ -45,6 +45,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   private autoSaveTimer?: ReturnType<typeof setTimeout>;
   @state() private autoSaveError = '';
   private autoSaveKey = '';
+  @state() private preferencesSaveError = '';
   private get sharedPlan() { return this.caps?.shared_plan_version===1; }
   private async loadSortable() { this.sortableReady=await loadNativeSortable(); }
   private cancelSort() { this.sortOrder=undefined; this.sortMove=undefined; }
@@ -101,7 +102,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   private barrierTimer?: ReturnType<typeof setTimeout>;
   private requestTimer?: ReturnType<typeof setTimeout>;
 
-  setConfig(config: CardConfig) { if (this.config?.entity !== config.entity) { this.cancelSort(); clearTimeout(this.autoSaveTimer); this.autoSaveError=''; this.autoSaveKey=''; this.roomOrder=[]; clearTimeout(this.queueEditTimer); this.queueEditAccepted=undefined; this.queueDraft=undefined; this.savingQueue=false; this.queueEditMessage=''; this.closeRecoveryPrompt(); this.configEpoch++; this.historyRunId=undefined; this.historyRecords=[]; this.historyFor=''; this.historyRequest++; this.historyLoading=false; this.historyError=''; this.capsRequest++; this.capsLoading=false; this.refreshPending=false; this.mapState=undefined; this.savingPreset=false; this.savingPreferences=false; this.deviceSending=false; clearTimeout(this.requestTimer); this.request=undefined; this.commandError=''; this.feedback=''; this.capsFor=''; this.caps=undefined; this.savedPreset=undefined; this.preferencesDirty=false; this.preferencesRevision=0; this.preferencesFetchedRevision=0; this.preferencesMessage=''; this.presetFeedback=''; this.manualSelected=[]; this.roomSetups={}; this.planSetups={}; this.planDraftTouched=false; this.loadedPlanSignature=''; this.planBaseRevision=0; this.savedPlanFetchedRevision=0; this.setup={mode:'vacuum_mop',repeat:1}; this.planEdited=false; this.source='rooms'; } this.config = validateConfig(config); this.selected = []; }
+  setConfig(config: CardConfig) { if (this.config?.entity !== config.entity) { this.cancelSort(); clearTimeout(this.autoSaveTimer); this.autoSaveError=''; this.preferencesSaveError=''; this.autoSaveKey=''; this.roomOrder=[]; clearTimeout(this.queueEditTimer); this.queueEditAccepted=undefined; this.queueDraft=undefined; this.savingQueue=false; this.queueEditMessage=''; this.closeRecoveryPrompt(); this.configEpoch++; this.historyRunId=undefined; this.historyRecords=[]; this.historyFor=''; this.historyRequest++; this.historyLoading=false; this.historyError=''; this.capsRequest++; this.capsLoading=false; this.refreshPending=false; this.mapState=undefined; this.savingPreset=false; this.savingPreferences=false; this.deviceSending=false; clearTimeout(this.requestTimer); this.request=undefined; this.commandError=''; this.feedback=''; this.capsFor=''; this.caps=undefined; this.savedPreset=undefined; this.preferencesDirty=false; this.preferencesRevision=0; this.preferencesFetchedRevision=0; this.preferencesMessage=''; this.presetFeedback=''; this.manualSelected=[]; this.roomSetups={}; this.planSetups={}; this.planDraftTouched=false; this.loadedPlanSignature=''; this.planBaseRevision=0; this.savedPlanFetchedRevision=0; this.setup={mode:'vacuum_mop',repeat:1}; this.planEdited=false; this.source='rooms'; } this.config = validateConfig(config); this.selected = []; }
   getCardSize() { return 8; }
   getGridOptions() { return { columns: 12, min_columns: 6, rows: 9, min_rows: 6 }; }
   static async getConfigElement() { await import('./editor'); return document.createElement('robot-vacuum-cleaner-card-editor'); }
@@ -463,7 +464,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   private async reloadPreferences() {
     const epoch=this.configEpoch;
     const dirty=this.preferencesDirty;
-    this.preferencesDirty=false;
+    this.preferencesDirty=false; this.preferencesSaveError='';
     await this.readCapabilities();
     if (this.configEpoch!==epoch) return;
     if (this.capsError) this.preferencesDirty=dirty;
@@ -473,7 +474,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (!this.hass || !this.config || !this.caps || this.blocked || this.caps.current_map===undefined) return;
     const vacuum=this.config.entity, epoch=this.configEpoch;
     const rooms=Object.fromEntries(this.robotRooms.filter(room=>this.roomSetups[room.id]).map(room=>[room.id,{...this.roomSetups[room.id]}]));
-    this.savingPreferences=true; this.preferencesMessage='';
+    this.savingPreferences=true; this.preferencesMessage=''; this.preferencesSaveError='';
     try {
       await this.hass.callService('robot_cleaner_queue','save_preferences',{vacuum,revision:this.preferencesRevision,map_id:this.caps.current_map,defaults:{...this.setup},rooms});
       if (this.config?.entity!==vacuum || this.configEpoch!==epoch) return;
@@ -481,7 +482,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       await this.readCapabilities();
       if (this.configEpoch!==epoch) return;
       this.preferencesMessage='Room settings saved.';
-    } catch (error) { if(this.configEpoch===epoch) this.preferencesMessage=error instanceof Error ? error.message : 'Could not save room settings. Your changes are still unsaved.'; }
+    } catch (error) { if(this.configEpoch===epoch) { this.preferencesMessage=error instanceof Error ? error.message : 'Could not save room settings. Your changes are still unsaved.'; this.preferencesSaveError=this.preferencesMessage; } }
     finally { if(this.configEpoch===epoch) this.savingPreferences=false; }
   }
   private get validSelection() {
@@ -497,7 +498,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   private get planChanged() { return planKey(this.draftPlan(),this.caps)!==planKey(this.savedPreset,this.caps); }
   private get canSavePreset() { return !this.queueDraft && !!this.hass?.services?.robot_cleaner_queue?.save_preset && !this.blocked && !this.queueActive && !this.jobActive && this.manualReady && (this.sharedPlan||this.manualSelected.length>0) && this.validSelection && this.planChanged; }
   private async savePreset() {
-    if (!this.canSavePreset || !this.hass || !this.config || this.sortOrder) return;
+    if (!this.canSavePreset || !this.hass || !this.config || this.sortOrder || (this.sharedPlan && this.preferencesDirty)) return;
     const plan=this.draftPlan(), vacuum=this.config.entity, epoch=this.configEpoch;
     this.savingPreset=true; this.commandError=''; this.presetFeedback=''; this.autoSaveError='';
     try {
@@ -514,6 +515,15 @@ export class RobotVacuumCleanerCard extends LitElement {
     } finally { if (this.configEpoch===epoch) this.savingPreset=false; }
   }
   private schedulePlanSave() {
+    if(this.sharedPlan && this.preferencesDirty) {
+      if(this.preferencesSaveError || this.blocked || this.queueActive || this.jobActive || this.sortOrder || !this.caps?.supported || !this.hass?.services?.robot_cleaner_queue?.save_preferences)return;
+      const key=JSON.stringify(['preferences',this.setup,this.roomSetups]);
+      if(key===this.autoSaveKey)return;
+      clearTimeout(this.autoSaveTimer);this.autoSaveKey=key;
+      this.autoSaveTimer=setTimeout(()=>{this.autoSaveKey='';if(this.isConnected && !this.preferencesSaveError)void this.savePreferences();},300);
+      return;
+    }
+
     if(!this.sharedPlan || !this.planDraftTouched || !this.planChanged || this.autoSaveError || !this.canSavePreset || this.sortOrder)return;
     const key=planKey(this.draftPlan(),this.caps);
     if(key===this.autoSaveKey)return;
@@ -721,6 +731,11 @@ export class RobotVacuumCleanerCard extends LitElement {
   }
   private async command(kind: 'start_manual'|'pause'|'resume'|'return_to_dock'|'cancel'|'stop'|'continue_sequence'|'resume_now',waterRefilled=false,recoveryToken?:string) {
     if (!this.hass || !this.config) return;
+    if(kind==='start_manual'&&this.sharedPlan&&this.preferencesDirty) {
+      clearTimeout(this.autoSaveTimer);this.autoSaveKey='';
+      await this.savePreferences();
+      if(this.preferencesDirty || this.preferencesSaveError)return;
+    }
     if(kind==='start_manual'&&this.sharedPlan&&this.planDraftTouched&&this.planChanged) {
       clearTimeout(this.autoSaveTimer);this.autoSaveKey='';
       await this.savePreset();
@@ -996,14 +1011,14 @@ export class RobotVacuumCleanerCard extends LitElement {
     return html`<section class="surface preferences-panel" aria-label="Room defaults and shared settings">
       <details class="default-settings"><summary><span class="defaults-heading">${icon('mdi:tune-variant')}<span class="defaults-title">Room defaults</span><span class="defaults-mode">${setupSummary(this.setup)}</span>${icon('mdi:chevron-down')}</span></summary>
         ${this.caps?.supported ? renderRoomSettings({id:'defaults',name:'default settings',setup:this.setup,caps:this.caps,disabled:this.queueActive||this.blocked||this.jobActive,change:patch=>this.editSetup(undefined,patch)}):html`<p class="hint">${this.capsError||'Reading cleaning capabilities…'}</p>`}
-        <div class="defaults-actions">${this.roomMode?html`<button class="action" data-action="apply-defaults" title="Replace custom settings for all rooms on the current map; keep the selected order" ?disabled=${!this.canApplyDefaults} @click=${()=>this.applyDefaultsToRooms()}>${icon('mdi:select-all')}Apply to all rooms</button>`:nothing}${canSave&&!dirty?save():nothing}
+        <div class="defaults-actions">${this.roomMode?html`<button class="action" data-action="apply-defaults" title="Replace custom settings for all rooms on the current map; keep the selected order" ?disabled=${!this.canApplyDefaults} @click=${()=>this.applyDefaultsToRooms()}>${icon('mdi:select-all')}Apply to all rooms</button>`:nothing}${canSave&&!dirty&&!this.sharedPlan?save():nothing}
           ${canSave?html`<button class="text-button" data-action="reload-preferences" ?disabled=${this.blocked||this.capsLoading} @click=${()=>this.reloadPreferences()}>Reload shared settings</button>`:nothing}
           <button class="text-button" data-action="refresh-rooms" ?disabled=${this.capsLoading||this.blocked} @click=${()=>this.readCapabilities()}>Refresh rooms</button></div>
-        <p class="hint">${this.roomMode?'Apply to all replaces custom settings on this map. ':''}Save room settings to share them. Save plan updates the wall switch.</p>
+        <p class="hint">${this.roomMode?'Apply to all replaces custom settings on this map. ':''}${this.sharedPlan?'Changes save automatically for everyone.':'Save room settings to share them. Save plan updates the wall switch.'}</p>
         ${!canSave?html`<p class="hint">Update the queue integration to save shared room settings.</p>`:nothing}
         ${this.caps?renderZoneReport(this.caps):nothing}
       </details>
-      ${canSave&&dirty?html`<div class="preferences-toolbar"><span class="preferences-label">Unsaved room settings</span><div class="preferences-actions">${save()}</div></div>`:nothing}
+      ${canSave&&dirty?html`<div class="preferences-toolbar" role="status"><span class="preferences-label">${this.sharedPlan?(this.preferencesSaveError?'Settings not saved':this.savingPreferences?'Saving…':'Changes pending'):'Unsaved room settings'}</span><div class="preferences-actions">${!this.sharedPlan?save():this.preferencesSaveError?html`<button class="text-button" @click=${()=>this.savePreferences()}>Retry</button><button class="text-button" @click=${()=>this.reloadPreferences()}>Reload shared settings</button>`:nothing}</div></div>`:nothing}
       ${this.preferencesMessage?html`<p class="hint" role="status">${this.preferencesMessage}</p>`:nothing}
     </section>`;
   }
