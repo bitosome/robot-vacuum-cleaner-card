@@ -870,6 +870,10 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (this.restartRecovering) return this.restartRecoveryReason;
     if (!this.robotReady) return 'Waiting for Home Assistant to reconnect.';
     if (this.observingRetainedJob) return 'The robot continued. Reconnect the sequence to keep the remaining rooms.';
+    const failure = this.queue?.attributes.command_failure;
+    if (this.phase === 'attention' && failure?.operation === 'configure' && Array.isArray(failure.codes) && failure.codes.includes(-10005)) {
+      return 'The robot rejected this settings combination (−10005). Your rooms and settings are kept; no cleaning started.';
+    }
     if (this.fault) return this.waterEmpty && this.fault==='Water empty' ? this.continuationSupported?'Refill the clean-water tank. Your sequence is kept.':'A vacuum-only plan can run. Mopping needs water.' : this.fault;
     if (this.continuationSupported && !this.dockServicing && this.vacuum?.state!=='cleaning') return 'Your rooms and completed passes are kept.';
     if (this.phase==='attention' && !this.jobActive && !this.dockServicing) return this.recoveryReady ? 'Ready for a new clean.' : this.recoveryReason;
@@ -1148,4 +1152,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.16.4');
+console.info('ROBOT VACUUM CLEANER CARD 0.16.5');

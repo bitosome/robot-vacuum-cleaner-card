@@ -1029,3 +1029,12 @@ test('preparing shows exact requested and observed settings instead of hiding a 
   assert.match(root(card).querySelector('.subline').textContent,/Suction: Max\+ requested · Balanced reported/);
   assert.equal(calls.length,0);
 });
+
+
+test('a native parameter rejection is visible without opening interruption details',async()=>{
+  const {card}=await fixture({states:{'sensor.robot_queue':stoppedQueue({control_version:7,
+    command_failure:{operation:'configure',category:'rejected',codes:[-10005]},
+  })}});
+  assert.match(root(card).querySelector('.subline').textContent,/robot rejected this settings combination/);
+  assert.match(root(card).querySelector('.subline').textContent,/no cleaning started/);
+});
