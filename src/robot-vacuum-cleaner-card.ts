@@ -110,7 +110,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     return {type:'custom:robot-vacuum-cleaner-card',entity:Object.keys(hass?.states ?? {}).find(id => id.startsWith('vacuum.')) ?? 'vacuum.robot',rooms:[]};
   }
   connectedCallback() { super.connectedCallback(); void this.loadSortable(); void this.readHistory(); }
-  disconnectedCallback() { this.cancelSort(); clearTimeout(this.autoSaveTimer); super.disconnectedCallback(); this.historyRequest++; this.historyFor=''; this.historyLoading=false; clearTimeout(this.requestTimer); clearTimeout(this.barrierTimer); clearTimeout(this.queueEditTimer); this.queueEditAccepted=undefined; this.savingQueue=false; this.request = undefined; }
+  disconnectedCallback() { this.cancelSort(); super.disconnectedCallback(); this.historyRequest++; this.historyFor=''; this.historyLoading=false; clearTimeout(this.requestTimer); clearTimeout(this.barrierTimer); clearTimeout(this.queueEditTimer); this.queueEditAccepted=undefined; this.savingQueue=false; this.request = undefined; }
   private entity(id?: string) { return id ? this.hass?.states[id] : undefined; }
   private get vacuum() {
     const native=this.entity(this.config?.entity);
@@ -515,12 +515,15 @@ export class RobotVacuumCleanerCard extends LitElement {
     } finally { if (this.configEpoch===epoch) this.savingPreset=false; }
   }
   private schedulePlanSave() {
+    // A dashboard navigation must not discard the user's edits during debounce.
+    // These writes persist settings only; physical cleaning always needs a click.
+    // setConfig still cancels pending writes when this card changes robots.
     if(this.sharedPlan && this.preferencesDirty) {
       if(this.preferencesSaveError || this.blocked || this.queueActive || this.jobActive || this.sortOrder || !this.caps?.supported || !this.hass?.services?.robot_cleaner_queue?.save_preferences)return;
       const key=JSON.stringify(['preferences',this.setup,this.roomSetups]);
       if(key===this.autoSaveKey)return;
       clearTimeout(this.autoSaveTimer);this.autoSaveKey=key;
-      this.autoSaveTimer=setTimeout(()=>{this.autoSaveKey='';if(this.isConnected && !this.preferencesSaveError)void this.savePreferences();},300);
+      this.autoSaveTimer=setTimeout(()=>{this.autoSaveKey='';if(!this.preferencesSaveError)void this.savePreferences();},300);
       return;
     }
 
@@ -528,7 +531,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     const key=planKey(this.draftPlan(),this.caps);
     if(key===this.autoSaveKey)return;
     clearTimeout(this.autoSaveTimer);this.autoSaveKey=key;
-    this.autoSaveTimer=setTimeout(()=>{this.autoSaveKey='';if(this.isConnected&&this.sharedPlan&&!this.autoSaveError)void this.savePreset();},300);
+    this.autoSaveTimer=setTimeout(()=>{this.autoSaveKey='';if(this.sharedPlan&&!this.autoSaveError)void this.savePreset();},300);
   }
   private preloadPlan() {
     if (!this.savedPreset || !this.caps?.supported || this.queueActive || this.jobActive || this.request || this.queueDraft) return;
@@ -1135,4 +1138,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.16.0');
+console.info('ROBOT VACUUM CLEANER CARD 0.16.3');

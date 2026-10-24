@@ -446,3 +446,25 @@ test('immediate start flushes room preferences and plan before control',async()=
  await card.command('start_manual');await settle(card);
  assert.deepEqual(calls.map(c=>c.action),['save_preferences','save_preset','control']);
 });
+
+
+test('leaving the dashboard during debounce still saves the selected shared plan',async()=>{
+ const {card,calls}=await fixture({capabilities:sharedCaps()});
+ await click(card,room(card,'0_12'));
+ card.remove();
+ await saved(card);
+ assert.deepEqual(calls.map(call=>call.action),['save_preset']);
+ assert.deepEqual(calls[0].data.rooms.map(room=>room.id),['0_5']);
+ document.body.append(card);await settle(card);await saved(card);
+ assert.equal(calls.length,1,'Reattaching the same card must not save the same plan twice');
+});
+
+test('leaving the dashboard flushes edited room preferences and its matching plan without cleaning',async()=>{
+ const {card,calls}=await fixture({capabilities:sharedCaps()});
+ await edit(card,'0_5','suction','turbo');
+ card.remove();
+ await saved(card);await saved(card);
+ assert.deepEqual(calls.map(call=>call.action),['save_preferences','save_preset']);
+ assert.equal(calls[0].data.rooms['0_5'].suction,'turbo');
+ assert.equal(calls[1].data.rooms.find(room=>room.id==='0_5').suction,'turbo');
+});
