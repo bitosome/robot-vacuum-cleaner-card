@@ -144,7 +144,7 @@ test('collapsing inline settings preserves edits without sending a robot command
   const editor=root(card).querySelector('[data-room-editor="0_12"]'); editor.open=true;
   await click(card,roomMode(card,'0_12','mop')); editor.open=false;
   assert.equal(calls.length,0);
-  assert.match(editor.querySelector('summary').textContent,/Mop[\s\S]*Water Medium/);
+  assert.match(editor.querySelector('summary').textContent,/Mop[\s\S]*Water flow Medium/);
   await click(card,room(card,'0_12')); await click(card,action(card,'start'));
   assert.equal(calls[0].data.rooms[0].mode,'mop');
 });

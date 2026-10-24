@@ -19,7 +19,7 @@ export interface ManualCapabilities {
   saved_preset?: SavedPreset; current_map?: number;
   control_version?: number; device_entities?: Record<string,string>;
   supported: boolean; modes: Array<{value: CleaningMode; label: string}>;
-  suction: string[]; water: string[]; routes: string[]; routes_by_mode?: Partial<Record<CleaningMode,string[]>>;
+  suction: string[]; suction_by_mode?: Partial<Record<CleaningMode,string[]>>; water: string[]; routes: string[]; routes_by_mode?: Partial<Record<CleaningMode,string[]>>;
   repeats: number[]; room_targets: Array<{id:string; name:string; icon?:string}>; defaults?: Partial<ManualSetup>; error?: string;
   robot_maps?: RobotMap[]; robot_rooms?: RobotRoom[]; unmapped_areas?: UnmappedArea[]; rooms_complete?: boolean;
   area_cleaning?: boolean; unavailable_controls?: string[];
@@ -27,13 +27,22 @@ export interface ManualCapabilities {
 export interface ManualStage { target: string; mode: CleaningMode; room_index: number; pass_index: number; repeat_index: number; }
 export const MODE_LABELS: Record<CleaningMode,string> = {vacuum:'Vacuum',mop:'Mop',vacuum_mop:'Vacuum & mop',vacuum_then_mop:'Vacuum then mop'};
 export const MODE_ICONS: Record<CleaningMode,string> = {vacuum:'mdi:vacuum',mop:'mdi:water-outline',vacuum_mop:'mdi:vacuum-outline',vacuum_then_mop:'mdi:swap-horizontal'};
-export function optionLabel(value: string) { return ({max_plus:'Max+',deep_plus:'Deep+',custom_water_flow:'Custom from app'} as Record<string,string>)[value] ?? humanize(value); }
+export function optionLabel(value: string) { return ({quiet:'Quiet',balanced:'Balanced',turbo:'Turbo',max:'Max',low:'Low',medium:'Medium',high:'High',max_plus:'Max+',deep_plus:'Deep+',custom_water_flow:'Custom from app'} as Record<string,string>)[value] ?? humanize(value); }
+/** Enforce the mode restriction even when connected to an older companion. */
+export function modeSuction(caps: ManualCapabilities, mode: CleaningMode): string[] {
+  if (mode === 'mop') return [];
+  return (caps.suction_by_mode?.[mode] ?? caps.suction).filter(value => caps.suction.includes(value) && (mode === 'vacuum' || value !== 'max_plus'));
+}
+export function restrictedMaxPlus(setup: Partial<ManualSetup>): boolean {
+  return setup.suction === 'max_plus' && (setup.mode === 'vacuum_mop' || setup.mode === 'vacuum_then_mop');
+}
 export function modeRoutes(caps: ManualCapabilities, mode: CleaningMode) { return caps.routes_by_mode?.[mode] ?? caps.routes; }
 export function normalizeSetup(caps: ManualCapabilities, input: Partial<ManualSetup> = {}): ManualSetup {
   const mode = caps.modes.some(item=>item.value===input.mode) ? input.mode! : caps.modes[0]?.value ?? 'vacuum';
   const choose = (values:string[], value?:string, fallback?:string) => value && values.includes(value) ? value : fallback && values.includes(fallback) ? fallback : values[0];
   const setup: ManualSetup = {mode,repeat:caps.repeats.includes(input.repeat ?? 1) ? input.repeat ?? 1 : caps.repeats[0] ?? 1};
-  if (mode !== 'mop') setup.suction = choose(caps.suction,input.suction,caps.defaults?.suction);
+  // Preserve an explicit restricted setting for correction; never silently downgrade a saved plan.
+  if (mode !== 'mop') setup.suction = restrictedMaxPlus({...input,mode}) ? input.suction : choose(modeSuction(caps,mode),input.suction,caps.defaults?.suction);
   if (mode !== 'vacuum') { setup.water = choose(caps.water,input.water,caps.defaults?.water); setup.route = choose(modeRoutes(caps,mode),input.route,caps.defaults?.route); }
   return setup;
 }
@@ -47,6 +56,7 @@ export function matchesSetup(caps: ManualCapabilities, saved: SavedRoom): boolea
   const fallback: ManualSetup = {mode: caps.modes[0]?.value ?? 'vacuum', repeat: caps.repeats[0] ?? 1,
                                  suction: caps.defaults?.suction, water: caps.defaults?.water, route: caps.defaults?.route};
   const normalized = savedRoomSetup(caps, saved, fallback);
+  if (normalized.suction && !modeSuction(caps,normalized.mode).includes(normalized.suction)) return false;
   return (Object.keys(saved) as Array<keyof SavedRoom>).every(key =>
     key === 'id' || normalized[key as keyof ManualSetup] === saved[key]);
 }

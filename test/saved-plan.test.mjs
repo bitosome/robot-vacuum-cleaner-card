@@ -110,7 +110,7 @@ test('a fresh dashboard preloads the saved native-room sequence and exact settin
   // the visible settings summary and the exact executable payload here; later
   // edit/refresh tests exercise the select values after normal updates.
   assert.match(root(card).querySelector('[data-room-editor="0_5"] summary').textContent, /Vacuum\s+Suction Max\+\s+Passes ×2/);
-  assert.match(root(card).querySelector('[data-room-editor="0_12"] summary').textContent, /Mop\s+Water High\s+Route Deep\s+Passes ×1/);
+  assert.match(root(card).querySelector('[data-room-editor="0_12"] summary').textContent, /Mop\s+Water flow High\s+Route Deep\s+Passes ×1/);
   assert.equal(action(card, 'save-preset').disabled, true);
   assert.equal(action(card, 'save-preferences').disabled, true);
   assert.equal(calls.length, 0);
@@ -467,4 +467,41 @@ test('leaving the dashboard flushes edited room preferences and its matching pla
  assert.deepEqual(calls.map(call=>call.action),['save_preferences','save_preset']);
  assert.equal(calls[0].data.rooms['0_5'].suction,'turbo');
  assert.equal(calls[1].data.rooms.find(room=>room.id==='0_5').suction,'turbo');
+});
+
+test('Max+ is selectable only for Vacuum, including with an older companion', async () => {
+  const {card, calls} = await fixture();
+  const offered = () => [...select(card,'0_5','suction').options].filter(option=>!option.disabled).map(option=>option.value);
+  assert.deepEqual(offered(), ['quiet','balanced','turbo','max','max_plus']);
+  for (const mode of ['vacuum_mop','vacuum_then_mop']) {
+    await edit(card,'0_5','mode',mode);
+    assert.deepEqual(offered(), ['quiet','balanced','turbo','max']);
+    assert.equal(select(card,'0_5','suction').querySelector('option[value="max_plus"]')?.disabled, true);
+    assert.equal(action(card,'start').disabled,true);
+    assert.match(root(card).textContent,/Max\+ is available only in Vacuum mode/);
+  }
+  await edit(card,'0_5','suction','max');
+  assert.equal(action(card,'start').disabled,false);
+  await edit(card,'0_5','mode','mop');
+  assert.equal(select(card,'0_5','suction'),null);
+  assert.deepEqual([...select(card,'0_5','water').options].map(option=>option.textContent),['Low','Medium','High']);
+  assert.equal(select(card,'0_5','water').getAttribute('aria-label'),'Water flow for Hallway');
+  assert.equal(calls.length,0);
+});
+
+test('saved mixed-mode Max+ rooms preload unchanged and require an explicit correction', async () => {
+  const caps=capabilities();
+  caps.saved_preset.rooms[0]={id:'0_5',mode:'vacuum_mop',suction:'max_plus',water:'high',route:'standard',repeat:2};
+  const {card,calls}=await fixture({capabilities:caps});
+  assert.equal(order(card,'0_5'),'1');
+  assert.equal(order(card,'0_12'),'2');
+  assert.match(root(card).querySelector('[data-room-editor="0_5"] summary').textContent,/Max\+/);
+  assert.equal(action(card,'start').disabled,true);
+  assert.equal(action(card,'save-preset').disabled,true);
+  await edit(card,'0_5','water','low');
+  assert.equal(action(card,'start').disabled,true,'unrelated edits cannot silently downgrade Max+');
+  await edit(card,'0_5','suction','max');
+  assert.equal(action(card,'start').disabled,false);
+  await click(card,action(card,'start'));
+  assert.deepEqual(calls[0].data.rooms[0],{id:'0_5',mode:'vacuum_mop',suction:'max',water:'low',route:'standard',repeat:2});
 });

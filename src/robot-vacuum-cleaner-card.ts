@@ -1,7 +1,7 @@
 import { LitElement, html, nothing, type PropertyValues } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
-import { matchesSetup, MODE_LABELS, normalizeSetup, renderZoneReport, roomLabel, roomsPayload, savedRoomSetup, setupSummary, type CleaningSource, type ManualCapabilities, type ManualSetup, type ManualStage, type PlanRoom, type RobotRoom, type SavedPreset, type SavedRoom, type SetupRoom } from './manual-setup';
+import { modeSuction, restrictedMaxPlus, matchesSetup, MODE_LABELS, normalizeSetup, renderZoneReport, roomLabel, roomsPayload, savedRoomSetup, setupSummary, type CleaningSource, type ManualCapabilities, type ManualSetup, type ManualStage, type PlanRoom, type RobotRoom, type SavedPreset, type SavedRoom, type SetupRoom } from './manual-setup';
 import {planKey} from './saved-plan';
 import {reconcileOrder, moveRoom} from './room-order';
 import {createQueueDraft, queueDraftChanged, queueDraftCurrent, queueDraftRooms, queueEditSnapshot, queueRoomsKey, reorderQueueDraft, type QueueEditDraft} from './queue-edit';
@@ -555,7 +555,11 @@ export class RobotVacuumCleanerCard extends LitElement {
       const setups: Record<string,ManualSetup> = {};
       for (const entry of entries) {
         const frozen={...plan.setup,...entry};
-        if (!matchesSetup(this.caps,frozen)) { fail('Saved plan has settings the robot no longer offers. Review and save a new plan.'); return; }
+        // Keep a known Max+ mode conflict visible so the user can fix that room,
+        // while still refusing unrelated obsolete settings/maps.
+        const correctableMaxPlus=restrictedMaxPlus(frozen) && this.caps.suction.includes('max_plus') &&
+          matchesSetup(this.caps,{...frozen,suction:modeSuction(this.caps,frozen.mode!)[0]});
+        if (!matchesSetup(this.caps,frozen) && !correctableMaxPlus) { fail('Saved plan has settings the robot no longer offers. Review and save a new plan.'); return; }
         setups[entry.id]=savedRoomSetup(this.caps,frozen,normalizeSetup(this.caps,plan.setup));
       }
       this.planSetups=setups; this.manualSelected=entries.map(entry=>entry.id);
@@ -1152,4 +1156,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.16.5');
+console.info('ROBOT VACUUM CLEANER CARD 0.16.6');
