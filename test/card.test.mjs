@@ -1017,3 +1017,15 @@ test('keyboard reordering directly opens a pending-only queue draft',async()=>{
   assert.equal(button(card,'apply-queue-edit').disabled,false);
   assert.deepEqual(calls,[]);
 });
+
+
+test('preparing shows exact requested and observed settings instead of hiding a mismatch',async()=>{
+  const {card,calls}=await fixture({states:{'sensor.robot_queue':entity('preparing',{
+    vacuum:'vacuum.robot',control_version:7,mode:'manual',pending_command:'configure',
+    targets:['0_1'],stages:[{target:'0_1',mode:'vacuum_mop',room_index:0}],current_index:0,
+    requested_settings:{mode:'vac_and_mop',suction:'max_plus',water:'high',route:'standard'},
+    robot_settings:{mode:'vac_and_mop',suction:'balanced',water:'high',route:'standard'},
+  })}});
+  assert.match(root(card).querySelector('.subline').textContent,/Suction: Max\+ requested · Balanced reported/);
+  assert.equal(calls.length,0);
+});

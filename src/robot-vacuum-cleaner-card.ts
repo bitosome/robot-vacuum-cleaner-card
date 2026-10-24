@@ -887,6 +887,16 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (!this.queueActive && this.dockService) return 'Dock care is in progress. Cleaning can start when it finishes.';
     if (this.queueActive && this.queueManual) {
       if (this.dockService) return `Next: ${this.stageName}`;
+      if (this.phase === 'preparing' && this.queue?.attributes.pending_command === 'configure') {
+        const requested = this.queue.attributes.requested_settings;
+        const observed = this.queue.attributes.robot_settings;
+        if (requested && observed) {
+          const label = (value: unknown) => value === 'max_plus' ? 'Max+' : typeof value === 'string' ? humanize(value) : 'Unavailable';
+          const pending = ['mode', 'suction', 'water', 'route'].filter(key => typeof requested[key] === 'string' && requested[key] !== observed[key]);
+          if (pending.length) return pending.map(key => `${humanize(key)}: ${label(requested[key])} requested · ${label(observed[key])} reported`).join('; ');
+          return 'Settings confirmed · Waiting for the robot to be ready';
+        }
+      }
       if (this.queue?.attributes.waiting_for_dock) return `Next: ${this.stageName} · Waiting for the dock`;
       const stage=this.stages[this.index];
       const label=stage?.mode==='vacuum'?'Vacuum pass':stage?.mode==='mop'?'Mop pass':'Vacuum & mop';
@@ -1138,4 +1148,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.16.3');
+console.info('ROBOT VACUUM CLEANER CARD 0.16.4');
