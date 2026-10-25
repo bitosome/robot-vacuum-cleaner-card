@@ -71,3 +71,27 @@ test('a setting changes its display only when Home Assistant confirms the new va
   await settle(card);
   assert.equal(input.value,'Upstairs');
 });
+
+test('device panel X restores its opener, keeps native dialog semantics and does not send a command',async()=>{
+  const {card,calls}=await fixture();
+  const root=card.shadowRoot,dialog=root.querySelector('.device-dialog');
+  const close=root.querySelector('[aria-label="Close controls"]');
+  assert.equal(dialog.classList.contains('family-dialog'),true);
+  assert.equal(close.querySelector('ha-icon').icon,'mdi:close');
+  assert.equal(close.title,'Close');
+  close.click();await settle(card);
+  assert.equal(dialog.open,false);
+  assert.equal(root.activeElement,root.querySelector('[data-panel="settings"]'));
+  assert.equal(calls.length,0);
+});
+
+test('device panel closes on removal and cannot reopen after a pending render',async()=>{
+  const {card,calls}=await fixture();
+  const root=card.shadowRoot,dialog=root.querySelector('.device-dialog');
+  card.remove();await settle(card);
+  assert.equal(dialog.open,false);
+  document.body.append(card);await settle(card);
+  root.querySelector('[data-panel="settings"]').click();card.remove();await settle(card);
+  assert.equal(dialog.open,false);
+  assert.equal(calls.length,0);
+});

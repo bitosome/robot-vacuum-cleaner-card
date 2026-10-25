@@ -1,5 +1,6 @@
 import {html, nothing} from 'lit';
 import {live} from 'lit/directives/live.js';
+import {dialogClose} from './shared/card-primitives';
 import {available, humanize, numeric, type Hass} from './types';
 export type DevicePanel = 'dock'|'map'|'settings'|'care'|'status';
 const titles = {dock:'Dock',map:'Home map',settings:'Robot settings',care:'Care & maintenance',status:'Robot details'};
@@ -11,8 +12,8 @@ export function panelKeys(panel:DevicePanel, entities:Record<string,string>, has
 export function renderDevicePanel(model:{panel:DevicePanel;hass:Hass;entities:Record<string,string>;busy:boolean;motionBlocked?:boolean;motionReason?:string;robotDocked:boolean;waterEmpty:boolean;fault:boolean;error:string;pending:boolean;close():void;send(key:string,value:string|number):void}) {
   const {panel,hass,entities}=model;
   const keys=panelKeys(panel,entities,hass);
-  return html`<div class="setup-sheet"><header class="setup-header"><div><div class="eyebrow">Robot controls</div><h2 id="device-title">${titles[panel]}</h2></div><button class="close-button" aria-label="Close controls" @click=${model.close}><ha-icon .icon=${'mdi:close'}></ha-icon></button></header>
-    <div class="setup-body device-body">
+  return html`<header class="family-dialog-header"><h2 id="device-title">${titles[panel]}</h2>${dialogClose('Close controls', model.close)}</header>
+    <div class="family-dialog-body device-body">
     ${model.error ? html`<p class="error" role="alert">${model.error}</p>`:nothing}
     ${model.pending ? html`<p class="note" role="status">Waiting for the robot to confirm…</p>`:nothing}
     ${(panel==='dock' || panel==='settings' && keys.includes('selected_map')) && model.motionBlocked ? html`<p class="note" role="status">${model.motionReason || 'Waiting for the robot to be ready for this action.'}</p>`:nothing}
@@ -43,5 +44,5 @@ export function renderDevicePanel(model:{panel:DevicePanel;hass:Hass;entities:Re
     })}
     ${!keys.length ? html`<p class="note">No available controls in this section.</p>`:nothing}
     ${panel==='care' ? html`<p class="hint">Usage-based reminders from the robot. Service the parts before resetting their counters in the Roborock app.</p>`:nothing}
-    </div><footer class="setup-footer"><p>${panel==='settings'?'Changes apply to the robot immediately.':'Live state from Home Assistant'}</p></footer></div>`;
+    </div><footer class="family-dialog-footer setup-footer"><p>${panel==='settings'?'Changes apply to the robot immediately.':'Live state from Home Assistant'}</p></footer>`;
 }

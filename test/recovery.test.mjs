@@ -281,3 +281,18 @@ test('a reattached paused job cannot regain generic Resume when restart eligibil
   assert.match(root(card).textContent,/previous command is not yet confirmed/);
   await card.command('resume');assert.deepEqual(calls,[]);
 });
+
+test('water recovery uses the shared X and dismisses without altering its retained sequence',async()=>{
+  const {card,calls}=await fixture({phase:'attention',job:'off',water:'water_empty',attributes:{robot_job:'off',continuation_action:'retry_stage',continuation_ready:true,continuation_requires_water_ack:true}});
+  const opener=action(card,'continue-sequence');
+  opener.click();await settle(card);
+  const dialog=root(card).querySelector('.recovery-dialog'),close=action(card,'close-recovery');
+  assert.equal(dialog.classList.contains('family-dialog'),true);
+  assert.equal(close.querySelector('ha-icon').icon,'mdi:close');
+  assert.equal(root(card).activeElement,action(card,'cancel-refill'));
+  close.click();await settle(card);
+  assert.equal(dialog.open,false);
+  assert.equal(root(card).activeElement,opener);
+  assert.equal(calls.length,0);
+  assert.equal(card.hass.states['sensor.queue'].attributes.run_id,attrs.run_id);
+});

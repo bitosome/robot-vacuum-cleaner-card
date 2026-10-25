@@ -14,14 +14,14 @@ export const cardStyles = css`
   button:focus-visible, summary:focus-visible { outline: 3px solid var(--robot-accent); outline-offset: 3px; }
   ha-icon { width: 22px; height: 22px; --mdc-icon-size: 22px; flex: 0 0 22px; display: inline-flex; }
   .hero { padding: clamp(18px,4cqw,24px); overflow: hidden; }
-  .identity { display: flex; align-items: center; gap: 12px; }
+  .identity.family-header { padding:0; }
   .robot-icon { display:grid; place-items:center; width:44px; height:44px; border-radius:50%; background:color-mix(in srgb,var(--robot-accent) 10%,transparent); color:var(--robot-accent); flex:0 0 44px; }
   .robot-icon ha-icon { width:26px; height:26px; --mdc-icon-size:26px; flex-basis:26px; }
   .identity-text { flex:1; min-width:0; }
   .eyebrow { font-size:11px; font-weight:600; color:var(--robot-muted); }
   .name { font-size:17px; font-weight:650; letter-spacing:-.015em; margin-top:0; overflow-wrap:anywhere; }
   .battery { display:flex; align-items:center; gap:3px; color:var(--robot-muted); font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
-  h2 { font-size:clamp(23px,5.5cqw,30px); letter-spacing:-.03em; line-height:1.2; font-weight:650; margin:18px 0 6px; overflow-wrap:anywhere; }
+  h2 { font-size:clamp(20px,5cqw,22px); letter-spacing:-.03em; line-height:1.2; font-weight:650; margin:18px 0 6px; overflow-wrap:anywhere; }
   p { margin:0; }
   .subline { color:var(--robot-muted); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
   .metric-caption { align-self:center; font-size:11px; color:var(--robot-muted); }
@@ -42,9 +42,9 @@ export const cardStyles = css`
   .recovery-note ha-icon { width:18px; height:18px; --mdc-icon-size:18px; flex-basis:18px; }
   .recovery-details { margin-top:8px; color:var(--secondary-text-color); }
   .recovery-details summary { min-height:44px; display:flex; align-items:center; cursor:pointer; }
-  .recovery-dialog-body { padding:24px; font-size:14px; line-height:1.5; }
-  .recovery-dialog-body h3 { font-size:20px; letter-spacing:-.02em; margin:0 0 12px; }
-  .recovery-dialog-body p { color:var(--secondary-text-color); }
+  .family-dialog-footer.actions { margin-top:0; }
+  .recovery-dialog-body { font-size:14px; line-height:1.5; }
+  .recovery-dialog-body p { color:var(--secondary-text-color); margin:0; }
   .actions:not(:has(button)) { display:none; }
   .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
   .action { border:0; border-radius:999px; min-height:46px; display:flex; justify-content:center; align-items:center; gap:8px; padding:10px 16px; font-size:14px; font-weight:650; line-height:1.3; background:color-mix(in srgb,var(--primary-text-color) 8%,transparent); }
@@ -113,13 +113,6 @@ export const cardStyles = css`
   .setup-launch:disabled { opacity:1; }
   .setup-launch:disabled .setup-edit { visibility:hidden; }
   .setup-launch ha-icon { width:18px;height:18px;--mdc-icon-size:18px;flex-basis:18px; }
-  .setup-dialog,.recovery-dialog { background:var(--robot-surface); color:var(--primary-text-color,#dedff5); border:1px solid var(--divider-color,rgba(255,255,255,.05)); border-radius:28px; padding:0; width:calc(100vw - 24px); max-width:460px; max-height:calc(100dvh - 32px); overflow:hidden; box-shadow:0 24px 90px #0005; overscroll-behavior:contain; }
-  .setup-dialog::backdrop,.recovery-dialog::backdrop { background:rgba(7,10,20,.64); backdrop-filter:blur(7px); }
-  .setup-sheet { display:flex; flex-direction:column; max-height:calc(100dvh - 34px); }
-  .setup-body { overflow-y:auto; overscroll-behavior:contain; padding:0 24px; min-height:0; }
-  .setup-header { flex-shrink:0; padding:24px 24px 0; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:22px; }
-  .setup-header h2 { font-size:25px; margin:5px 0 0; }
-  .close-button { display:grid;place-items:center;border:0;border-radius:50%;background:color-mix(in srgb,var(--primary-text-color) 5%,transparent);padding:10px;min-width:44px;min-height:44px; }
   .source-tabs { display:flex; border-radius:999px; padding:4px; background:color-mix(in srgb,var(--primary-text-color) 6%,transparent); margin-bottom:22px; }
   .source-tabs button { flex:1; border:0; padding:11px 9px; border-radius:999px; background:transparent; font-size:13px; font-weight:650; min-height:44px; }
   .source-tabs button.chosen { background:var(--robot-accent); color:var(--primary-background-color,#181a27); }
@@ -154,7 +147,6 @@ export const cardStyles = css`
   .zone-area { font-weight:500; }
   .zone-rooms { color:var(--secondary-text-color,#acb1cc);text-align:right; }
   .zone-note { margin:10px 0 0;font-size:12px;line-height:1.5;color:var(--secondary-text-color,#acb1cc); }
-  .setup-footer { flex-shrink:0; padding:14px 24px 20px; display:grid;gap:12px;border-top:1px solid var(--divider-color,rgba(255,255,255,.1));margin-top:16px; }
   .setup-footer p { text-align:center;font-size:11px; }
   @media (max-width:360px) { .setup-body { padding:0 18px; } .setup-header { padding:18px 18px 0; } .setup-footer { padding:12px 18px 16px; } .mode-choice { padding:13px; } .setting-pill { padding:10px 12px; } }
   /* One robot surface: tools are a quiet, always-visible toolbar, not six competing tiles. */
@@ -179,8 +171,9 @@ export const cardStyles = css`
   .plan-section .default-settings > summary { padding:10px 0;min-height:48px; }
   .water-warning { display:flex;gap:10px;align-items:flex-start;color:var(--secondary-text-color); }
   .water-warning ha-icon { color:var(--robot-accent); }
-  .device-body { display:grid;gap:12px;padding-bottom:8px; }
-  .device-row { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border-radius:var(--tile-border-radius);background:color-mix(in srgb,var(--primary-text-color) 5%,transparent);font-size:13px;min-height:44px; }
+  .device-body { display:grid;grid-auto-rows:max-content;align-content:start;gap:0;padding-bottom:8px; }
+  .device-row { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--divider-color);font-size:13px;min-height:44px; }
+  .device-row:last-child { border-bottom:0; }
   .device-row small { display:block;margin-top:5px;color:var(--secondary-text-color); }
   .device-row .setting-pill { min-width:68px; }
   .device-row input,.device-row select { font:inherit;color:inherit;background:var(--robot-surface);border:1px solid var(--divider-color);border-radius:12px;min-height:44px;max-width:55%;padding:5px;box-sizing:border-box; }
@@ -209,7 +202,7 @@ export const cardStyles = css`
   .room-inline[open] .settings-edit-icon { color:var(--robot-accent); }
   .inline-settings { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:10px 0 16px; }
   .inline-setting { display:grid;gap:6px;min-width:0;font-size:12px;color:var(--secondary-text-color); }
-  .inline-setting select { width:100%;min-width:0;min-height:44px;border-radius:14px;border:1px solid var(--divider-color);background:var(--robot-surface);color:var(--primary-text-color);font:inherit;padding:8px; }
+  .inline-setting select { width:100%;min-width:0;min-height:44px;border-radius:14px;border:1px solid var(--divider-color);background:var(--robot-surface);color:var(--primary-text-color);font:inherit;font-size:16px;padding:8px; }
   .inline-setting select:focus-visible { outline:2px solid var(--robot-accent); }
   .preferences-panel { padding:0 16px; }
   .default-settings { min-width:0; }
@@ -245,7 +238,7 @@ export const cardStyles = css`
   .sequence-activity[open] > summary .activity-chevron { transform:rotate(180deg); }
   .activity-body { border-top:1px solid color-mix(in srgb,var(--primary-text-color) 7%,transparent);padding-bottom:12px; }
   .activity-run-select { display:block;margin-top:12px; }
-  .activity-run-select select { width:100%;min-height:44px;min-width:0;padding:8px 10px;border-radius:12px;border:1px solid var(--divider-color);font:inherit;font-size:12px;background:var(--robot-surface);color:inherit; }
+  .activity-run-select select { width:100%;min-height:44px;min-width:0;padding:8px 10px;border-radius:12px;border:1px solid var(--divider-color);font:inherit;font-size:16px;background:var(--robot-surface);color:inherit; }
   .activity-run-select select:focus-visible { outline:3px solid var(--robot-accent);outline-offset:2px; }
   .activity-meta { display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;padding:12px 0;font-size:11px;color:var(--robot-muted);font-variant-numeric:tabular-nums; }
   .activity-rooms { display:grid;gap:14px;list-style:none;margin:0;padding:0; }

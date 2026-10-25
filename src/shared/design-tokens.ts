@@ -1,3 +1,4 @@
+// VENDORED from bitosome/space-hub-card design 1.0.0. See DESIGN_PROVENANCE.json.
 import { css, CSSResultGroup, unsafeCSS } from 'lit';
 
 /**

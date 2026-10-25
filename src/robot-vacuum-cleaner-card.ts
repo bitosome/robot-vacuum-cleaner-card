@@ -13,18 +13,19 @@ import {renderRoomSettings,renderSettingPills,settingsSummary} from './room-sett
 import {dockServiceLabel, passiveMopDrying, returningToDock} from './robot-status';
 import { panelKeys, renderDevicePanel, type DevicePanel } from './device-panel';
 import { designTokens } from './shared/design-tokens';
+import { familyStyles, headerStyles, dialogStyles, showFamilyDialog, closeFamilyDialog, disposeFamilyDialog, UI_ICONS } from './shared/card-primitives';
 import { buildGlow, type PulseColors } from './shared/glow';
 import { cardStyles } from './styles/card';
 import { available, BAD, humanize, numeric, QUEUE_ACTIVE, validateConfig, type CardConfig, type EntityState, type Hass, type RoomConfig } from './types';
 
 const BLUE: PulseColors = {weak:'rgba(66,165,245,.12)',strong:'rgba(66,165,245,.26)'};
 const ACCENT: PulseColors = {weak:'color-mix(in srgb,var(--robot-accent) 10%,transparent)',strong:'color-mix(in srgb,var(--robot-accent) 22%,transparent)'};
-const icon = (name: string) => html`<ha-icon .icon=${name}></ha-icon>`;
+const icon = (name: string) => html`<ha-icon .icon=${name} aria-hidden="true"></ha-icon>`;
 const quietError = (state?: string) => !state || ['none','ok','no_error','0','unknown','unavailable',''].includes(state.toLowerCase());
 
 @customElement('robot-vacuum-cleaner-card')
 export class RobotVacuumCleanerCard extends LitElement {
-  static styles = [designTokens, cardStyles];
+  static styles = [designTokens, cardStyles, familyStyles, headerStyles, dialogStyles];
   @property({attribute:false}) hass?: Hass;
   @state() private config?: CardConfig;
   @state() private selected: string[] = [];
@@ -102,7 +103,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   private barrierTimer?: ReturnType<typeof setTimeout>;
   private requestTimer?: ReturnType<typeof setTimeout>;
 
-  setConfig(config: CardConfig) { if (this.config?.entity !== config.entity) { this.cancelSort(); clearTimeout(this.autoSaveTimer); this.autoSaveError=''; this.preferencesSaveError=''; this.autoSaveKey=''; this.roomOrder=[]; clearTimeout(this.queueEditTimer); this.queueEditAccepted=undefined; this.queueDraft=undefined; this.savingQueue=false; this.queueEditMessage=''; this.closeRecoveryPrompt(); this.configEpoch++; this.historyRunId=undefined; this.historyRecords=[]; this.historyFor=''; this.historyRequest++; this.historyLoading=false; this.historyError=''; this.capsRequest++; this.capsLoading=false; this.refreshPending=false; this.mapState=undefined; this.savingPreset=false; this.savingPreferences=false; this.deviceSending=false; clearTimeout(this.requestTimer); this.request=undefined; this.commandError=''; this.feedback=''; this.capsFor=''; this.caps=undefined; this.savedPreset=undefined; this.preferencesDirty=false; this.preferencesRevision=0; this.preferencesFetchedRevision=0; this.preferencesMessage=''; this.presetFeedback=''; this.manualSelected=[]; this.roomSetups={}; this.planSetups={}; this.planDraftTouched=false; this.loadedPlanSignature=''; this.planBaseRevision=0; this.savedPlanFetchedRevision=0; this.setup={mode:'vacuum_mop',repeat:1}; this.planEdited=false; this.source='rooms'; } this.config = validateConfig(config); this.selected = []; }
+  setConfig(config: CardConfig) { if (this.config?.entity !== config.entity) { this.disposeDialogs(); this.cancelSort(); clearTimeout(this.autoSaveTimer); this.autoSaveError=''; this.preferencesSaveError=''; this.autoSaveKey=''; this.roomOrder=[]; clearTimeout(this.queueEditTimer); this.queueEditAccepted=undefined; this.queueDraft=undefined; this.savingQueue=false; this.queueEditMessage=''; this.closeRecoveryPrompt(); this.configEpoch++; this.historyRunId=undefined; this.historyRecords=[]; this.historyFor=''; this.historyRequest++; this.historyLoading=false; this.historyError=''; this.capsRequest++; this.capsLoading=false; this.refreshPending=false; this.mapState=undefined; this.savingPreset=false; this.savingPreferences=false; this.deviceSending=false; clearTimeout(this.requestTimer); this.request=undefined; this.commandError=''; this.feedback=''; this.capsFor=''; this.caps=undefined; this.savedPreset=undefined; this.preferencesDirty=false; this.preferencesRevision=0; this.preferencesFetchedRevision=0; this.preferencesMessage=''; this.presetFeedback=''; this.manualSelected=[]; this.roomSetups={}; this.planSetups={}; this.planDraftTouched=false; this.loadedPlanSignature=''; this.planBaseRevision=0; this.savedPlanFetchedRevision=0; this.setup={mode:'vacuum_mop',repeat:1}; this.planEdited=false; this.source='rooms'; } this.config = validateConfig(config); this.selected = []; }
   getCardSize() { return 8; }
   getGridOptions() { return { columns: 12, min_columns: 6, rows: 9, min_rows: 6 }; }
   static async getConfigElement() { await import('./editor'); return document.createElement('robot-vacuum-cleaner-card-editor'); }
@@ -110,7 +111,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     return {type:'custom:robot-vacuum-cleaner-card',entity:Object.keys(hass?.states ?? {}).find(id => id.startsWith('vacuum.')) ?? 'vacuum.robot',rooms:[]};
   }
   connectedCallback() { super.connectedCallback(); void this.loadSortable(); void this.readHistory(); }
-  disconnectedCallback() { this.cancelSort(); super.disconnectedCallback(); this.historyRequest++; this.historyFor=''; this.historyLoading=false; clearTimeout(this.requestTimer); clearTimeout(this.barrierTimer); clearTimeout(this.queueEditTimer); this.queueEditAccepted=undefined; this.savingQueue=false; this.request = undefined; }
+  disconnectedCallback() { this.disposeDialogs(); this.cancelSort(); super.disconnectedCallback(); this.historyRequest++; this.historyFor=''; this.historyLoading=false; clearTimeout(this.requestTimer); clearTimeout(this.barrierTimer); clearTimeout(this.queueEditTimer); this.queueEditAccepted=undefined; this.savingQueue=false; this.request = undefined; }
   private entity(id?: string) { return id ? this.hass?.states[id] : undefined; }
   private get vacuum() {
     const native=this.entity(this.config?.entity);
@@ -705,14 +706,20 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (!this.continuationReady || this.dispatchBlocked || !this.recoveryContext) return;
     if (!this.waterRefillConfirmation) { await this.command('continue_sequence'); return; }
     this.recoveryPrompt={kind:'refill',...this.recoveryContext,action:this.continuationAction};
+    const prompt=this.recoveryPrompt, epoch=this.configEpoch;
     await this.updateComplete;
-    this.renderRoot.querySelector<HTMLDialogElement>('.recovery-dialog')?.showModal();
+    if (!this.isConnected || this.configEpoch!==epoch || this.recoveryPrompt!==prompt) return;
+    const dialog=this.renderRoot.querySelector<HTMLDialogElement>('.recovery-dialog');
+    if (dialog) showFamilyDialog(dialog, {opener:this.renderRoot.querySelector<HTMLElement>(`[data-action="${prompt.kind==='restart'?'resume-after-restart':'continue-sequence'}"]`)??undefined, initialFocus:dialog.querySelector<HTMLElement>('[data-action^="cancel-"]'), onBackdrop:()=>this.closeRecoveryPrompt()});
   }
   private closeRecoveryPrompt() {
-    const action=this.recoveryPrompt?.kind==='restart'?'resume-after-restart':'continue-sequence';
     this.recoveryPrompt=undefined;
-    this.renderRoot?.querySelector<HTMLDialogElement>('.recovery-dialog')?.close();
-    this.renderRoot?.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)?.focus();
+    closeFamilyDialog(this.renderRoot?.querySelector<HTMLDialogElement>('.recovery-dialog'));
+  }
+  private disposeDialogs() {
+    this.renderRoot?.querySelectorAll<HTMLDialogElement>('dialog').forEach(disposeFamilyDialog);
+    this.panel=undefined;
+    this.recoveryPrompt=undefined;
   }
   private async confirmWaterRefilled() {
     const prompt=this.recoveryPrompt,context=this.recoveryContext;
@@ -725,8 +732,11 @@ export class RobotVacuumCleanerCard extends LitElement {
   private async resumeAfterRestart() {
     if (!this.restartResumeReady || this.dispatchBlocked || !this.recoveryContext) return;
     this.recoveryPrompt={kind:'restart',...this.recoveryContext,action:'resume_now',token:this.restartResumeToken};
+    const prompt=this.recoveryPrompt, epoch=this.configEpoch;
     await this.updateComplete;
-    this.renderRoot.querySelector<HTMLDialogElement>('.recovery-dialog')?.showModal();
+    if (!this.isConnected || this.configEpoch!==epoch || this.recoveryPrompt!==prompt) return;
+    const dialog=this.renderRoot.querySelector<HTMLDialogElement>('.recovery-dialog');
+    if (dialog) showFamilyDialog(dialog, {opener:this.renderRoot.querySelector<HTMLElement>(`[data-action="${prompt.kind==='restart'?'resume-after-restart':'continue-sequence'}"]`)??undefined, initialFocus:dialog.querySelector<HTMLElement>('[data-action^="cancel-"]'), onBackdrop:()=>this.closeRecoveryPrompt()});
   }
   private async confirmRestartResume() {
     const prompt=this.recoveryPrompt,context=this.recoveryContext;
@@ -931,7 +941,7 @@ export class RobotVacuumCleanerCard extends LitElement {
         : 'Your sequence and completed passes are kept.';
       const blocked=this.dispatchBlocked || !this.robotReady || !this.queueReady || !this.hass?.services?.robot_cleaner_queue?.control || !this.continuationReady;
       return html`<section class="recovery-note" aria-label="Retained cleaning sequence"><div class="recovery-heading"><strong>${this.observingRetainedJob?'Sequence tracking paused':'Continue this sequence'}</strong><span>${this.completed} / ${this.stages.length} passes done</span></div><p>${description}</p>
-        <button class="action primary" data-action="continue-sequence" ?disabled=${blocked} @click=${()=>this.continueRetained()}>${icon(this.continuationAction==='retry_stage'?'mdi:restart':'mdi:play')}${this.request?.kind==='continue_sequence'?'Continuing…':this.continuationLabel}</button>
+        <button class="action family-action primary" data-action="continue-sequence" ?disabled=${blocked} @click=${()=>this.continueRetained()}>${icon(this.continuationAction==='retry_stage'?'mdi:restart':'mdi:play')}${this.request?.kind==='continue_sequence'?'Continuing…':this.continuationLabel}</button>
         ${!this.continuationReady?html`<p class="recovery-hint" role="status">${this.continuationReason}</p>`:nothing}
         ${this.continuationReady&&this.barrierActive?html`<p class="recovery-hint" role="status">${this.barrierNotice}</p>`:nothing}
         ${failed?html`<details class="recovery-details"><summary>Interruption details</summary><p>${failed}</p></details>`:nothing}
@@ -954,11 +964,11 @@ export class RobotVacuumCleanerCard extends LitElement {
       const servicing = this.dockServicing;
       const canPause = !this.restartRecovering && !this.continuationSupported && (paused ? !this.restartRecordPending && this.feature(8192) && !this.chargingBreak : this.feature(4) && this.vacuum?.state === 'cleaning' && !servicing);
       return html`<div class="actions">
-        ${this.restartResumeSupported?html`<button class="action primary" data-action="resume-after-restart" ?disabled=${busy || !this.restartResumeReady || !this.hass?.services?.robot_cleaner_queue?.control} @click=${()=>this.resumeAfterRestart()}>${icon('mdi:play')}${this.request?.kind==='resume_now'?'Resuming…':this.vacuum?.state==='docked'?'Continue now':'Resume robot'}</button>`:nothing}
-        ${this.resumeNowSupported?html`<button class="action primary" data-action="resume-now" ?disabled=${busy || !this.resumeNowReady || !this.hass?.services?.robot_cleaner_queue?.control} @click=${()=>this.command('resume_now')}>${icon('mdi:play')}${this.request?.kind==='resume_now'?'Continuing…':'Continue now'}</button>`:nothing}
-        ${canPause ? html`<button class="action primary" data-action=${paused ? 'resume':'pause'} ?disabled=${busy || (paused && !this.feature(8192))} @click=${()=>this.command(paused ? 'resume':'pause')}>${icon(paused ? 'mdi:play':'mdi:pause')}${paused ? 'Resume':'Pause'}</button>`:nothing}
+        ${this.restartResumeSupported?html`<button class="action family-action primary" data-action="resume-after-restart" ?disabled=${busy || !this.restartResumeReady || !this.hass?.services?.robot_cleaner_queue?.control} @click=${()=>this.resumeAfterRestart()}>${icon('mdi:play')}${this.request?.kind==='resume_now'?'Resuming…':this.vacuum?.state==='docked'?'Continue now':'Resume robot'}</button>`:nothing}
+        ${this.resumeNowSupported?html`<button class="action family-action primary" data-action="resume-now" ?disabled=${busy || !this.resumeNowReady || !this.hass?.services?.robot_cleaner_queue?.control} @click=${()=>this.command('resume_now')}>${icon('mdi:play')}${this.request?.kind==='resume_now'?'Continuing…':'Continue now'}</button>`:nothing}
+        ${canPause ? html`<button class="action family-action primary" data-action=${paused ? 'resume':'pause'} ?disabled=${busy || (paused && !this.feature(8192))} @click=${()=>this.command(paused ? 'resume':'pause')}>${icon(paused ? 'mdi:play':'mdi:pause')}${paused ? 'Resume':'Pause'}</button>`:nothing}
         ${dockAction(!canPause)}
-        ${this.feature(8) && this.modernController && !servicing ? html`<button class="action secondary" data-action="stop" ?disabled=${busy} @click=${()=>this.command('stop')}>${icon('mdi:stop')}${this.chargingBreak?'Stop sequence':'Stop'}</button>`:nothing}
+        ${this.feature(8) && this.modernController && !servicing ? html`<button class="action family-action secondary" data-action="stop" ?disabled=${busy} @click=${()=>this.command('stop')}>${icon('mdi:stop')}${this.chargingBreak?'Stop sequence':'Stop'}</button>`:nothing}
       </div>${this.restartResumeSupported&&!this.restartResumeReady&&this.queue?.attributes.restart_resume_reason?html`<p class="hint" role="status">${this.queue.attributes.restart_resume_reason}</p>`:nothing}${this.resumeNowSupported&&!this.resumeNowReady&&this.queue?.attributes.resume_now_reason?html`<p class="hint" role="status">${this.queue.attributes.resume_now_reason}</p>`:nothing}${this.barrierActive && !this.blocked ? html`<p class="hint" role="status">${this.barrierNotice}</p>`:nothing}`;
     }
     const selected = this.selection.length;
@@ -966,14 +976,17 @@ export class RobotVacuumCleanerCard extends LitElement {
     const startable = this.companionReady && this.validSelection;
     const disabled = !selected || !this.canStart || !startable || (this.manual && !this.manualReady)
       || (selected > 0 && (!selectedAvailable || this.selectedRooms.length !== this.manualSelected.length));
-    return html`<div class="actions"><button class="action primary" data-action="start" ?disabled=${disabled} @click=${()=>this.command('start_manual')}>${icon('mdi:play')}${this.dispatchBlocked ? waiting : this.dockServicing ? 'Waiting for dock care' : selected>1 ? `Start sequence · ${selected} rooms` : selected===1 ? 'Clean 1 room' : 'Select rooms to clean'}</button>${dockAction()}</div>`;
+    return html`<div class="actions"><button class="action family-action primary" data-action="start" ?disabled=${disabled} @click=${()=>this.command('start_manual')}>${icon('mdi:play')}${this.dispatchBlocked ? waiting : this.dockServicing ? 'Waiting for dock care' : selected>1 ? `Start sequence · ${selected} rooms` : selected===1 ? 'Clean 1 room' : 'Select rooms to clean'}</button>${dockAction()}</div>`;
   }
   private async openPanel(panel:DevicePanel) {
+    const epoch=this.configEpoch;
     this.panel=panel; this.commandError=''; await this.updateComplete;
-    this.renderRoot.querySelector<HTMLDialogElement>('.device-dialog')?.showModal();
+    if (!this.isConnected || this.configEpoch!==epoch || this.panel!==panel) return;
+    const dialog=this.renderRoot.querySelector<HTMLDialogElement>('.device-dialog');
+    if (dialog) showFamilyDialog(dialog,{opener:this.renderRoot.querySelector<HTMLElement>(`[data-panel="${panel}"]`)??undefined,initialFocus:dialog.querySelector<HTMLElement>('.family-icon-button'),onBackdrop:()=>this.closePanel()});
     await this.readCapabilities();
   }
-  private closePanel() { this.renderRoot.querySelector<HTMLDialogElement>('.device-dialog')?.close(); this.panel=undefined; }
+  private closePanel() { closeFamilyDialog(this.renderRoot.querySelector<HTMLDialogElement>('.device-dialog')); this.panel=undefined; }
   private async deviceCommand(control:string,value:string|number='') {
     if (!this.hass || !this.config || this.deviceSending || (control!=='locate' && (this.blocked || this.queueActive))) return;
     const epoch=this.configEpoch, vacuum=this.config.entity;
@@ -985,7 +998,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   private renderUtilities() {
     if(!this.modernController || !this.hass?.services?.robot_cleaner_queue?.device_control) return nothing;
     const entities=this.caps?.device_entities??{};
-    const panels: Array<[DevicePanel,string,string]>=[['dock','Dock','mdi:ev-station'],['map','Map','mdi:map-outline'],['settings','Settings','mdi:cog-outline'],['care','Care','mdi:tools'],['status','Details','mdi:information-outline']];
+    const panels: Array<[DevicePanel,string,string]>=[['dock','Dock','mdi:ev-station'],['map','Map','mdi:map-outline'],['settings','Settings',UI_ICONS.settings],['care','Care','mdi:tools'],['status','Details',UI_ICONS.details]];
     const visiblePanels=panels.filter(([panel])=>panelKeys(panel,entities,this.hass!).length);
     const canLocate=this.feature(512);
     const count=visiblePanels.length+(canLocate?1:0);
@@ -1028,11 +1041,11 @@ export class RobotVacuumCleanerCard extends LitElement {
   private renderPreferences() {
     const canSave=!!this.hass?.services?.robot_cleaner_queue?.save_preferences;
     const dirty=this.preferencesDirty||this.savingPreferences;
-    const save=()=>html`<button class="action" data-action="save-preferences" title="Save shared defaults and room settings for everyone" ?disabled=${this.blocked||!this.preferencesDirty||!this.caps?.supported} @click=${()=>this.savePreferences()}>${icon('mdi:content-save-outline')}${this.savingPreferences?'Saving…':'Save room settings'}</button>`;
+    const save=()=>html`<button class="action family-action" data-action="save-preferences" title="Save shared defaults and room settings for everyone" ?disabled=${this.blocked||!this.preferencesDirty||!this.caps?.supported} @click=${()=>this.savePreferences()}>${icon('mdi:content-save-outline')}${this.savingPreferences?'Saving…':'Save room settings'}</button>`;
     return html`<section class="surface preferences-panel" aria-label="Room defaults and shared settings">
       <details class="default-settings"><summary><span class="defaults-heading">${icon('mdi:tune-variant')}<span class="defaults-title">Room defaults</span><span class="defaults-mode">${setupSummary(this.setup)}</span>${icon('mdi:chevron-down')}</span></summary>
         ${this.caps?.supported ? renderRoomSettings({id:'defaults',name:'default settings',setup:this.setup,caps:this.caps,disabled:this.queueActive||this.blocked||this.jobActive,change:patch=>this.editSetup(undefined,patch)}):html`<p class="hint">${this.capsError||'Reading cleaning capabilities…'}</p>`}
-        <div class="defaults-actions">${this.roomMode?html`<button class="action" data-action="apply-defaults" title="Replace custom settings for all rooms on the current map; keep the selected order" ?disabled=${!this.canApplyDefaults} @click=${()=>this.applyDefaultsToRooms()}>${icon('mdi:select-all')}Apply to all rooms</button>`:nothing}${canSave&&!dirty&&!this.sharedPlan?save():nothing}
+        <div class="defaults-actions">${this.roomMode?html`<button class="action family-action" data-action="apply-defaults" title="Replace custom settings for all rooms on the current map; keep the selected order" ?disabled=${!this.canApplyDefaults} @click=${()=>this.applyDefaultsToRooms()}>${icon('mdi:select-all')}Apply to all rooms</button>`:nothing}${canSave&&!dirty&&!this.sharedPlan?save():nothing}
           ${canSave?html`<button class="text-button" data-action="reload-preferences" ?disabled=${this.blocked||this.capsLoading} @click=${()=>this.reloadPreferences()}>Reload shared settings</button>`:nothing}
           <button class="text-button" data-action="refresh-rooms" ?disabled=${this.capsLoading||this.blocked} @click=${()=>this.readCapabilities()}>Refresh rooms</button></div>
         <p class="hint">${this.roomMode?'Apply to all replaces custom settings on this map. ':''}${this.sharedPlan?'Changes save automatically for everyone.':'Save room settings to share them. Save plan updates the wall switch.'}</p>
@@ -1110,7 +1123,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     const glow = buildGlow(BLUE,'pulse',cleaning);
     return html`<div class="outer"><ha-card><div class="root">
       <div class="tile-wrap"><div class="glow-under" style=${glow.style}>${glow.overlay}</div><section class="surface hero" aria-label="Robot status">
-        <div class="identity"><span class="robot-icon">${icon('mdi:robot-vacuum')}</span><div class="identity-text"><div class="name">${this.config.name ?? this.vacuum?.attributes.friendly_name ?? 'Robot'}</div></div>${battery!==undefined ? html`<span class="battery" aria-label=${`Battery ${battery} percent`}>${icon(this.vacuum?.state==='docked'?'mdi:battery-charging':'mdi:battery')} ${battery}%</span>`:nothing}</div>
+        <div class="identity family-header"><span class="robot-icon family-brand">${icon('mdi:robot-vacuum')}</span><div class="identity-text family-identity"><div class="name family-title">${this.config.name ?? this.vacuum?.attributes.friendly_name ?? 'Robot'}</div></div>${battery!==undefined ? html`<span class="battery" aria-label=${`Battery ${battery} percent`}>${icon(this.vacuum?.state==='docked'?'mdi:battery-charging':'mdi:battery')} ${battery}%</span>`:nothing}</div>
         <h2>${this.headline()}</h2><p class="subline">${this.subline()}</p>
         ${sequence ? html`<div class="progress-summary" title=${sequence.valueText}><span>${sequenceLabel}</span><strong>${sequence.label}</strong></div><div class="progress" role="progressbar" aria-label=${this.phase==='attention'?`${sequenceLabel} progress`:'Rooms completed'} aria-valuenow=${Math.round(sequence.roomPercent)} aria-valuemin="0" aria-valuemax="100" aria-valuetext=${sequence.valueText}><span style=${`width:${sequence.roomPercent}%`}></span></div>${sequence.dockLabel?html`<span class="metric-caption" role="status">${sequence.dockLabel}</span>`:nothing}`:nothing}
         ${this.jobActive && !this.dockServicing && (!this.queueActive || !this.floorCleaningComplete) && (area || time || (!this.queueActive&&progress!==undefined)) ? html`<div class="pills" aria-label=${this.queueActive&&!this.restartRecovering?'Current cleaning pass':'Current clean'}>${this.queueActive?html`<span class="metric-caption">${this.restartRecovering?'Robot so far':this.chargingBreak?'Pass so far':'Current pass'}</span>`:nothing}${area?html`<span class="pill">${icon('mdi:ruler-square')}${area}</span>`:nothing}${time?html`<span class="pill">${icon('mdi:timer-outline')}${time}</span>`:nothing}${!this.queueActive&&progress!==undefined?html`<span class="pill">${Math.round(progress)}%</span>`:nothing}</div>`:nothing}
@@ -1132,28 +1145,29 @@ export class RobotVacuumCleanerCard extends LitElement {
       ${this.request ? html`<div class="note">${this.feedback}</div>`:nothing}
       ${!this.queueReady && (this.rooms.length || this.config?.require_queue) ? html`<div class="note">${this.config?.require_queue ? 'The shared cleaning controller is unavailable. Controls will return when it reconnects.' : 'Install and configure the Home Assistant queue companion to clean rooms in order. Select rooms after the controller reconnects.'}</div>`:nothing}
       ${!this.queueDraft&&!this.queueActive&&!this.jobActive?html`<section class="surface plan-section" aria-label="Cleaning plan settings">
-      ${!this.sharedPlan&&this.hass.services?.robot_cleaner_queue?.save_preset ? html`<section class="plan-bar" aria-label="Saved cleaning plan"><div class="plan-toolbar"><span class="plan-label">${!this.savedPreset?'Wall switch':this.presetFeedback && !this.selection.length?'Review saved plan':this.planChanged&&!this.queueActive?'Unsaved changes':'Saved plan'}</span>${this.savedPreset && !this.queueActive && (this.planChanged||this.presetFeedback) ? html`<button class="text-button" data-action="load-preset" title="Restore the saved wall-switch plan" ?disabled=${this.blocked||this.queueActive||this.jobActive} @click=${()=>this.loadPreset()}>Reload</button>`:nothing}<button class="action" data-action="save-preset" ?disabled=${!this.canSavePreset} @click=${()=>this.savePreset()}>${icon('mdi:content-save-outline')}${this.savingPreset?'Saving…':'Save plan'}</button></div>${this.presetFeedback ? html`<p class="hint" role="status">${this.presetFeedback}</p>`:nothing}</section>`:nothing}
+      ${!this.sharedPlan&&this.hass.services?.robot_cleaner_queue?.save_preset ? html`<section class="plan-bar" aria-label="Saved cleaning plan"><div class="plan-toolbar"><span class="plan-label">${!this.savedPreset?'Wall switch':this.presetFeedback && !this.selection.length?'Review saved plan':this.planChanged&&!this.queueActive?'Unsaved changes':'Saved plan'}</span>${this.savedPreset && !this.queueActive && (this.planChanged||this.presetFeedback) ? html`<button class="text-button" data-action="load-preset" title="Restore the saved wall-switch plan" ?disabled=${this.blocked||this.queueActive||this.jobActive} @click=${()=>this.loadPreset()}>Reload</button>`:nothing}<button class="action family-action" data-action="save-preset" ?disabled=${!this.canSavePreset} @click=${()=>this.savePreset()}>${icon('mdi:content-save-outline')}${this.savingPreset?'Saving…':'Save plan'}</button></div>${this.presetFeedback ? html`<p class="hint" role="status">${this.presetFeedback}</p>`:nothing}</section>`:nothing}
       ${this.sharedPlan?html`<div class="plan-toolbar" role="status"><span class="plan-label">${this.savingPreset?'Saving…':this.autoSaveError?'Plan not saved':this.planDraftTouched&&this.planChanged?'Changes pending':'Shared plan'}</span>${this.autoSaveError?html`<button class="text-button" @click=${()=>{this.autoSaveError='';void this.savePreset();}}>Retry</button><button class="text-button" @click=${()=>{this.planDraftTouched=false;this.autoSaveError='';this.loadedPlanSignature='';void this.readCapabilities();}}>Reload shared plan</button>`:nothing}</div>`:nothing}
       ${this.renderPreferences()}
       </section>`:nothing}
       <section class="room-section" aria-label="Rooms"><div class="section-heading"><h3>${this.queueDraft?'Edit remaining':this.queueActive?'Cleaning sequence':runs.length?'Next plan':'Rooms'}</h3>${this.queueDraft?html`<button class="text-button" data-action="cancel-queue-edit" ?disabled=${this.savingQueue} @click=${()=>this.cancelQueueEdit()}>Cancel</button>`:this.queueEditSupported?html`<button class="text-button" data-action="edit-queue" title=${this.queueEditSnapshot?.reason||'Change rooms that have not started'} ?disabled=${!this.canEditQueue} @click=${()=>this.beginQueueEdit()}>Edit remaining</button>`:!this.queueActive?html`<button class="text-button" data-action="select-all" ?disabled=${this.blocked||!this.rooms.length} @click=${()=>{this.planEdited=true;this.setSelection(this.selection.length===this.rooms.length?[]:this.orderedRooms.map(room=>room.id));}}>${this.selection.length===this.rooms.length&&this.rooms.length?'Clear selection':'Select all'}</button>`:nothing}</div>
         ${this.renderQueueEditStatus()}
         <span class="sr-only" id="room-reorder-help">${this.queueDraft?'Drag to reorder remaining rooms, or use the arrow keys, Home and End. Started rooms stay fixed. Toggle remaining rooms, then apply changes.':this.queueActive?'Drag or toggle rooms that have not started, then apply changes. Started rooms stay fixed.':'Drag to reorder rooms, or use the arrow keys, Home and End. Toggle rooms to include them, then start the sequence.'}</span><ha-sortable .disabled=${!this.sortableReady||!this.canArrangeRooms} .handleSelector=${".room-drag:not(:disabled)"} .draggableSelector=${"[data-room-item]"} @drag-start=${()=>this.sortStart()} @item-moved=${(event:CustomEvent<{oldIndex:number;newIndex:number}>)=>this.sortMoved(event)} @drag-end=${()=>void this.sortEnd()}><div class="rooms">${repeat(this.orderedRooms,room=>room.id,room=>this.renderRoom(room))}</div></ha-sortable>
-        ${this.queueDraft?html`<div class="queue-edit-footer"><span>Saved plan stays unchanged</span><button class="action primary" data-action="apply-queue-edit" ?disabled=${!this.canChangeQueueDraft||!this.validQueueDraft||!queueDraftChanged(this.queueDraft)} @click=${()=>this.applyQueueEdit()}>${icon('mdi:check')}${this.savingQueue?'Updating…':'Apply changes'}</button></div>`:nothing}
+        ${this.queueDraft?html`<div class="queue-edit-footer"><span>Saved plan stays unchanged</span><button class="action family-action primary" data-action="apply-queue-edit" ?disabled=${!this.canChangeQueueDraft||!this.validQueueDraft||!queueDraftChanged(this.queueDraft)} @click=${()=>this.applyQueueEdit()}>${icon('mdi:check')}${this.savingQueue?'Updating…':'Apply changes'}</button></div>`:nothing}
         ${!this.rooms.length ? html`<p class="note">${this.roomMode ? 'The robot reports no rooms on its current map.' : this.manual ? 'No mapped areas available. Map areas to this robot in Home Assistant.' : 'Room cleaning needs the updated queue companion and an available robot map.'}</p>`:nothing}
         ${this.manual && this.selection.some(id=>!this.rooms.some(room=>room.id===id)) ? html`<p class="note">${this.roomMode ? 'A room in your selection is no longer on this map.' : 'An area in your selection is no longer mapped.'} Clear the selection and choose the available rooms again.</p>`:nothing}
 
       </section>
       <div class="sr-only" role="status" aria-live="polite">${this.feedback}</div>
     </div></ha-card></div>
-    <dialog class="setup-dialog device-dialog" aria-labelledby="device-title" @cancel=${()=>{this.panel=undefined;}} @close=${()=>{this.panel=undefined;}}>${this.panel&&this.hass ? renderDevicePanel({panel:this.panel,hass:this.hass,entities:this.caps?.device_entities??{},busy:this.blocked||this.queueActive||(this.phase==='attention'&&!this.recoveryReady),motionBlocked:this.barrierActive||!!this.queue?.attributes.pending_command||(this.phase==='attention'&&!this.recoveryReady),motionReason:this.phase==='attention'?this.recoveryReason:this.barrierActive?this.barrierNotice:'Waiting for the robot to confirm the previous command.',robotDocked:this.vacuum?.state==='docked'&&!this.jobActive,waterEmpty:this.waterEmpty,fault:!!this.fault&&this.fault!=='Water empty',error:this.commandError,pending:this.deviceSending||this.phase==='controlling',close:()=>this.closePanel(),send:(key,value)=>void this.deviceCommand(key,value)}):nothing}</dialog>
-    <dialog class="recovery-dialog" aria-labelledby="recovery-title" aria-describedby="recovery-description" @cancel=${()=>this.closeRecoveryPrompt()} @close=${()=>{this.recoveryPrompt=undefined;}}>${this.recoveryPrompt?html`<div class="recovery-dialog-body">
-      ${this.recoveryPrompt.kind==='restart'?html`<h3 id="recovery-title">Resume the robot’s current job?</h3><p id="recovery-description">The robot has an unfinished job. Resume it now and keep your saved sequence? The remaining rooms will continue only after its cleaning record matches this pass.</p><div class="actions"><button class="action secondary" data-action="cancel-restart-resume" @click=${()=>this.closeRecoveryPrompt()}>Cancel</button><button class="action primary" data-action="confirm-restart-resume" ?disabled=${this.dispatchBlocked||!this.restartResumeReady} @click=${()=>this.confirmRestartResume()}>${icon('mdi:play')}Resume current job</button></div>`
-      :html`<h3 id="recovery-title">Clean-water tank refilled?</h3><p id="recovery-description">The dock still reports an empty clean-water tank. Confirm you filled and reseated it before continuing this pass.</p><div class="actions"><button class="action secondary" data-action="cancel-refill" @click=${()=>this.closeRecoveryPrompt()}>Cancel</button><button class="action primary" data-action="confirm-refill" ?disabled=${this.dispatchBlocked||!this.continuationReady} @click=${()=>this.confirmWaterRefilled()}>${icon('mdi:water-check-outline')}I refilled the tank</button></div>`}
-    </div>`:nothing}</dialog>`;
+    <dialog class="family-dialog ${this.panel==='map'||this.panel==='status'?'long':''} device-dialog" aria-labelledby="device-title" @cancel=${()=>{this.panel=undefined;}} @close=${()=>{this.panel=undefined;}}>${this.panel&&this.hass ? renderDevicePanel({panel:this.panel,hass:this.hass,entities:this.caps?.device_entities??{},busy:this.blocked||this.queueActive||(this.phase==='attention'&&!this.recoveryReady),motionBlocked:this.barrierActive||!!this.queue?.attributes.pending_command||(this.phase==='attention'&&!this.recoveryReady),motionReason:this.phase==='attention'?this.recoveryReason:this.barrierActive?this.barrierNotice:'Waiting for the robot to confirm the previous command.',robotDocked:this.vacuum?.state==='docked'&&!this.jobActive,waterEmpty:this.waterEmpty,fault:!!this.fault&&this.fault!=='Water empty',error:this.commandError,pending:this.deviceSending||this.phase==='controlling',close:()=>this.closePanel(),send:(key,value)=>void this.deviceCommand(key,value)}):nothing}</dialog>
+    <dialog class="family-dialog recovery-dialog" aria-labelledby="recovery-title" aria-describedby="recovery-description" @cancel=${()=>this.closeRecoveryPrompt()} @close=${()=>{this.recoveryPrompt=undefined;}}>${this.recoveryPrompt?html`
+      <header class="family-dialog-header"><h3 id="recovery-title">${this.recoveryPrompt.kind==='restart'?'Resume the robot’s current job?':'Clean-water tank refilled?'}</h3><button type="button" class="family-icon-button" data-action="close-recovery" aria-label="Close recovery confirmation" title="Close" @click=${()=>this.closeRecoveryPrompt()}>${icon(UI_ICONS.close)}</button></header>
+      <div class="family-dialog-body recovery-dialog-body"><p id="recovery-description">${this.recoveryPrompt.kind==='restart'?'The robot has an unfinished job. Resume it now and keep your saved sequence? The remaining rooms will continue only after its cleaning record matches this pass.':'The dock still reports an empty clean-water tank. Confirm you filled and reseated it before continuing this pass.'}</p></div>
+      <footer class="family-dialog-footer actions">${this.recoveryPrompt.kind==='restart'?html`<button class="action family-action secondary" data-action="cancel-restart-resume" @click=${()=>this.closeRecoveryPrompt()}>Cancel</button><button class="action family-action primary" data-action="confirm-restart-resume" ?disabled=${this.dispatchBlocked||!this.restartResumeReady} @click=${()=>this.confirmRestartResume()}>${icon('mdi:play')}Resume current job</button>`:html`<button class="action family-action secondary" data-action="cancel-refill" @click=${()=>this.closeRecoveryPrompt()}>Cancel</button><button class="action family-action primary" data-action="confirm-refill" ?disabled=${this.dispatchBlocked||!this.continuationReady} @click=${()=>this.confirmWaterRefilled()}>${icon('mdi:water-check-outline')}I refilled the tank</button>`}</footer>
+    `:nothing}</dialog>`;
   }
 }
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.16.6');
+console.info('ROBOT VACUUM CLEANER CARD 0.16.7');
