@@ -1,7 +1,7 @@
 # Shared design provenance
 
-- `design-tokens.ts` and `card-primitives.ts`: canonical controlled-vendor copies; [DESIGN_PROVENANCE.json](DESIGN_PROVENANCE.json) records their current source revision, shared design version and SHA-256 hashes. Synchronize with Space Hub `scripts/sync-card-design.mjs`.
-- `glow.ts`: scoped `buildGlow` extraction already used by SmartEVSE Card; canonical implementation is Space Hub Card `src/glow.ts` at `178d53064e6a64b0887da19735f5951bd0db6c97` (v2.0.83). No runtime sibling dependency.
-- Tile stacking and glow masking in `../styles/card.ts` follow Space Hub `src/styles/base.styles.ts`; all glows resolve beneath every tile surface in a single isolated root.
+Presentation and modal behavior are supplied by [`@bitosome/ha-card-ui`](https://github.com/bitosome/ha-card-ui), derived from Space Hub Card's design language and activation glows. The small files in this directory are compatibility exports, not vendored implementations.
 
-Upstream: https://github.com/bitosome/space-hub-card (MIT). Check canonical diffs when synchronizing; do not hand-edit token copies.
+The package is resolved at build time and bundled into the shipped card. There is no runtime network request, shared global custom element, or dependency on another installed card. `package-lock.json` pins the immutable release artifact and integrity. Update the shared package and rebuild this card to adopt changes; do not create local copies of its tokens, glow CSS or dialog controller.
+
+Domain commands, capability checks, drafts, persistence and error policies remain owned by this card. Shared UI must never actuate a device itself. Upstream MIT notices are retained in the repository.

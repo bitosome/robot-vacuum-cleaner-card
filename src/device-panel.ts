@@ -1,9 +1,9 @@
 import {html, nothing} from 'lit';
 import {live} from 'lit/directives/live.js';
-import {dialogClose} from './shared/card-primitives';
+import {notice} from './shared/card-primitives';
 import {available, humanize, numeric, type Hass} from './types';
 export type DevicePanel = 'dock'|'map'|'settings'|'care'|'status';
-const titles = {dock:'Dock',map:'Home map',settings:'Robot settings',care:'Care & maintenance',status:'Robot details'};
+export const panelTitles = {dock:'Dock',map:'Home map',settings:'Robot settings',care:'Care & maintenance',status:'Robot details'};
 const labels:Record<string,string> = {selected_map:'Current map',off_peak:'Off-peak charging',off_peak_start:'Off-peak begins',off_peak_end:'Off-peak ends',mop_attached:'Mops attached',water_box_attached:'Water box attached',clean_water_empty:'Clean-water tank empty',dirty_water_full:'Dirty-water tank full',drying_remaining:'Drying remaining',last_clean_begin:'Last clean started',last_clean_end:'Last clean ended',total_cleaning_time:'Lifetime cleaning time',total_cleaning_area:'Lifetime cleaned area',total_cleaning_count:'Completed cleans',dust_emptying:'Empty dustbin',mop_washing:'Wash mops',mop_drying:'Dry mops',child_lock:'Child lock',dnd:'Do not disturb',dnd_start:'Quiet hours begin',dnd_end:'Quiet hours end',volume:'Voice volume',empty_mode:'Dust emptying mode',main_brush_time_left:'Main brush',side_brush_time_left:'Side brush',filter_time_left:'Filter',sensor_time_left:'Sensors',strainer_time_left:'Dock strainer',cleaning_brush_time_left:'Dock cleaning brush'};
 export const PANEL_KEYS:Record<DevicePanel,string[]> = {dock:['dust_emptying','mop_washing','mop_drying'],map:[],settings:['volume','dnd','dnd_start','dnd_end','child_lock','empty_mode','selected_map','off_peak','off_peak_start','off_peak_end'],status:['mop_attached','water_box_attached','clean_water_empty','dirty_water_full','drying_remaining','last_clean_begin','last_clean_end','total_cleaning_time','total_cleaning_area','total_cleaning_count'],care:['main_brush_time_left','side_brush_time_left','filter_time_left','sensor_time_left','strainer_time_left','cleaning_brush_time_left']};
 export function panelKeys(panel:DevicePanel, entities:Record<string,string>, hass:Hass) {
@@ -12,10 +12,9 @@ export function panelKeys(panel:DevicePanel, entities:Record<string,string>, has
 export function renderDevicePanel(model:{panel:DevicePanel;hass:Hass;entities:Record<string,string>;busy:boolean;motionBlocked?:boolean;motionReason?:string;robotDocked:boolean;waterEmpty:boolean;fault:boolean;error:string;pending:boolean;close():void;send(key:string,value:string|number):void}) {
   const {panel,hass,entities}=model;
   const keys=panelKeys(panel,entities,hass);
-  return html`<header class="family-dialog-header"><h2 id="device-title">${titles[panel]}</h2>${dialogClose('Close controls', model.close)}</header>
-    <div class="family-dialog-body device-body">
-    ${model.error ? html`<p class="error" role="alert">${model.error}</p>`:nothing}
-    ${model.pending ? html`<p class="note" role="status">Waiting for the robot to confirm…</p>`:nothing}
+  return html`<div class="device-body">
+    ${model.error ? notice({message:model.error,tone:'error'}):nothing}
+    ${model.pending ? notice({message:'Waiting for the robot to confirm…'}):nothing}
     ${(panel==='dock' || panel==='settings' && keys.includes('selected_map')) && model.motionBlocked ? html`<p class="note" role="status">${model.motionReason || 'Waiting for the robot to be ready for this action.'}</p>`:nothing}
     ${panel==='dock' && model.waterEmpty ? html`<p class="note">Refill and reseat the clean-water tank to wash mops. Dust emptying and drying do not need water.</p>`:nothing}
     ${panel==='dock' && !model.robotDocked ? html`<p class="note">Dock actions can start when the robot is docked and its cleaning job has finished.</p>`:nothing}
@@ -44,5 +43,5 @@ export function renderDevicePanel(model:{panel:DevicePanel;hass:Hass;entities:Re
     })}
     ${!keys.length ? html`<p class="note">No available controls in this section.</p>`:nothing}
     ${panel==='care' ? html`<p class="hint">Usage-based reminders from the robot. Service the parts before resetting their counters in the Roborock app.</p>`:nothing}
-    </div><footer class="family-dialog-footer setup-footer"><p>${panel==='settings'?'Changes apply to the robot immediately.':'Live state from Home Assistant'}</p></footer>`;
+    </div>`;
 }

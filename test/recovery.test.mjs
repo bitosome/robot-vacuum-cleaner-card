@@ -138,7 +138,7 @@ test('latched water warning requires a refill confirmation without sending a com
   assert.equal(root(card).querySelector('.recovery-dialog').open,true);
   assert.match(root(card).querySelector('.recovery-dialog').textContent,/filled and reseated/);assert.equal(calls.length,0);
   action(card,'cancel-refill').click();await settle(card);assert.equal(calls.length,0);
-  assert.equal(root(card).querySelector('.recovery-dialog').open,false);
+  assert.equal(root(card).querySelector('.recovery-dialog'),null);
   action(card,'continue-sequence').click();await settle(card);action(card,'confirm-refill').click();await settle(card);
   assert.deepEqual(calls.map(call=>call.data),[{command:'continue_sequence',vacuum,run_id:attrs.run_id,current_index:1,water_refilled:true}]);
 });
@@ -286,7 +286,7 @@ test('water recovery uses the shared X and dismisses without altering its retain
   const {card,calls}=await fixture({phase:'attention',job:'off',water:'water_empty',attributes:{robot_job:'off',continuation_action:'retry_stage',continuation_ready:true,continuation_requires_water_ack:true}});
   const opener=action(card,'continue-sequence');
   opener.click();await settle(card);
-  const dialog=root(card).querySelector('.recovery-dialog'),close=action(card,'close-recovery');
+  const dialog=root(card).querySelector('.recovery-dialog'),close=root(card).querySelector('dialog [title=Close]');
   assert.equal(dialog.classList.contains('family-dialog'),true);
   assert.equal(close.querySelector('ha-icon').icon,'mdi:close');
   assert.equal(root(card).activeElement,action(card,'cancel-refill'));

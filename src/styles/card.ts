@@ -6,9 +6,6 @@ export const cardStyles = css`
   .root { display: grid; gap: var(--large-gap); isolation: isolate; }
   .tile-wrap { position: relative; min-width: 0; }
   .surface { position: relative; z-index: 1; border-radius: var(--tile-border-radius); background: color-mix(in srgb,var(--robot-surface) 96%,var(--primary-text-color) 4%); box-shadow: var(--tile-shadow-default); }
-  .glow-under { position: absolute; inset: 0; pointer-events: none; z-index: 0; border-radius: var(--tile-border-radius); }
-  .glow-overlay { position: absolute; inset: -10px -14px -18px; border-radius: inherit; pointer-events: none; mix-blend-mode: screen; opacity: .9; mask-image: linear-gradient(180deg, transparent 0%,rgba(0,0,0,.25) 18px,rgba(0,0,0,.9) 44px,#000 100%); }
-  @keyframes glowPulse { 0%,100% { box-shadow: 0 12px 28px var(--pulse-weak),0 4px 14px var(--pulse-weak); } 50% { box-shadow: 0 18px 40px var(--pulse-strong),0 6px 18px var(--pulse-weak); } }
   button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   button:disabled { cursor: default; opacity: .46; }
   button:focus-visible, summary:focus-visible { outline: 3px solid var(--robot-accent); outline-offset: 3px; }

@@ -148,7 +148,7 @@ Open `http://127.0.0.1:8767/preview/`. The interactive preview is entirely local
 
 ## Design provenance
 
-Space Hub Card is the design reference; the inline room controls follow the NIBE dashboard’s compact surfaces and progressive disclosure. Canonical tokens are vendored from its v2.0.83 commit; the shared glow helper and stacking model are reused. See [provenance](src/shared/PROVENANCE.md). There is no runtime dependency on another local checkout. `scripts/sync-design-tokens.py` updates the exact token source at an explicit commit.
+Space Hub Card is the design reference; the inline room controls follow the NIBE dashboard’s compact surfaces and progressive disclosure. The shared tokens, glow helper, stacking model and modal shell are bundled from `@bitosome/ha-card-ui`. See [provenance](src/shared/PROVENANCE.md). There is no runtime dependency on another local checkout.
 
 This is a public, reusable project. Examples contain no production configuration, household maps or credentials. MIT licensed.
 
@@ -276,9 +276,6 @@ Sorting uses Home Assistant's native `ha-sortable`, loaded through its built-in 
 
 ## Shared design
 
-System controls use the Space Hub card-family primitives vendored in `src/shared/`.
-`DESIGN_PROVENANCE.json` pins their canonical source and hashes; update them using
-Space Hub's `scripts/sync-card-design.mjs`, never by hand. Device and recovery dialogs
-share an MDI X header, safe-area geometry, content scrolling and native focus handling.
-Opening or dismissing a panel does not dispatch or cancel a robot operation.
-Queue execution, persistent shared plans and native HA sorting retain their existing owners.
+The build bundles [`@bitosome/ha-card-ui`](https://github.com/bitosome/ha-card-ui), the versioned Space Hub design and behavior library. Its tokens, under-tile activation glows, MDI controls and shared native dialog controller are included in this card's JavaScript. Home Assistant does not need a separate library resource or another card installed. The release URL and integrity are pinned by `package-lock.json`; see [provenance](src/shared/PROVENANCE.md).
+
+Dock, Map, Settings, Care, Details and recovery confirmations use the shared modal shell. Room planning and per-room settings intentionally stay inline; sequence activity stays collapsed on the main card. Shared autosave, native HA sorting, bound recovery and explicit Apply/Cancel for an active queue retain their domain behavior. Closing a modal does not cancel or duplicate a dispatched command.

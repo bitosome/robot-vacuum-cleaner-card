@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.0 — 2026-10-25
+
+- Bundle `@bitosome/ha-card-ui` for canonical Space Hub glows, reusable notices and the shared modal controller/shell.
+- Unify Dock, Map, Settings, Care, Details and recovery confirmations under the same X, Escape, backdrop and focus lifecycle.
+- Keep room settings and native draggable planning inline, including shared autosave, active queue Apply/Cancel and retained sequence activity.
+- Keep dispatched settings requests independent of dialog navigation; late responses cannot close a reopened view or enable duplicate commands.
+
 ## 0.16.7 — 2026-10-25
 
 - Adopt shared Space Hub header, action and dialog primitives without changing cleaning commands or the native HA sortable adapter.

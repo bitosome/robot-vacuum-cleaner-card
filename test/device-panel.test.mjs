@@ -75,7 +75,7 @@ test('a setting changes its display only when Home Assistant confirms the new va
 test('device panel X restores its opener, keeps native dialog semantics and does not send a command',async()=>{
   const {card,calls}=await fixture();
   const root=card.shadowRoot,dialog=root.querySelector('.device-dialog');
-  const close=root.querySelector('[aria-label="Close controls"]');
+  const close=root.querySelector('[title="Close"]');
   assert.equal(dialog.classList.contains('family-dialog'),true);
   assert.equal(close.querySelector('ha-icon').icon,'mdi:close');
   assert.equal(close.title,'Close');
@@ -93,5 +93,29 @@ test('device panel closes on removal and cannot reopen after a pending render',a
   document.body.append(card);await settle(card);
   root.querySelector('[data-panel="settings"]').click();card.remove();await settle(card);
   assert.equal(dialog.open,false);
+  assert.equal(calls.length,0);
+});
+
+test('telemetry keeps the shared dialog and focus stable; a late setting response cannot close a reopened panel',async()=>{
+  const {card,calls}=await fixture(false),root=card.shadowRoot;
+  const dialog=root.querySelector('dialog'),input=root.querySelector('[data-device="volume"]');
+  input.focus();
+  card.hass={...card.hass,states:{...card.hass.states,'number.robot_volume':entity('45',{min:0,max:100,step:1})}};
+  await settle(card);
+  assert.equal(root.querySelector('dialog'),dialog);
+  assert.equal(root.activeElement,input);
+  let reject;
+  card.hass={...card.hass,callService:()=>new Promise((_,no)=>{reject=no;})};
+  input.value='80';input.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
+  root.querySelector('dialog [title=Close]').click();await settle(card);
+  assert.equal(root.querySelector('dialog'),null);
+  root.querySelector('[data-panel="settings"]').click();await settle(card);
+  const reopened=root.querySelector('dialog');
+  assert.equal(root.querySelector('[data-device="volume"]').disabled,true);
+  reject(new Error('Setting refused'));await settle(card);
+  assert.equal(root.querySelector('dialog'),reopened);
+  assert.equal(root.querySelector('[data-device="volume"]').disabled,false);
+  assert.equal(root.querySelector('[data-device="volume"]').value,'45');
+  assert.match(reopened.textContent,/Setting refused/);
   assert.equal(calls.length,0);
 });

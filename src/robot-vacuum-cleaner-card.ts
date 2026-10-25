@@ -11,10 +11,10 @@ import {cleaningRuns, type CleaningRun} from './run-history';
 import {renderSequenceActivity} from './sequence-activity';
 import {renderRoomSettings,renderSettingPills,settingsSummary} from './room-settings';
 import {dockServiceLabel, passiveMopDrying, returningToDock} from './robot-status';
-import { panelKeys, renderDevicePanel, type DevicePanel } from './device-panel';
+import { panelKeys, renderDevicePanel, panelTitles, type DevicePanel } from './device-panel';
 import { designTokens } from './shared/design-tokens';
-import { familyStyles, headerStyles, dialogStyles, showFamilyDialog, closeFamilyDialog, disposeFamilyDialog, UI_ICONS } from './shared/card-primitives';
-import { buildGlow, type PulseColors } from './shared/glow';
+import { familyStyles, headerStyles, dialogStyles, FamilyFlowController, renderFamilyDialog, componentStyles, UI_ICONS } from './shared/card-primitives';
+import { buildGlow, glowStyles, type PulseColors } from './shared/glow';
 import { cardStyles } from './styles/card';
 import { available, BAD, humanize, numeric, QUEUE_ACTIVE, validateConfig, type CardConfig, type EntityState, type Hass, type RoomConfig } from './types';
 
@@ -25,7 +25,7 @@ const quietError = (state?: string) => !state || ['none','ok','no_error','0','un
 
 @customElement('robot-vacuum-cleaner-card')
 export class RobotVacuumCleanerCard extends LitElement {
-  static styles = [designTokens, cardStyles, familyStyles, headerStyles, dialogStyles];
+  static styles = [designTokens, cardStyles, familyStyles, headerStyles, dialogStyles, componentStyles, glowStyles];
   @property({attribute:false}) hass?: Hass;
   @state() private config?: CardConfig;
   @state() private selected: string[] = [];
@@ -78,6 +78,13 @@ export class RobotVacuumCleanerCard extends LitElement {
   @state() private capsError = '';
   @state() private planEdited = false;
   @state() private panel?: DevicePanel;
+  private flow = new FamilyFlowController<DevicePanel | 'recovery'>(this, {
+    // Device settings apply immediately. Closing the UI never cancels a request.
+    onChange: (route) => {
+      this.panel = route && route !== 'recovery' ? route : undefined;
+      if (route !== 'recovery') this.recoveryPrompt = undefined;
+    },
+  });
   @state() private recoveryPrompt?: {kind:'refill'|'restart';runId:string;index:number;action:string;token?:string};
   @state() private historyRunId?: string;
   @state() private historyRecords: CleaningRun[] = [];
@@ -706,21 +713,10 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (!this.continuationReady || this.dispatchBlocked || !this.recoveryContext) return;
     if (!this.waterRefillConfirmation) { await this.command('continue_sequence'); return; }
     this.recoveryPrompt={kind:'refill',...this.recoveryContext,action:this.continuationAction};
-    const prompt=this.recoveryPrompt, epoch=this.configEpoch;
-    await this.updateComplete;
-    if (!this.isConnected || this.configEpoch!==epoch || this.recoveryPrompt!==prompt) return;
-    const dialog=this.renderRoot.querySelector<HTMLDialogElement>('.recovery-dialog');
-    if (dialog) showFamilyDialog(dialog, {opener:this.renderRoot.querySelector<HTMLElement>(`[data-action="${prompt.kind==='restart'?'resume-after-restart':'continue-sequence'}"]`)??undefined, initialFocus:dialog.querySelector<HTMLElement>('[data-action^="cancel-"]'), onBackdrop:()=>this.closeRecoveryPrompt()});
+    this.flow.open('recovery', this.renderRoot.querySelector<HTMLElement>(`[data-action="${this.recoveryPrompt.kind==='restart'?'resume-after-restart':'continue-sequence'}"]`) ?? undefined);
   }
-  private closeRecoveryPrompt() {
-    this.recoveryPrompt=undefined;
-    closeFamilyDialog(this.renderRoot?.querySelector<HTMLDialogElement>('.recovery-dialog'));
-  }
-  private disposeDialogs() {
-    this.renderRoot?.querySelectorAll<HTMLDialogElement>('dialog').forEach(disposeFamilyDialog);
-    this.panel=undefined;
-    this.recoveryPrompt=undefined;
-  }
+  private closeRecoveryPrompt() { this.flow.close(); this.recoveryPrompt=undefined; }
+  private disposeDialogs() { this.flow.forceClose(false); this.panel=undefined; this.recoveryPrompt=undefined; }
   private async confirmWaterRefilled() {
     const prompt=this.recoveryPrompt,context=this.recoveryContext;
     this.closeRecoveryPrompt();
@@ -732,11 +728,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   private async resumeAfterRestart() {
     if (!this.restartResumeReady || this.dispatchBlocked || !this.recoveryContext) return;
     this.recoveryPrompt={kind:'restart',...this.recoveryContext,action:'resume_now',token:this.restartResumeToken};
-    const prompt=this.recoveryPrompt, epoch=this.configEpoch;
-    await this.updateComplete;
-    if (!this.isConnected || this.configEpoch!==epoch || this.recoveryPrompt!==prompt) return;
-    const dialog=this.renderRoot.querySelector<HTMLDialogElement>('.recovery-dialog');
-    if (dialog) showFamilyDialog(dialog, {opener:this.renderRoot.querySelector<HTMLElement>(`[data-action="${prompt.kind==='restart'?'resume-after-restart':'continue-sequence'}"]`)??undefined, initialFocus:dialog.querySelector<HTMLElement>('[data-action^="cancel-"]'), onBackdrop:()=>this.closeRecoveryPrompt()});
+    this.flow.open('recovery', this.renderRoot.querySelector<HTMLElement>(`[data-action="${this.recoveryPrompt.kind==='restart'?'resume-after-restart':'continue-sequence'}"]`) ?? undefined);
   }
   private async confirmRestartResume() {
     const prompt=this.recoveryPrompt,context=this.recoveryContext;
@@ -979,14 +971,11 @@ export class RobotVacuumCleanerCard extends LitElement {
     return html`<div class="actions"><button class="action family-action primary" data-action="start" ?disabled=${disabled} @click=${()=>this.command('start_manual')}>${icon('mdi:play')}${this.dispatchBlocked ? waiting : this.dockServicing ? 'Waiting for dock care' : selected>1 ? `Start sequence · ${selected} rooms` : selected===1 ? 'Clean 1 room' : 'Select rooms to clean'}</button>${dockAction()}</div>`;
   }
   private async openPanel(panel:DevicePanel) {
-    const epoch=this.configEpoch;
-    this.panel=panel; this.commandError=''; await this.updateComplete;
-    if (!this.isConnected || this.configEpoch!==epoch || this.panel!==panel) return;
-    const dialog=this.renderRoot.querySelector<HTMLDialogElement>('.device-dialog');
-    if (dialog) showFamilyDialog(dialog,{opener:this.renderRoot.querySelector<HTMLElement>(`[data-panel="${panel}"]`)??undefined,initialFocus:dialog.querySelector<HTMLElement>('.family-icon-button'),onBackdrop:()=>this.closePanel()});
+    this.commandError='';
+    this.flow.open(panel, this.renderRoot.querySelector<HTMLElement>(`[data-panel="${panel}"]`) ?? undefined);
     await this.readCapabilities();
   }
-  private closePanel() { closeFamilyDialog(this.renderRoot.querySelector<HTMLDialogElement>('.device-dialog')); this.panel=undefined; }
+  private closePanel() { this.flow.close(); }
   private async deviceCommand(control:string,value:string|number='') {
     if (!this.hass || !this.config || this.deviceSending || (control!=='locate' && (this.blocked || this.queueActive))) return;
     const epoch=this.configEpoch, vacuum=this.config.entity;
@@ -1159,15 +1148,18 @@ export class RobotVacuumCleanerCard extends LitElement {
       </section>
       <div class="sr-only" role="status" aria-live="polite">${this.feedback}</div>
     </div></ha-card></div>
-    <dialog class="family-dialog ${this.panel==='map'||this.panel==='status'?'long':''} device-dialog" aria-labelledby="device-title" @cancel=${()=>{this.panel=undefined;}} @close=${()=>{this.panel=undefined;}}>${this.panel&&this.hass ? renderDevicePanel({panel:this.panel,hass:this.hass,entities:this.caps?.device_entities??{},busy:this.blocked||this.queueActive||(this.phase==='attention'&&!this.recoveryReady),motionBlocked:this.barrierActive||!!this.queue?.attributes.pending_command||(this.phase==='attention'&&!this.recoveryReady),motionReason:this.phase==='attention'?this.recoveryReason:this.barrierActive?this.barrierNotice:'Waiting for the robot to confirm the previous command.',robotDocked:this.vacuum?.state==='docked'&&!this.jobActive,waterEmpty:this.waterEmpty,fault:!!this.fault&&this.fault!=='Water empty',error:this.commandError,pending:this.deviceSending||this.phase==='controlling',close:()=>this.closePanel(),send:(key,value)=>void this.deviceCommand(key,value)}):nothing}</dialog>
-    <dialog class="family-dialog recovery-dialog" aria-labelledby="recovery-title" aria-describedby="recovery-description" @cancel=${()=>this.closeRecoveryPrompt()} @close=${()=>{this.recoveryPrompt=undefined;}}>${this.recoveryPrompt?html`
-      <header class="family-dialog-header"><h3 id="recovery-title">${this.recoveryPrompt.kind==='restart'?'Resume the robot’s current job?':'Clean-water tank refilled?'}</h3><button type="button" class="family-icon-button" data-action="close-recovery" aria-label="Close recovery confirmation" title="Close" @click=${()=>this.closeRecoveryPrompt()}>${icon(UI_ICONS.close)}</button></header>
-      <div class="family-dialog-body recovery-dialog-body"><p id="recovery-description">${this.recoveryPrompt.kind==='restart'?'The robot has an unfinished job. Resume it now and keep your saved sequence? The remaining rooms will continue only after its cleaning record matches this pass.':'The dock still reports an empty clean-water tank. Confirm you filled and reseated it before continuing this pass.'}</p></div>
-      <footer class="family-dialog-footer actions">${this.recoveryPrompt.kind==='restart'?html`<button class="action family-action secondary" data-action="cancel-restart-resume" @click=${()=>this.closeRecoveryPrompt()}>Cancel</button><button class="action family-action primary" data-action="confirm-restart-resume" ?disabled=${this.dispatchBlocked||!this.restartResumeReady} @click=${()=>this.confirmRestartResume()}>${icon('mdi:play')}Resume current job</button>`:html`<button class="action family-action secondary" data-action="cancel-refill" @click=${()=>this.closeRecoveryPrompt()}>Cancel</button><button class="action family-action primary" data-action="confirm-refill" ?disabled=${this.dispatchBlocked||!this.continuationReady} @click=${()=>this.confirmWaterRefilled()}>${icon('mdi:water-check-outline')}I refilled the tank</button>`}</footer>
-    `:nothing}</dialog>`;
+    ${renderFamilyDialog(this.flow, {
+      title: this.recoveryPrompt ? this.recoveryPrompt.kind==='restart'?'Resume the robot’s current job?':'Clean-water tank refilled?' : this.panel ? panelTitles[this.panel] : '',
+      className: this.recoveryPrompt ? 'recovery-dialog' : 'device-dialog',
+      long: this.panel==='map'||this.panel==='status',
+      ariaDescribedBy: this.recoveryPrompt ? 'recovery-description' : undefined,
+      content: this.recoveryPrompt ? html`<p id="recovery-description">${this.recoveryPrompt.kind==='restart'?'The robot has an unfinished job. Resume it now and keep your saved sequence? The remaining rooms will continue only after its cleaning record matches this pass.':'The dock still reports an empty clean-water tank. Confirm you filled and reseated it before continuing this pass.'}</p>`
+        : this.panel && this.hass ? renderDevicePanel({panel:this.panel,hass:this.hass,entities:this.caps?.device_entities??{},busy:this.blocked||this.queueActive||(this.phase==='attention'&&!this.recoveryReady),motionBlocked:this.barrierActive||!!this.queue?.attributes.pending_command||(this.phase==='attention'&&!this.recoveryReady),motionReason:this.phase==='attention'?this.recoveryReason:this.barrierActive?this.barrierNotice:'Waiting for the robot to confirm the previous command.',robotDocked:this.vacuum?.state==='docked'&&!this.jobActive,waterEmpty:this.waterEmpty,fault:!!this.fault&&this.fault!=='Water empty',error:this.commandError,pending:this.deviceSending||this.phase==='controlling',close:()=>this.closePanel(),send:(key,value)=>void this.deviceCommand(key,value)}) : nothing,
+      footer: this.recoveryPrompt ? html`${this.recoveryPrompt.kind==='restart'?html`<button class="action family-action secondary" data-action="cancel-restart-resume" data-family-initial-focus @click=${()=>this.closeRecoveryPrompt()}>Cancel</button><button class="action family-action primary" data-action="confirm-restart-resume" ?disabled=${this.dispatchBlocked||!this.restartResumeReady} @click=${()=>this.confirmRestartResume()}>${icon('mdi:play')}Resume current job</button>`:html`<button class="action family-action secondary" data-action="cancel-refill" data-family-initial-focus @click=${()=>this.closeRecoveryPrompt()}>Cancel</button><button class="action family-action primary" data-action="confirm-refill" ?disabled=${this.dispatchBlocked||!this.continuationReady} @click=${()=>this.confirmWaterRefilled()}>${icon('mdi:water-check-outline')}I refilled the tank</button>`}` : html`<p>${this.panel==='settings'?'Changes apply to the robot immediately.':'Live state from Home Assistant'}</p>`,
+    })}`;
   }
 }
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.16.7');
+console.info('ROBOT VACUUM CLEANER CARD 0.17.0');
