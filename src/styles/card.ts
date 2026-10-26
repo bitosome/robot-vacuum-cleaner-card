@@ -2,7 +2,8 @@ import { css } from 'lit';
 export const cardStyles = css`
   :host { --robot-accent: var(--accent-color, #bba3f2); --robot-surface: var(--ha-card-background, var(--card-background-color, #292b3e)); --robot-muted: var(--secondary-text-color, #acb1cc); color: var(--primary-text-color, #dedff5); font-family: var(--paper-font-body1_-_font-family, inherit); }
   * { box-sizing: border-box; }
-  ha-card { display: block; padding: var(--tile-padding-large); border-radius: var(--ha-card-border-radius, 24px); background: var(--robot-surface); border: 1px solid var(--divider-color, rgba(255,255,255,.05)); overflow: visible; }
+  /* Contain decoration at the card boundary, not at each room or tile. */
+  ha-card { display: block; padding: var(--tile-padding-large); border-radius: var(--ha-card-border-radius, 24px); background: var(--robot-surface); border: 1px solid var(--divider-color, rgba(255,255,255,.05)); overflow: clip; }
   .root { display: grid; gap: var(--large-gap); isolation: isolate; }
   .tile-wrap { position: relative; min-width: 0; }
   .surface { position: relative; z-index: 1; border-radius: var(--tile-border-radius); background: color-mix(in srgb,var(--robot-surface) 96%,var(--primary-text-color) 4%); box-shadow: var(--tile-shadow-default); }
