@@ -1,6 +1,6 @@
 {
   "name": "robot-vacuum-cleaner-card",
-  "version": "0.17.1",
+  "version": "0.17.2",
   "description": "A robot-first Home Assistant card with ordered room cleaning and Space Hub design.",
   "type": "module",
   "license": "MIT",
@@ -15,7 +15,7 @@
     "check": "npm run typecheck && npm run build && npm test"
   },
   "dependencies": {
-    "@bitosome/ha-card-ui": "https://github.com/bitosome/ha-card-ui/releases/download/v1.0.0/bitosome-ha-card-ui-1.0.0.tgz",
+    "@bitosome/ha-card-ui": "https://github.com/bitosome/ha-card-ui/releases/download/v1.0.1/bitosome-ha-card-ui-1.0.1.tgz",
     "lit": "^3.3.1"
   },
   "devDependencies": {

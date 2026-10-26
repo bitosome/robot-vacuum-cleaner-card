@@ -63,6 +63,9 @@ export const cardStyles = css`
   .room-header { display:flex; align-items:center; min-width:0; }
   .room-header .room-select { flex:1; min-width:0; }
   ha-sortable { display:block; }
+  /* HA's drag ghost and settling transforms create temporary room stacking
+     contexts. Pause only the decorative underglows until those contexts clear. */
+  .rooms:has(> .sortable-chosen, > .sortable-ghost, > .sortable-drag, > .room-item[style*="transform"]) > .room-item > .glow-under { visibility:hidden; }
   .room-drag { flex:0 0 44px; width:44px; min-height:52px; border:0; background:transparent; color:var(--robot-muted); cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
   .room-drag:active { cursor:grabbing; }
   .room-drag:disabled { opacity:.3; cursor:default; }
@@ -99,8 +102,8 @@ export const cardStyles = css`
   .sequence { display:flex; flex-wrap:wrap; align-items:center; gap:5px; color:var(--secondary-text-color); font-size:12px; line-height:1.6; margin:5px 0; }
   .sequence b { color:var(--primary-text-color); font-weight:600; }
   .sequence ha-icon { width:14px; height:14px; --mdc-icon-size:14px; flex-basis:14px; }
-  .note,.error { font-size:12px; line-height:1.5; padding:12px 14px; border-radius:var(--tile-border-radius); background:color-mix(in srgb,var(--primary-text-color) 5%,transparent); overflow-wrap:anywhere; }
-  .error { color:var(--error-color,var(--status-alert-color)); background:color-mix(in srgb,var(--status-alert-color) 8%,transparent); }
+  .note,.error { position:relative; z-index:1; font-size:12px; line-height:1.5; padding:12px 14px; border-radius:var(--tile-border-radius); background:color-mix(in srgb,var(--primary-text-color) 5%,var(--robot-surface)); overflow-wrap:anywhere; }
+  .error { color:var(--error-color,var(--status-alert-color)); background:color-mix(in srgb,var(--status-alert-color) 8%,var(--robot-surface)); }
   .error button { min-height:44px; color:inherit; }
   .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
   .outer { container-type:inline-size; }

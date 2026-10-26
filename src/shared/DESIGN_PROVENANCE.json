@@ -1,7 +1,7 @@
 {
   "source": "bitosome/ha-card-ui",
   "package": "@bitosome/ha-card-ui",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "design_reference": "bitosome/space-hub-card",
   "license": "MIT",
   "method": "Build-time package dependency; package-lock.json records the release URL and integrity. src/shared contains compatibility exports only."
