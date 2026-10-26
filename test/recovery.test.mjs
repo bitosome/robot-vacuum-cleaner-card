@@ -1,3 +1,4 @@
+import {openSettings,closeSettings} from './settings-navigation.mjs';
 import assert from 'node:assert/strict';
 import {after,afterEach,test} from 'node:test';
 import {Window} from 'happy-dom';
@@ -209,7 +210,9 @@ test('restart reconciliation keeps the frozen sequence and completed history wit
   assert.match(root(card).querySelector('.progress-summary').textContent,/Restoring sequence.*0 \/ 1 rooms/);
   assert.match(root(card).querySelector('[data-room="0_1"]').textContent,/Checking status/);
   assert.equal(root(card).querySelector('[data-room="0_1"]').disabled,true);
-  assert.equal(root(card).querySelector('[data-room-editor="0_1"] select').disabled,true);
+  await openSettings(card,'0_1');
+  assert.equal(root(card).querySelector('[data-room-setting="mode"][data-room-id="0_1"]').disabled,true);
+  await closeSettings(card);
   assert.match(activity(card).querySelector('summary').textContent,/Restoring sequence/);
   assert.match(activity(card).querySelector('[data-history-stage="0"]').textContent,/Done/);
   assert.match(activity(card).querySelector('[data-history-stage="1"]').textContent,/Checking status/);

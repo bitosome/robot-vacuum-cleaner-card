@@ -1,3 +1,4 @@
+import {openSettings,closeSettings} from './settings-navigation.mjs';
 import assert from 'node:assert/strict';
 import { after, afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
@@ -76,20 +77,21 @@ async function moveKey(card, id, key) {
 }
 
 const action = (card, value) => root(card).querySelector(`[data-action="${value}"]`);
-function choice(card, id, key, value) {
+async function choice(card, id, key, value) {
+  await openSettings(card,id);
   const select=root(card).querySelector(`[data-room-setting="${key}"][data-room-id="${id}"]`);
   if(!select || ![...select.options].some(option=>option.value===String(value))) return null;
   return {click() { assert.equal(select.disabled,false); select.value=String(value);select.dispatchEvent(new Event('change',{bubbles:true})); },
     getAttribute(name) { return name==='aria-pressed' ? String(select.value===String(value)) : select.getAttribute(name); }};
 }
-const mode = (card,value) => choice(card,'defaults','mode',value);
-const setting = (card,key,value) => choice(card,'defaults',key,value);
+const mode = async (card,value) => choice(card,'defaults','mode',value);
+const setting = async (card,key,value) => choice(card,'defaults',key,value);
 const room = (card, value) => root(card).querySelector(`[data-room="${value}"]`);
-async function click(card, element) { assert.ok(element, 'Expected control to be rendered'); element.click(); await settle(card); }
-async function openSetup(card) { root(card).querySelector('.default-settings').open=true; await click(card,action(card,'refresh-rooms')); }
-// Expand the inline defaults. All edits are local; no Apply step is required.
+async function click(card, element) { assert.ok(element, 'Expected control to be rendered'); if(element.closest&&!element.closest('dialog'))await closeSettings(card); element.click(); await settle(card); }
+async function openSetup(card) { await openSettings(card); await click(card,action(card,'refresh-rooms')); }
+// Open shared defaults. Editing a plan never starts physical cleaning.
 async function selectManual(card) { await openSetup(card); }
-async function apply(card) { root(card).querySelector('.default-settings').open=false; await settle(card); }
+async function apply(card) { await closeSettings(card); }
 async function patchStates(card, patch) { card.hass = {...card.hass, states: {...card.hass.states, ...patch}}; await settle(card); }
 afterEach(() => { for (const element of [...document.body.children]) element.remove(); });
 after(async () => { await browser.happyDOM.abort(); browser.close(); });
@@ -101,17 +103,17 @@ test('capabilities are read once and room tiles come from the robot', async () =
   assert.equal(calls.length, 0);
   assert.deepEqual(reads[0], {type: 'call_service', domain: 'robot_cleaner_queue', service: 'get_capabilities', service_data: {vacuum: 'vacuum.rover'}, return_response: true});
   await openSetup(card);
-  for (const value of ['vacuum', 'mop', 'vacuum_mop', 'vacuum_then_mop']) assert.ok(mode(card, value));
+  for (const value of ['vacuum', 'mop', 'vacuum_mop', 'vacuum_then_mop']) assert.ok((await mode(card,value)));
 });
 
 test('mode, suction, water, route and count are local until Start', async () => {
   const {card, calls} = await fixture();
   await selectManual(card);
-  await click(card, mode(card, 'vacuum_then_mop'));
-  await click(card, setting(card, 'suction', 'max'));
-  await click(card, setting(card, 'water', 'high'));
-  await click(card, setting(card, 'route', 'deep'));
-  await click(card, setting(card, 'repeat', '2'));
+  await click(card, (await mode(card,'vacuum_then_mop')));
+  await click(card, (await setting(card,'suction', 'max')));
+  await click(card, (await setting(card,'water', 'high')));
+  await click(card, (await setting(card,'route', 'deep')));
+  await click(card, (await setting(card,'repeat', '2')));
   await apply(card);
   assert.equal(calls.length, 0);
   await moveKey(card,'hall_area','Home');
@@ -139,12 +141,12 @@ test('all-area cleaning requires an explicit Select all action', async () => {
   assert.equal(calls[0].data.presets,undefined);
 });
 
-test('collapsing inline settings preserves edits without sending a robot command', async () => {
+test('closing room settings preserves edits without sending a robot command', async () => {
   const {card,calls}=await roomFixture();
-  const editor=root(card).querySelector('[data-room-editor="0_12"]'); editor.open=true;
-  await click(card,roomMode(card,'0_12','mop')); editor.open=false;
+  const editor=root(card).querySelector('[data-room-editor="0_12"]'); await openSettings(card,'0_12');
+  await click(card,(await roomMode(card,'0_12','mop'))); await closeSettings(card);
   assert.equal(calls.length,0);
-  assert.match(editor.querySelector('summary').textContent,/Mop[\s\S]*Water flow Medium/);
+  assert.match(editor.textContent,/Mop[\s\S]*Water flow Medium/);
   await click(card,room(card,'0_12')); await click(card,action(card,'start'));
   assert.equal(calls[0].data.rooms[0].mode,'mop');
 });
@@ -153,7 +155,7 @@ test('one draft exists: the ordered rooms keep their order across sheet edits', 
   const {card, calls} = await fixture({states: {'sensor.robot_cleaner_queue': entity('idle', {vacuum: 'vacuum.rover', control_version: 4})}});
   await moveKey(card,'hall_area','Home');
   await click(card, room(card, 'hall_area')); await click(card, room(card, 'living_area'));
-  await openSetup(card); await click(card, setting(card, 'suction', 'max')); await apply(card);
+  await openSetup(card); await click(card, (await setting(card,'suction', 'max'))); await apply(card);
   assert.equal(room(card, 'hall_area').querySelector('.order')?.textContent.trim(), '1');
   assert.equal(room(card, 'living_area').querySelector('.order')?.textContent.trim(), '2');
   await click(card, action(card, 'start'));
@@ -163,19 +165,19 @@ test('one draft exists: the ordered rooms keep their order across sheet edits', 
 
 test('vacuum hides water and mop-route controls and omits them from the command', async () => {
   const {card, calls} = await fixture();
-  await selectManual(card); await click(card, mode(card, 'vacuum'));
+  await selectManual(card); await click(card, (await mode(card,'vacuum')));
   assert.equal(root(card).querySelector('[data-room-setting="water"][data-room-id="defaults"]'), null);
   assert.equal(root(card).querySelector('[data-room-setting="route"][data-room-id="defaults"]'), null);
-  assert.ok(setting(card, 'suction', 'balanced'));
+  assert.ok((await setting(card,'suction', 'balanced')));
   await apply(card); if(!card.manualSelected.length) await click(card,room(card,'hall_area')); await click(card, action(card, 'start'));
   assert.deepEqual(calls[0].data.setup, {mode: 'vacuum', suction: 'balanced', repeat: 1});
 });
 
 test('mop hides suction and does not send a stale suction setting', async () => {
   const {card, calls} = await fixture();
-  await selectManual(card); await click(card, mode(card, 'mop'));
+  await selectManual(card); await click(card, (await mode(card,'mop')));
   assert.equal(root(card).querySelector('[data-room-setting="suction"][data-room-id="defaults"]'), null);
-  assert.ok(setting(card, 'water', 'medium')); assert.ok(setting(card, 'route', 'deep'));
+  assert.ok((await setting(card,'water', 'medium'))); assert.ok((await setting(card,'route', 'deep')));
   await apply(card); if(!card.manualSelected.length) await click(card,room(card,'hall_area')); await click(card, action(card, 'start'));
   assert.equal(calls[0].data.setup.mode, 'mop'); assert.equal(calls[0].data.setup.suction, undefined);
 });
@@ -183,21 +185,21 @@ test('mop hides suction and does not send a stale suction setting', async () => 
 test('combined vacuum and mop does not offer deep mop-only routes', async () => {
   const {card} = await fixture();
   await selectManual(card);
-  assert.ok(setting(card, 'route', 'standard')); assert.ok(setting(card, 'route', 'fast'));
-  assert.equal(setting(card, 'route', 'deep'), null); assert.equal(setting(card, 'route', 'deep_plus'), null);
-  await click(card, mode(card, 'mop')); await click(card, setting(card, 'route', 'deep'));
-  await click(card, mode(card, 'vacuum_mop')); await apply(card);
+  assert.ok((await setting(card,'route', 'standard'))); assert.ok((await setting(card,'route', 'fast')));
+  assert.equal((await setting(card,'route', 'deep')), null); assert.equal((await setting(card,'route', 'deep_plus')), null);
+  await click(card, (await mode(card,'mop'))); await click(card, (await setting(card,'route', 'deep')));
+  await click(card, (await mode(card,'vacuum_mop'))); await apply(card);
   await openSetup(card);
-  assert.equal(setting(card, 'route', 'deep'), null);
-  assert.equal(setting(card, 'route', 'standard').getAttribute('aria-pressed'), 'true');
+  assert.equal((await setting(card,'route', 'deep')), null);
+  assert.equal((await setting(card,'route', 'standard')).getAttribute('aria-pressed'), 'true');
 });
 
 test('a vacuum-only robot never offers unsupported mopping modes', async () => {
   const capabilities = {...structuredClone(baseCapabilities), modes: [{value: 'vacuum', label: 'Vacuum'}], water: [], routes: [], routes_by_mode: {vacuum: []}, defaults: {mode: 'vacuum', suction: 'quiet', repeat: 1}};
   const {card, calls} = await fixture({capabilities});
   await selectManual(card);
-  assert.ok(mode(card, 'vacuum'));
-  for (const value of ['mop', 'vacuum_mop', 'vacuum_then_mop']) assert.equal(mode(card, value), null);
+  assert.ok((await mode(card,'vacuum')));
+  for (const value of ['mop', 'vacuum_mop', 'vacuum_then_mop']) assert.equal((await mode(card,value)), null);
   assert.equal(root(card).querySelector('[data-room-setting="water"][data-room-id="defaults"]'), null);
   await apply(card); if(!card.manualSelected.length) await click(card,room(card,'hall_area')); await click(card, action(card, 'start'));
   assert.deepEqual(calls[0].data.setup, {mode: 'vacuum', suction: 'quiet', repeat: 1});
@@ -233,7 +235,7 @@ test('an old companion cannot fall back to an unselected whole-home clean', asyn
 
 test('ordinary entity updates preserve a configured manual draft and room order', async () => {
   const {card, calls} = await fixture();
-  await selectManual(card); await click(card, mode(card, 'vacuum_then_mop')); await apply(card);
+  await selectManual(card); await click(card, (await mode(card,'vacuum_then_mop'))); await apply(card);
   await moveKey(card,'hall_area','Home');
   await click(card, room(card, 'hall_area')); await click(card, room(card, 'kitchen_area'));
   await patchStates(card, {'vacuum.rover': entity('docked', {supported_features: FEATURES, battery_level: 85})});
@@ -246,7 +248,7 @@ test('ordinary entity updates preserve a configured manual draft and room order'
 
 test('a rejected manual start preserves the setup and selected areas for retry', async () => {
   const {card, calls} = await fixture({service: async () => { throw new Error('Mapped area is no longer available'); }});
-  await selectManual(card); await click(card, mode(card, 'mop')); await apply(card);
+  await selectManual(card); await click(card, (await mode(card,'mop'))); await apply(card);
   await click(card, room(card, 'hall_area')); await click(card, action(card, 'start'));
   assert.match(root(card).querySelector('[role="alert"]').textContent, /Mapped area is no longer available/);
   assert.equal(room(card, 'hall_area').getAttribute('aria-checked'), 'true');
@@ -287,12 +289,12 @@ test('manual cleaning started elsewhere shows the committed native-area sequence
 });
 
 
-test('each room has independent inline settings even before it is selected', async () => {
+test('each room has independent modal settings even before it is selected', async () => {
   const {card,calls}=await roomFixture();
   assert.equal(root(card).querySelector('.setup-dialog:not(.device-dialog)'),null);
-  await click(card,roomMode(card,'0_12','vacuum'));
-  await click(card,roomSetting(card,'0_12','suction','max'));
-  assert.equal(roomMode(card,'0_5','vacuum_mop').getAttribute('aria-pressed'),'true');
+  await click(card,(await roomMode(card,'0_12','vacuum')));
+  await click(card,(await roomSetting(card,'0_12','suction','max')));
+  assert.equal((await roomMode(card,'0_5','vacuum_mop')).getAttribute('aria-pressed'),'true');
   assert.equal(calls.length,0);
   await click(card,room(card,'0_12')); await click(card,action(card,'start'));
   assert.deepEqual(calls[0].data.rooms,[{id:'0_12',mode:'vacuum',suction:'max',repeat:1}]);
@@ -342,7 +344,7 @@ test('an external completed run releases room tiles for the next plan', async ()
     'sensor.rover_status': entity('mopping'),
     'sensor.robot_cleaner_queue': entity('running', attrs),
   }});
-  assert.match(root(card).querySelector('[data-room-editor="kitchen_area"] summary').textContent, /Vacuum then mop/);
+  assert.match(root(card).querySelector('[data-room-editor="kitchen_area"]').textContent, /Vacuum then mop/);
   await patchStates(card, {
     'vacuum.rover': entity('docked', {supported_features: FEATURES}),
     'sensor.rover_status': entity('charging'),
@@ -350,11 +352,11 @@ test('an external completed run releases room tiles for the next plan', async ()
   });
   assert.ok(room(card, 'kitchen_area')); assert.ok(!room(card, 'kitchen_preset'));
   assert.match(room(card, 'kitchen_area').getAttribute('aria-label'), /tap to select/);
-  assert.doesNotMatch(root(card).querySelector('[data-room-editor="kitchen_area"] summary').textContent, /then mop/);
+  assert.doesNotMatch(root(card).querySelector('[data-room-editor="kitchen_area"]').textContent, /then mop/);
   assert.match(root(card).querySelector('h2').textContent, /Ready to clean/);
-  await openSetup(card); await click(card, mode(card, 'vacuum')); await apply(card);
-  assert.match(root(card).querySelector('[data-room-editor="kitchen_area"] summary').textContent, /Vacuum/);
-  assert.doesNotMatch(root(card).querySelector('[data-room-editor="kitchen_area"] summary').textContent, /then mop/);
+  await openSetup(card); await click(card, (await mode(card,'vacuum'))); await apply(card);
+  assert.match(root(card).querySelector('[data-room-editor="kitchen_area"]').textContent, /Vacuum/);
+  assert.doesNotMatch(root(card).querySelector('[data-room-editor="kitchen_area"]').textContent, /then mop/);
   assert.doesNotMatch(room(card, 'kitchen_area').textContent, /Completed/);
   assert.match(root(card).querySelector('h2').textContent, /Ready to clean/);
   await click(card, room(card, 'hall_area')); await click(card, action(card, 'start'));
@@ -434,7 +436,7 @@ test('an empty water tank blocks a mopping plan and allows a vacuum-only first r
   // A first room that only vacuums is allowed through the same exception.
   await click(card,room(card,'0_12'));
   await openSetup(card);
-  await click(card,roomMode(card,'0_12','vacuum'));
+  await click(card,(await roomMode(card,'0_12','vacuum')));
   await apply(card);
   assert.equal(action(card,'start').disabled,false);
   await click(card,action(card,'start'));
@@ -443,7 +445,7 @@ test('an empty water tank blocks a mopping plan and allows a vacuum-only first r
 
 test('save manual preset persists order and settings without a cleaning command',async()=>{
   const {card,calls}=await fixture({services:{robot_cleaner_queue:{control:{},get_capabilities:{},save_preset:{}}}});
-  await selectManual(card); await click(card,mode(card,'vacuum')); await apply(card);
+  await selectManual(card); await click(card,(await mode(card,'vacuum'))); await apply(card);
   await moveKey(card,'kitchen_area','Home');
   await click(card,room(card,'kitchen_area')); await click(card,room(card,'living_area'));
   if(!card.manualSelected.length) await click(card,room(card,'hall_area'));
@@ -526,9 +528,9 @@ test('an unreadable floor is never reported as a missing area',async()=>{
 test('a saved manual preset stores the same normalized setup that start would send',async()=>{
   const { card, calls } = await fixture({ services: { robot_cleaner_queue: { control: {}, get_capabilities: {}, save_preset: {} } } });
   await selectManual(card);
-  await click(card, mode(card, 'mop'));
-  await click(card, setting(card, 'water', 'high'));
-  await click(card, setting(card, 'route', 'fast'));
+  await click(card, (await mode(card,'mop')));
+  await click(card, (await setting(card,'water', 'high')));
+  await click(card, (await setting(card,'route', 'fast')));
   await apply(card);
   if(!card.manualSelected.length) await click(card,room(card,'hall_area'));
   await click(card, action(card, 'save-preset'));
@@ -558,8 +560,8 @@ function roomFixture(options = {}) {
     ...(options.states ?? {}),
   }, capabilities: options.capabilities ?? roomCapabilities()});
 }
-const roomSetting = (card,id,key,value) => choice(card,id,key,value);
-const roomMode = (card,id,value) => choice(card,id,'mode',value);
+const roomSetting = async (card,id,key,value) => (await choice(card,id,key,value));
+const roomMode = async (card,id,value) => (await choice(card,id,'mode',value));
 const DEFAULT_ROOM = {mode: 'vacuum_mop', suction: 'balanced', water: 'medium', route: 'standard', repeat: 1};
 
 test('room tiles come from the robot map, not from configured preset rooms', async () => {
@@ -600,14 +602,14 @@ test('a room can be given its own mode and the sheet drops settings that mode ca
   await click(card, room(card, '0_12')); await click(card, room(card, '0_5'));
   await openSetup(card);
   assert.ok(root(card).querySelector('[data-room-editor="0_12"]'), 'Expected a per-room editor for each selected room');
-  assert.ok(root(card).querySelector('[data-room-editor="0_13"]'), 'Unselected rooms are also editable inline');
-  await click(card, roomMode(card, '0_5', 'vacuum'));
-  await click(card, roomSetting(card, '0_5', 'suction', 'max'));
-  assert.equal(roomSetting(card, '0_5', 'water', 'high'), null, 'A vacuum room exposes no water flow');
-  assert.equal(roomSetting(card, '0_5', 'route', 'standard'), null, 'A vacuum room exposes no mop route');
-  assert.equal(roomMode(card, '0_5', 'vacuum').getAttribute('aria-pressed'), 'true');
-  assert.equal(roomSetting(card, '0_5', 'suction', 'max').getAttribute('aria-pressed'), 'true');
-  assert.equal(roomMode(card, '0_12', 'vacuum_mop').getAttribute('aria-pressed'), 'true', 'Other rooms keep the default');
+  assert.ok(root(card).querySelector('[data-room-editor="0_13"]'), 'Unselected rooms have settings openers');
+  await click(card, (await roomMode(card,'0_5', 'vacuum')));
+  await click(card, (await roomSetting(card,'0_5', 'suction', 'max')));
+  assert.equal((await roomSetting(card,'0_5', 'water', 'high')), null, 'A vacuum room exposes no water flow');
+  assert.equal((await roomSetting(card,'0_5', 'route', 'standard')), null, 'A vacuum room exposes no mop route');
+  assert.equal((await roomMode(card,'0_5', 'vacuum')).getAttribute('aria-pressed'), 'true');
+  assert.equal((await roomSetting(card,'0_5', 'suction', 'max')).getAttribute('aria-pressed'), 'true');
+  assert.equal((await roomMode(card,'0_12', 'vacuum_mop')).getAttribute('aria-pressed'), 'true', 'Other rooms keep the default');
   await apply(card);
   await click(card, action(card, 'start'));
   assert.deepEqual(calls[0].data.rooms, [
@@ -619,14 +621,15 @@ test('a room can be given its own mode and the sheet drops settings that mode ca
 test('a room keeps its own settings until it is reset to the defaults', async () => {
   const {card, calls} = await roomFixture();
   await click(card, room(card, '0_12')); await openSetup(card);
-  await click(card, roomMode(card, '0_12', 'mop'));
-  await click(card, roomSetting(card, '0_12', 'route', 'deep'));
+  await click(card, (await roomMode(card,'0_12', 'mop')));
+  await click(card, (await roomSetting(card,'0_12', 'route', 'deep')));
   await apply(card);
   await click(card, action(card, 'start'));
   assert.deepEqual(calls[0].data.rooms, [{id: '0_12', mode: 'mop', water: 'medium', route: 'deep', repeat: 1}]);
   // Reset returns the room to the sheet's defaults.
   await acknowledge(card);
   await openSetup(card);
+  await openSettings(card,'0_12');
   await click(card, root(card).querySelector('[data-action="reset-room"][data-room-id="0_12"]'));
   await apply(card);
   await click(card, action(card, 'start'));
@@ -637,7 +640,7 @@ test('saving a room plan stores it and a freshly loaded card restores the same p
   const {card, calls} = await roomFixture({services: {robot_cleaner_queue: {control: {}, get_capabilities: {}, save_preset: {}}}});
   await click(card, room(card, '0_12')); await click(card, room(card, '0_5'));
   await openSetup(card);
-  await click(card, roomMode(card, '0_5', 'vacuum'));
+  await click(card, (await roomMode(card,'0_5', 'vacuum')));
   await apply(card);
   if(!card.manualSelected.length) await click(card,room(card,'hall_area'));
   await click(card, action(card, 'save-preset'));
@@ -805,13 +808,14 @@ test('a finished sequence can be dismissed to plan a fresh one', async () => {
 
 test('capability refresh preserves incompatible edits and blocks save/start until reviewed',async()=>{
   const {card,calls,setCapabilities}=await roomFixture({services:{robot_cleaner_queue:{control:{},get_capabilities:{},save_preset:{}}}});
-  await click(card,room(card,'0_12'));await click(card,roomSetting(card,'0_12','suction','max'));
+  await click(card,room(card,'0_12'));await click(card,(await roomSetting(card,'0_12','suction','max')));
   setCapabilities({...roomCapabilities(),suction:['quiet','balanced']});
+  await openSettings(card);
   await click(card,action(card,'refresh-rooms'));
-  assert.match(root(card).querySelector('[data-room-editor="0_12"] summary').textContent,/Suction Max/);
+  assert.match(root(card).querySelector('[data-room-editor="0_12"]').textContent,/Suction Max/);
   assert.equal(action(card,'start').disabled,true);assert.equal(action(card,'save-preset').disabled,true);
   assert.deepEqual(calls,[]);
-  await click(card,roomSetting(card,'0_12','suction','quiet'));
+  await click(card,(await roomSetting(card,'0_12','suction','quiet')));
   assert.equal(action(card,'start').disabled,false);
 });
 
@@ -819,8 +823,9 @@ test('repeated stages display settings for their actual room and valid summaries
   const rooms=[{id:'0_12',name:'Kitchen',setup:{mode:'vacuum',suction:'max',repeat:2}},{id:'0_5',name:'Hall',setup:{mode:'mop',water:'low',route:'deep',repeat:1}}];
   const {card}=await roomFixture({states:{'sensor.robot_cleaner_queue':entity('running',{vacuum:'vacuum.rover',control_version:5,mode:'manual',targets:['0_12','0_5'],setup:{rooms},stages:[{target:'0_12',mode:'vacuum',room_index:0,repeat_index:0},{target:'0_12',mode:'vacuum',room_index:0,repeat_index:1},{target:'0_5',mode:'mop',room_index:1,repeat_index:0}],current_index:1,completed:1})}});
   assert.match(root(card).querySelector('.subline').textContent,/Room 1 of 2.*Run 2 of 2/);
-  assert.match(root(card).querySelector('[data-room-editor="0_12"] summary').textContent,/Vacuum[\s\S]*×2/);
+  assert.match(root(card).querySelector('[data-room-editor="0_12"]').textContent,/Vacuum[\s\S]*×2/);
   assert.doesNotMatch(root(card).textContent,/undefined/);
+  await openSettings(card,'0_12');
   assert.equal(root(card).querySelector('[data-room-id="0_12"][data-room-setting="mode"]').disabled,true);
 });
 
@@ -834,13 +839,14 @@ test('shared defaults and every room preference restore in a new card without se
     assert.equal(card.roomSetups['0_12'].water,'high');
     assert.deepEqual(card.manualSelected,[]);
     assert.equal(calls.length,0);
-    assert.equal(action(card,'save-preferences').disabled,true);
+    await openSettings(card);
+  assert.equal(action(card,'save-preferences').disabled,true);
   }
 });
 test('saving room settings persists unselected rooms separately from the wall-switch plan',async()=>{
   const {card,calls,setCapabilities}=await roomFixture({services:sharedServices,capabilities:{...roomCapabilities(),preferences:sharedProfile()}});
-  await click(card,choice(card,'0_12','water','low'));
-  await click(card,choice(card,'defaults','suction','quiet'));
+  await click(card,(await choice(card,'0_12','water','low')));
+  await click(card,(await choice(card,'defaults','suction','quiet')));
   const updated={revision:3,defaults:{...card.setup},rooms:structuredClone(card.roomSetups)};
   setCapabilities({...roomCapabilities(),preferences:updated});
   await click(card,action(card,'save-preferences'));
@@ -858,7 +864,7 @@ test('another dashboard refreshes shared settings and conflicts preserve local e
   card.hass={...card.hass,states:{...card.hass.states,'sensor.robot_cleaner_queue':entity('idle',{preferences_revisions:{'vacuum.rover':3}})}};
   await settle(card);
   assert.equal(card.setup.suction,'quiet');
-  await click(card,choice(card,'defaults','suction','max'));
+  await click(card,(await choice(card,'defaults','suction','max')));
   setCapabilities({...roomCapabilities(),preferences:{...changed,revision:4}});
   card.hass={...card.hass,states:{...card.hass.states,'sensor.robot_cleaner_queue':entity('idle',{preferences_revisions:{'vacuum.rover':4}})}};
   await settle(card);
@@ -872,7 +878,7 @@ test('another dashboard refreshes shared settings and conflicts preserve local e
 });
 test('failed preference save keeps the draft and does not report success',async()=>{
   const {card}=await roomFixture({services:sharedServices,capabilities:{...roomCapabilities(),preferences:sharedProfile()},service:()=>{throw new Error('Storage unavailable');}});
-  await click(card,choice(card,'defaults','suction','quiet'));
+  await click(card,(await choice(card,'defaults','suction','quiet')));
   await click(card,action(card,'save-preferences'));
   assert.equal(card.preferencesDirty,true);
   assert.equal(card.setup.suction,'quiet');
@@ -907,4 +913,15 @@ test('a pending old-robot plan save cannot put errors into a reconfigured card',
   rejectSave(new Error('Old robot failed')); await settle(card);
   assert.equal(card.commandError,''); assert.equal(card.savingPreset,false);
   assert.equal(card.config.entity,'vacuum.other');
+});
+
+test('mapped areas explain their shared setup without falsely reporting a busy robot',async()=>{
+  const {card,calls}=await fixture();
+  await openSettings(card,'living_area');
+  assert.match(root(card).querySelector('dialog').textContent,/mapped areas share one cleaning setup/);
+  assert.doesNotMatch(root(card).querySelector('dialog').textContent,/robot is busy/);
+  assert.ok([...root(card).querySelectorAll('dialog select')].every(field=>field.disabled));
+  await closeSettings(card);await openSettings(card);
+  assert.equal(root(card).querySelector('dialog [data-room-setting="mode"]').disabled,false);
+  assert.deepEqual(calls,[]);
 });

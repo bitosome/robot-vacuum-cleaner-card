@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.1 — 2026-10-26
+
+- Open Room defaults and each room’s settings from the common cog into the shared modal, while retaining visible settings pills, native sorting and room toggles on the card.
+- Preserve automatic shared preferences and plan saving, plus explicit Apply/Cancel for edits to a running queue. Opening an editor alone does not begin a queue transaction.
+- Keep started or unavailable rooms inspectable with an accurate read-only explanation; protect against room removal, queue advancement and delayed save failures while editing.
+- Use a full-width mode selector on small screens, restore focus to the clicked opener, and distinguish modal launchers from inline disclosures.
+
 ## 0.17.0 — 2026-10-25
 
 - Bundle `@bitosome/ha-card-ui` for canonical Space Hub glows, reusable notices and the shared modal controller/shell.

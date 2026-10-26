@@ -165,7 +165,7 @@ export const cardStyles = css`
   .plan-section .plan-bar { padding:4px 0; }
   .plan-section .preferences-panel { padding:0;background:transparent;box-shadow:none;border-radius:0; }
   .plan-section .plan-bar + .preferences-panel { border-top:1px solid color-mix(in srgb,var(--primary-text-color) 7%,transparent); }
-  .plan-section .default-settings > summary { padding:10px 0;min-height:48px; }
+  .plan-section .defaults-heading { padding:10px 0;min-height:48px; }
   .water-warning { display:flex;gap:10px;align-items:flex-start;color:var(--secondary-text-color); }
   .water-warning ha-icon { color:var(--robot-accent); }
   .device-body { display:grid;grid-auto-rows:max-content;align-content:start;gap:0;padding-bottom:8px; }
@@ -186,38 +186,31 @@ export const cardStyles = css`
   .room-select { display:flex;align-items:center;gap:10px;border:0;background:transparent;width:100%;text-align:left;padding:14px 16px;min-height:64px;border-radius:inherit; }
   .room-title { display:grid;gap:4px;flex:1;min-width:0; }
   .room-add { color:var(--secondary-text-color);font-size:22px;padding:0 6px; }
-  .room-inline { border-top:1px solid color-mix(in srgb,var(--primary-text-color) 6%,transparent);padding:0 14px; }
-  .room-inline > summary { cursor:pointer;display:flex;align-items:center;gap:8px;min-height:52px;padding:10px 0;list-style:none; }
   summary::-webkit-details-marker { display:none; }
-  .room-inline > summary::marker,.default-settings > summary::marker { content:""; }
-  .room-settings-summary { flex:1;min-width:0;color:var(--robot-muted); }
+  .room-settings-summary { display:flex;align-items:center;gap:8px;border-top:1px solid color-mix(in srgb,var(--primary-text-color) 6%,transparent);padding:8px 10px 8px 14px;min-width:0;color:var(--robot-muted); }
+  .room-settings-summary .setting-chips { flex:1; }
+  .room-settings-summary .family-icon-button { flex:0 0 44px; }
   .setting-chips { display:flex;align-items:center;flex-wrap:wrap;gap:5px;min-width:0; }
   .setting-chip { display:inline-flex;align-items:center;gap:4px;max-width:100%;min-height:26px;padding:5px 8px;border-radius:var(--chip-border-radius);background:color-mix(in srgb,var(--primary-text-color) 6%,transparent);font-size:11px;font-weight:550;line-height:1.35;color:var(--robot-muted);overflow-wrap:anywhere; }
   .setting-chip ha-icon { width:14px;height:14px;--mdc-icon-size:14px;flex:0 0 14px;color:inherit; }
   .setting-chip.mode-chip { background:color-mix(in srgb,var(--robot-accent) 11%,transparent);color:color-mix(in srgb,var(--robot-accent) 45%,var(--primary-text-color)); }
-  .room-inline .settings-edit-icon { width:18px;height:18px;--mdc-icon-size:18px;flex:0 0 18px;color:var(--robot-muted); }
-  .room-inline[open] .settings-edit-icon { color:var(--robot-accent); }
   .inline-settings { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:10px 0 16px; }
   .inline-setting { display:grid;gap:6px;min-width:0;font-size:12px;color:var(--secondary-text-color); }
+  .inline-setting.mode-setting { grid-column:1 / -1; }
   .inline-setting select { width:100%;min-width:0;min-height:44px;border-radius:14px;border:1px solid var(--divider-color);background:var(--robot-surface);color:var(--primary-text-color);font:inherit;font-size:16px;padding:8px; }
   .inline-setting select:focus-visible { outline:2px solid var(--robot-accent); }
   .preferences-panel { padding:0 16px; }
-  .default-settings { min-width:0; }
-  .default-settings > summary { display:grid;gap:8px;cursor:pointer;list-style:none;min-height:44px;padding:14px 0; }
-  .defaults-heading { display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;line-height:1.4; }
-  .defaults-heading .defaults-title,.defaults-heading > span:first-of-type { flex:1;min-width:0; }
+  .defaults-heading { display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;line-height:1.4;width:100%;min-height:48px;border:0;background:transparent;text-align:left;padding:12px 0; }
+  .defaults-title { flex:1;min-width:0; }
   .defaults-mode { flex:0 1 auto;max-width:45%;padding:4px 7px;border-radius:var(--chip-border-radius);background:color-mix(in srgb,var(--primary-text-color) 6%,transparent);color:var(--robot-muted);font-size:11px;font-weight:500;line-height:1.35;overflow-wrap:anywhere; }
-  .defaults-heading > ha-icon { width:18px;height:18px;--mdc-icon-size:18px;flex:0 0 18px;color:var(--robot-muted); }
-  .defaults-heading > ha-icon:last-child { margin-left:auto;transition:transform .15s; }
-  .default-settings[open] .defaults-heading > ha-icon:last-child { transform:rotate(180deg); }
-  .default-settings > .setting-chips { margin:0 0 4px; }
-  .default-settings > .inline-settings { border-top:1px solid color-mix(in srgb,var(--primary-text-color) 7%,transparent);padding-top:14px; }
+  .defaults-heading > ha-icon { width:22px;height:22px;--mdc-icon-size:22px;flex:0 0 22px;color:var(--robot-muted); }
+  .room-settings-content .family-notice { margin-bottom:12px; }
   .defaults-actions { display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding-bottom:8px; }
   .defaults-actions .action { font-size:12px;min-height:44px;padding:10px 12px; }
   .defaults-actions .text-button { display:inline-flex;align-items:center;justify-content:center;gap:6px; }
   .defaults-actions ha-icon { width:18px;height:18px;--mdc-icon-size:18px;flex:0 0 18px; }
-  .default-settings .hint { margin:0 0 12px; }
-  .default-settings .zone-report { margin:4px 0 14px;background:transparent; }
+  .room-settings-content .hint { margin:0 0 12px; }
+  .room-settings-content .zone-report { margin:4px 0 14px;background:transparent; }
   .zone-report > summary { min-height:44px;align-items:center; }
   .preferences-toolbar { display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;min-height:52px;padding:4px 0;border-top:1px solid color-mix(in srgb,var(--primary-text-color) 7%,transparent); }
   .preferences-label { flex:1;min-width:100px;color:var(--robot-muted);font-size:12px;line-height:1.4; }
@@ -266,7 +259,7 @@ export const cardStyles = css`
     .robot-icon { width:40px;height:40px;flex-basis:40px; }
     .name { font-size:16px; }
     .room-select { padding:13px 14px; }
-    .room-inline { padding:0 12px; }
+    .room-settings-summary { padding-left:12px; }
     .preferences-panel { padding:0 14px; }
     .action { padding:10px 12px; }
   }

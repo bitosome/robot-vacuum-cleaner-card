@@ -1,3 +1,4 @@
+import {openSettings,closeSettings} from './settings-navigation.mjs';
 import assert from 'node:assert/strict';
 import { after, afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
@@ -231,12 +232,13 @@ test('live queue editing protects completed/current room and all its passes whil
 test('cancel discards queue edits and all pending settings without saving defaults or wall-switch plan',async()=>{
   const {card,calls}=await editableFixture();
   button(card,'edit-queue').click();await settle(card);await tap(card,'0_3');await tap(card,'0_5');
-  const select=root(card).querySelector('[data-room-editor="0_4"] select');
+  await openSettings(card,'0_4');
+  const select=root(card).querySelector('[data-room-setting="mode"][data-room-id="0_4"]');
   select.value='vacuum';select.dispatchEvent(new browser.Event('change',{bubbles:true}));await settle(card);
   button(card,'cancel-queue-edit').click();await settle(card);
   assert.equal(room(card,'0_3').getAttribute('aria-checked'),'true');assert.equal(order(card,'0_5'),undefined);
   button(card,'edit-queue').click();await settle(card);
-  assert.equal(root(card).querySelector('[data-room-editor="0_4"] select').value,'vacuum_mop');
+  assert.equal(root(card).querySelector('[data-room-setting="mode"][data-room-id="0_4"]').value,'vacuum_mop');
   assert.equal(button(card,'apply-queue-edit').disabled,true);assert.deepEqual(calls,[]);
 });
 test('current room advancement locks the draft and reload protects the newly started room',async()=>{
@@ -367,6 +369,7 @@ test('a selected room leaving the current map disables Start without losing the 
   setCapabilities({ ...roomCapabilities(), current_map: 1,
     robot_rooms: [{ id: '1_1', segment: 1, name: 'Loft', floor: 'Loft', area_id: null }] });
   // Capabilities are read when the card needs them again, so let it look.
+  await openSettings(card);
   button(card, 'refresh-rooms').click(); await settle(card);
   assert.match(root(card).textContent, /no longer on this map/i);
   assert.equal(button(card, 'start').disabled, true);
@@ -628,7 +631,8 @@ test('Select all explicitly plans every current-map room in tile order', async (
 
 test('Select all keeps settings edited inline before selection', async () => {
   const {card,calls}=await fixture();
-  const select=root(card).querySelector('[data-room-editor="0_2"] [data-room-setting="mode"]');
+  await openSettings(card,'0_2');
+  const select=root(card).querySelector('[data-room-id="0_2"][data-room-setting="mode"]');
   select.value='vacuum';select.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
   button(card,'select-all').click();await settle(card);
   button(card,'start').click();await settle(card);
@@ -820,7 +824,8 @@ test('a recovered stopped run preloads the saved plan and starts a new explicit 
 
 test('a stopped run immediately releases per-room editors and stale pending attributes do not lock local plans',async()=>{
   const {card,calls}=await fixture({states:{'sensor.robot_queue':stoppedQueue({recovery_ready:false,pending_command:'start',recovery_reason:'Waiting for a fresh robot update.'})}});
-  const field=root(card).querySelector('[data-room-editor="0_1"] [data-room-setting="mode"]');
+  await openSettings(card,'0_1');
+  const field=root(card).querySelector('[data-room-id="0_1"][data-room-setting="mode"]');
   assert.equal(field.disabled,false);
   field.value='vacuum';field.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
   await tap(card,'0_1');
@@ -1037,4 +1042,43 @@ test('a native parameter rejection is visible without opening interruption detai
   })}});
   assert.match(root(card).querySelector('.subline').textContent,/robot rejected this settings combination/);
   assert.match(root(card).querySelector('.subline').textContent,/no cleaning started/);
+});
+
+test('opening a remaining room stages edits only after a change and exposes Apply/Cancel in its modal',async()=>{
+  const {card,calls}=await editableFixture();
+  await openSettings(card,'0_4');
+  assert.equal(card.queueDraft,undefined,'Opening settings alone must not start a queue transaction');
+  const field=root(card).querySelector('dialog [data-room-setting="mode"]');
+  assert.equal(field.disabled,false);
+  field.value='vacuum';field.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
+  assert.ok(card.queueDraft);assert.deepEqual(calls,[]);
+  assert.equal(button(card,'modal-apply-queue-edit').disabled,false);
+  await closeSettings(card);
+  assert.ok(card.queueDraft,'Closing settings preserves the staged queue edit');
+  await openSettings(card,'0_4');
+  button(card,'modal-cancel-queue-edit').click();await settle(card);
+  assert.equal(card.queueDraft,undefined);
+  assert.equal(root(card).querySelector('dialog [data-room-setting="mode"]').value,'vacuum_mop');
+  const next=root(card).querySelector('dialog [data-room-setting="mode"]');
+  next.value='vacuum';next.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
+  button(card,'modal-apply-queue-edit').click();await settle(card);
+  assert.equal(calls.length,1);assert.equal(calls[0].action,'update_queue');
+  assert.deepEqual(calls[0].data.rooms,[{id:'0_3',...ROOM_DEFAULTS},{id:'0_4',mode:'vacuum',suction:'balanced',repeat:1}]);
+  assert.equal(card.preferencesDirty,false);
+});
+
+test('started rooms are inspectable and queue advancement locks an already open room editor',async()=>{
+  const {card,calls}=await editableFixture();
+  await openSettings(card,'0_2');
+  assert.match(root(card).querySelector('dialog').textContent,/This room has started/);
+  assert.ok([...root(card).querySelectorAll('dialog select')].every(field=>field.disabled));
+  await openSettings(card,'0_4');
+  let field=root(card).querySelector('dialog [data-room-setting="mode"]');
+  field.value='vacuum';field.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
+  const draft=structuredClone(card.queueDraft);
+  await changeStates(card,{'sensor.robot_queue':editableRun({queue_revision:5,protected_room_ids:['0_1','0_2','0_3','0_4'],editable_room_ids:[],current_index:4,completed:4})});
+  assert.match(root(card).querySelector('dialog').textContent,/sequence changed/);
+  assert.equal(field.disabled,true);assert.equal(button(card,'modal-apply-queue-edit').disabled,true);
+  field.value='mop';field.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
+  assert.deepEqual(card.queueDraft,draft);assert.deepEqual(calls,[]);
 });

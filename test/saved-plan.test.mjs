@@ -1,3 +1,4 @@
+import {openSettings,closeSettings} from './settings-navigation.mjs';
 import assert from 'node:assert/strict';
 import { after, afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
@@ -86,9 +87,11 @@ const select = (card, id, key) => root(card).querySelector(`[data-room-setting="
 const order = (card, id) => room(card, id)?.querySelector('.order')?.textContent.trim();
 async function click(card, control) {
   assert.ok(control, 'Expected control to be rendered'); assert.equal(control.disabled, false);
+  if(control.closest&&!control.closest('dialog'))await closeSettings(card);
   control.click(); await settle(card);
 }
 async function edit(card, id, key, value) {
+  await openSettings(card,id);
   const control = select(card, id, key);
   assert.ok(control, `Expected ${id} ${key} control`); assert.equal(control.disabled, false);
   assert.ok([...control.options].some(option => option.value === String(value)), `Expected ${value} option`);
@@ -109,9 +112,10 @@ test('a fresh dashboard preloads the saved native-room sequence and exact settin
   // first inserted (also reproducible with a standalone native select). Verify
   // the visible settings summary and the exact executable payload here; later
   // edit/refresh tests exercise the select values after normal updates.
-  assert.match(root(card).querySelector('[data-room-editor="0_5"] summary').textContent, /Vacuum\s+Suction Max\+\s+Passes ×2/);
-  assert.match(root(card).querySelector('[data-room-editor="0_12"] summary').textContent, /Mop\s+Water flow High\s+Route Deep\s+Passes ×1/);
+  assert.match(root(card).querySelector('[data-room-editor="0_5"]').textContent, /Vacuum\s+Suction Max\+\s+Passes ×2/);
+  assert.match(root(card).querySelector('[data-room-editor="0_12"]').textContent, /Mop\s+Water flow High\s+Route Deep\s+Passes ×1/);
   assert.equal(action(card, 'save-preset').disabled, true);
+  await openSettings(card);
   assert.equal(action(card, 'save-preferences').disabled, true);
   assert.equal(calls.length, 0);
   await click(card, action(card, 'start'));
@@ -170,8 +174,11 @@ test('reloading a saved plan leaves the shared preference profile untouched and 
   await click(card, room(card, '0_13'));
   await click(card, action(card, 'load-preset'));
   assert.equal(order(card, '0_13'), undefined);
+  await openSettings(card,'0_5');
   assert.equal(select(card, '0_5', 'suction').value, 'max_plus');
+  await openSettings(card,'defaults');
   assert.equal(select(card, 'defaults', 'suction').value, 'balanced');
+  await openSettings(card);
   assert.equal(action(card, 'save-preferences').disabled, true);
   assert.equal(action(card, 'save-preset').disabled, true);
   assert.equal(calls.length, 0);
@@ -185,12 +192,17 @@ test('shared preference refresh updates defaults but preserves the saved sequenc
       '0_12': {mode: 'vacuum', suction: 'quiet', repeat: 1}}};
   setCapabilities(changed);
   await publishRevision(card, {preferences_revisions: {'vacuum.rover': 3}});
+  await openSettings(card,'defaults');
   assert.equal(select(card, 'defaults', 'suction').value, 'turbo');
+  await openSettings(card,'0_5');
   assert.equal(select(card, '0_5', 'suction').value, 'max_plus');
+  await openSettings(card,'0_12');
   assert.equal(select(card, '0_12', 'mode').value, 'mop');
+  await openSettings(card,'0_12');
   assert.equal(select(card, '0_12', 'water').value, 'high');
   assert.equal(order(card, '0_5'), '1'); assert.equal(order(card, '0_12'), '2');
   assert.equal(action(card, 'save-preset').disabled, true);
+  await openSettings(card);
   assert.equal(action(card, 'save-preferences').disabled, true);
   assert.equal(calls.length, 0);
 });
@@ -202,7 +214,9 @@ test('capability refresh cannot overwrite unsaved plan order, membership, or set
   await click(card, room(card, '0_13'));
   const changed = capabilities(); changed.defaults.suction = 'quiet';
   setCapabilities(changed);
+  await openSettings(card);
   await click(card, action(card, 'refresh-rooms'));
+  await openSettings(card,'0_5');
   assert.equal(select(card, '0_5', 'suction').value, 'turbo');
   assert.equal(order(card, '0_12'), '1'); assert.equal(order(card, '0_5'), '2'); assert.equal(order(card, '0_13'), '3');
   assert.equal(action(card, 'save-preset').disabled, false);
@@ -225,6 +239,7 @@ test('a failed plan save preserves the local draft and remains saveable', async 
   await edit(card, '0_12', 'water', 'low');
   await click(card, action(card, 'save-preset'));
   assert.equal(calls.length, 1);
+  await openSettings(card,'0_12');
   assert.equal(select(card, '0_12', 'water').value, 'low');
   assert.equal(action(card, 'save-preset').disabled, false);
   assert.match(root(card).textContent, /Plan changed in another dashboard/);
@@ -240,6 +255,7 @@ test('another user saving a plan reloads an unchanged dashboard without moving t
   assert.ok(reads.length > beforeReads, 'Plan revisions must trigger a capability refresh');
   assert.equal(order(card, '0_12'), '1'); assert.equal(order(card, '0_5'), '2');
   assert.equal(action(card, 'save-preset').disabled, true);
+  await openSettings(card);
   assert.equal(action(card, 'save-preferences').disabled, true);
   assert.equal(calls.length, 0);
 });
@@ -252,6 +268,7 @@ test('another user saving a plan cannot overwrite a locally changed sequence', a
   setCapabilities(changed);
   await publishRevision(card, {saved_plan_revisions: {'vacuum.rover': 5}});
   assert.equal(order(card, '0_5'), '1'); assert.equal(order(card, '0_12'), '2'); assert.equal(order(card, '0_13'), undefined);
+  await openSettings(card,'0_5');
   assert.equal(select(card, '0_5', 'suction').value, 'turbo');
   assert.match(root(card).textContent, /another dashboard|another user|changed elsewhere/i);
   assert.equal(calls.length, 0);
@@ -266,6 +283,7 @@ test('a saved plan from another map or with a missing room never preloads a gues
     for (const id of ['0_5', '0_12', '0_13']) assert.equal(order(card, id), undefined);
     assert.equal(action(card, 'start').disabled, true);
     assert.equal(action(card, 'save-preset').disabled, true);
+  await openSettings(card);
     assert.equal(action(card, 'save-preferences').disabled, true);
     assert.match(root(card).textContent, warning);
     assert.equal(calls.length, 0);
@@ -291,6 +309,7 @@ test('after an external sequence completes the saved plan is restored without se
   }};
   await settle(card);
   assert.equal(order(card, '0_13'), '1');
+  await openSettings(card,'0_13');
   assert.equal(select(card, '0_13', 'suction').disabled, true);
   card.hass = {...card.hass, states: {...card.hass.states,
     'sensor.robot_cleaner_queue': entity('completed', {...committed, completed: 1}),
@@ -300,9 +319,12 @@ test('after an external sequence completes the saved plan is restored without se
   await settle(card);
   assert.equal(order(card, '0_5'), '1'); assert.equal(order(card, '0_12'), '2');
   assert.equal(order(card, '0_13'), undefined);
+  await openSettings(card,'0_5');
   assert.equal(select(card, '0_5', 'suction').value, 'max_plus');
+  await openSettings(card,'0_12');
   assert.equal(select(card, '0_12', 'water').value, 'high');
   assert.equal(action(card, 'save-preset').disabled, true);
+  await openSettings(card);
   assert.equal(action(card, 'save-preferences').disabled, true);
   assert.equal(calls.length, 0);
 });
@@ -343,6 +365,7 @@ for (const control of ['save-preferences','reload-preferences']) test(`${control
   await edit(card,'0_13','suction','max');
   let completeRead;
   card.hass.callWS=()=>new Promise(resolve=>{completeRead=resolve;});
+  if(control==='reload-preferences')await openSettings(card);
   action(card,control).click();
   await settle(card);
   assert.equal(typeof completeRead,'function','The capability refresh should be pending');
@@ -416,6 +439,7 @@ test('shared defaults and disabled room settings autosave and restore for a new 
  await card.editSetup(undefined,{water:'high'});await settle(card);await saved(card);
  assert.equal(card.caps.preferences.defaults.water,'high');
  assert.equal(action(card,'save-preferences'),null);
+ await openSettings(card);
  assert.ok(action(card,'apply-defaults'));
 });
 test('selected room edit persists preferences before the shared plan',async()=>{
@@ -434,6 +458,7 @@ test('failed preference autosave retains edits and offers recovery without a ret
 });
 test('apply to all remains explicit and autosaves the resulting shared defaults',async()=>{
  const {card,calls}=await fixture({capabilities:sharedCaps()});
+ await openSettings(card);
  await click(card,action(card,'apply-defaults'));await saved(card);await saved(card);
  assert.deepEqual(calls[0].data.rooms,{});
  assert.equal(calls[0].action,'save_preferences');
@@ -471,11 +496,13 @@ test('leaving the dashboard flushes edited room preferences and its matching pla
 
 test('Max+ is selectable only for Vacuum, including with an older companion', async () => {
   const {card, calls} = await fixture();
+  await openSettings(card,'0_5');
   const offered = () => [...select(card,'0_5','suction').options].filter(option=>!option.disabled).map(option=>option.value);
   assert.deepEqual(offered(), ['quiet','balanced','turbo','max','max_plus']);
   for (const mode of ['vacuum_mop','vacuum_then_mop']) {
     await edit(card,'0_5','mode',mode);
     assert.deepEqual(offered(), ['quiet','balanced','turbo','max']);
+  await openSettings(card,'0_5');
     assert.equal(select(card,'0_5','suction').querySelector('option[value="max_plus"]')?.disabled, true);
     assert.equal(action(card,'start').disabled,true);
     assert.match(root(card).textContent,/Max\+ is available only in Vacuum mode/);
@@ -483,8 +510,11 @@ test('Max+ is selectable only for Vacuum, including with an older companion', as
   await edit(card,'0_5','suction','max');
   assert.equal(action(card,'start').disabled,false);
   await edit(card,'0_5','mode','mop');
+  await openSettings(card,'0_5');
   assert.equal(select(card,'0_5','suction'),null);
+  await openSettings(card,'0_5');
   assert.deepEqual([...select(card,'0_5','water').options].map(option=>option.textContent),['Low','Medium','High']);
+  await openSettings(card,'0_5');
   assert.equal(select(card,'0_5','water').getAttribute('aria-label'),'Water flow for Hallway');
   assert.equal(calls.length,0);
 });
@@ -495,7 +525,7 @@ test('saved mixed-mode Max+ rooms preload unchanged and require an explicit corr
   const {card,calls}=await fixture({capabilities:caps});
   assert.equal(order(card,'0_5'),'1');
   assert.equal(order(card,'0_12'),'2');
-  assert.match(root(card).querySelector('[data-room-editor="0_5"] summary').textContent,/Max\+/);
+  assert.match(root(card).querySelector('[data-room-editor="0_5"]').textContent,/Max\+/);
   assert.equal(action(card,'start').disabled,true);
   assert.equal(action(card,'save-preset').disabled,true);
   await edit(card,'0_5','water','low');
@@ -504,4 +534,22 @@ test('saved mixed-mode Max+ rooms preload unchanged and require an explicit corr
   assert.equal(action(card,'start').disabled,false);
   await click(card,action(card,'start'));
   assert.deepEqual(calls[0].data.rooms[0],{id:'0_5',mode:'vacuum_mop',suction:'max',water:'low',route:'standard',repeat:2});
+});
+
+test('closing and reopening during autosave retains the new modal and reports a late save error there',async()=>{
+  let reject;
+  const {card,calls}=await fixture({capabilities:sharedCaps(),service:(_domain,action)=>action==='save_preferences'?new Promise((_resolve,fail)=>{reject=fail;}):undefined});
+  await edit(card,'0_5','suction','turbo');await saved(card);
+  assert.equal(card.savingPreferences,true);
+  await closeSettings(card);await openSettings(card,'0_12');
+  const dialog=root(card).querySelector('dialog[open]');
+  assert.match(dialog.textContent,/Kitchen settings/);
+  assert.ok([...dialog.querySelectorAll('select')].every(control=>control.disabled));
+  reject(new Error('Shared storage temporarily unavailable'));await settle(card);
+  assert.equal(root(card).querySelector('dialog[open]'),dialog);
+  assert.match(dialog.textContent,/Shared storage temporarily unavailable/);
+  assert.equal(card.setupFor('0_5').suction,'turbo');
+  assert.equal(card.preferencesDirty,true);
+  assert.equal(calls.filter(call=>call.action==='save_preferences').length,1);
+  assert.ok(!calls.some(call=>call.action==='control'));
 });

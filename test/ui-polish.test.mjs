@@ -1,3 +1,4 @@
+import {openSettings,closeSettings} from './settings-navigation.mjs';
 import assert from 'node:assert/strict';
 import { after, afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
@@ -28,7 +29,7 @@ function capabilities() {
 async function settle(card) { for (let i = 0; i < 12; i++) { await card.updateComplete; await Promise.resolve(); } }
 const root = card => card.shadowRoot;
 const action = (card, name) => root(card).querySelector(`[data-action="${name}"]`);
-const chips = (card, id) => [...root(card).querySelectorAll(`[data-room-editor="${id}"] summary .setting-chip`)];
+const chips = (card, id) => [...root(card).querySelectorAll(`[data-room-editor="${id}"] .setting-chip`)];
 async function fixture(options = {}) {
   let caps = structuredClone(options.capabilities ?? capabilities());
   const calls = [], card = document.createElement('robot-vacuum-cleaner-card');
@@ -51,8 +52,9 @@ async function fixture(options = {}) {
   document.body.append(card); await settle(card);
   return {card, calls};
 }
-async function click(card, control) { assert.ok(control); assert.equal(control.disabled, false); control.click(); await settle(card); }
+async function click(card, control) { assert.ok(control); assert.equal(control.disabled, false); if(control.closest&&!control.closest('dialog'))await closeSettings(card); control.click(); await settle(card); }
 async function edit(card, id, key, value) {
+  await openSettings(card,id);
   const control = root(card).querySelector(`[data-room-id="${id}"][data-room-setting="${key}"]`);
   assert.ok(control); assert.equal(control.disabled, false); control.value = String(value);
   control.dispatchEvent(new Event('change', {bubbles: true})); await settle(card);
@@ -64,6 +66,7 @@ test('Apply defaults replaces current-floor room and saved-plan overlays without
   const {card, calls} = await fixture();
   const stored = structuredClone(card.savedPreset), selection = [...card.manualSelected];
   await edit(card, 'defaults', 'suction', 'turbo');
+  await openSettings(card);
   await click(card, action(card, 'apply-defaults'));
   assert.deepEqual(card.manualSelected, selection);
   for (const id of ['0_5', '0_12', '0_13']) {
@@ -80,6 +83,7 @@ test('Apply defaults replaces current-floor room and saved-plan overlays without
 
 test('Save room settings after Apply defaults leaves the wall-switch plan unchanged until Save plan', async () => {
   const {card, calls} = await fixture();
+  await openSettings(card);
   await click(card, action(card, 'apply-defaults'));
   await click(card, action(card, 'save-preferences'));
   assert.equal(calls.length, 1);
@@ -100,6 +104,7 @@ test('Save room settings after Apply defaults leaves the wall-switch plan unchan
 
 test('a failed preference save retains the applied draft and the old saved plan', async () => {
   const {card, calls} = await fixture({failSave: true});
+  await openSettings(card);
   await click(card, action(card, 'apply-defaults'));
   await click(card, action(card, 'save-preferences'));
   assert.equal(card.preferencesDirty, true);
@@ -116,7 +121,7 @@ for (const reason of ['queue', 'robot', 'request']) test(`Apply defaults cannot 
       stages: [{target: '0_5', mode: 'vacuum', room_index: 0, repeat_index: 0}], current_index: 0, completed: 0})}};
   if (reason === 'robot') card.hass = {...card.hass, states: {...card.hass.states,
     'vacuum.rover': entity('cleaning', {supported_features: 8192 | 4 | 8 | 16})}};
-  if (reason === 'request') card.savingPreferences = true;
+  if (reason === 'request') { await openSettings(card); card.savingPreferences = true; }
   await settle(card);
   const before = structuredClone({rooms: card.roomSetups, overlays: card.planSetups, defaults: card.setup});
   if(reason==='request') assert.equal(action(card, 'apply-defaults').disabled, true);
@@ -144,7 +149,9 @@ test('main view has one Start action and moves default editing out of the status
   const {card} = await fixture();
   assert.equal(root(card).querySelectorAll('[data-action="start"]').length, 1);
   assert.equal(root(card).querySelector('.hero .default-settings'), null);
-  assert.ok(root(card).querySelector('.default-settings [data-action="apply-defaults"]'));
+  assert.equal(action(card,'apply-defaults'),null);
+  await openSettings(card);
+  assert.ok(root(card).querySelector('dialog [data-action="apply-defaults"]'));
 });
 
 
@@ -190,6 +197,60 @@ test('an app-started clean after a completed sequence keeps its own metrics and 
 
 test('collapsed room settings expose their selected values in the accessible name', async () => {
   const {card} = await fixture();
-  const summary=root(card).querySelector('[data-room-editor="0_5"] summary');
+  const summary=root(card).querySelector('[data-open-room="0_5"]');
   assert.match(summary.getAttribute('aria-label'),/Settings for Hall: Vacuum.*Suction Max\+.*×2/);
+});
+
+test('room and defaults cogs launch one shared modal while selected pills stay inline', async()=>{
+  const {card,calls}=await fixture();
+  assert.equal(root(card).querySelector('[data-room-setting]'),null);
+  assert.equal(root(card).querySelector('details.default-settings'),null);
+  const opener=root(card).querySelector('[data-open-room="0_5"]');
+  const defaultsButton=action(card,'room-defaults');
+  for(const button of [opener,defaultsButton]){
+    assert.equal(button.getAttribute('aria-haspopup'),'dialog');
+    assert.equal(button.hasAttribute('aria-expanded'),false);
+    assert.equal(button.querySelector('ha-icon').icon,'mdi:cog-outline');
+  }
+  opener.click();await settle(card);
+  const dialog=root(card).querySelector('dialog[open]');
+  assert.match(dialog.textContent,/Hall settings/);
+  const field=dialog.querySelector('[data-room-setting="suction"]');field.focus();
+  card.hass={...card.hass,states:{...card.hass.states,'sensor.unrelated':entity('on')}};await settle(card);
+  assert.equal(root(card).querySelector('dialog[open]'),dialog);
+  assert.equal(root(card).activeElement,field);
+  field.value='max';field.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
+  dialog.querySelector('[aria-label="Close Hall settings"]').click();await settle(card);
+  assert.equal(root(card).querySelector('dialog'),null);
+  assert.equal(root(card).activeElement,opener,'Touch opening has an explicit focus return target');
+  assert.equal(card.setupFor('0_5').suction,'max');
+  assert.equal(calls.length,0,'Opening/editing/closing must not start physical cleaning');
+});
+
+test('Escape and backdrop retain the same unsaved room preferences as X',async()=>{
+  const {card,calls}=await fixture();
+  for(const dismiss of ['escape','backdrop']){
+    await openSettings(card,'0_5');
+    await edit(card,'0_5','suction',dismiss==='escape'?'turbo':'max');
+    const dialog=root(card).querySelector('dialog[open]');
+    if(dismiss==='escape')dialog.dispatchEvent(new Event('cancel',{cancelable:true}));
+    else for(const type of ['pointerdown','pointerup'])dialog.dispatchEvent(new browser.MouseEvent(type,{bubbles:true,clientX:-10,clientY:-10}));
+    await settle(card);
+    assert.equal(root(card).querySelector('dialog'),null);
+    assert.equal(card.setupFor('0_5').suction,dismiss==='escape'?'turbo':'max');
+    assert.equal(card.preferencesDirty,true);
+  }
+  assert.deepEqual(calls,[]);
+});
+
+test('a room removed from the map while its modal is open cannot be changed by a stale control',async()=>{
+  const {card,calls}=await fixture();
+  await openSettings(card,'0_5');
+  const field=root(card).querySelector('[data-room-setting="suction"]');
+  const before=structuredClone(card.roomSetups);
+  card.caps={...card.caps,robot_rooms:card.caps.robot_rooms.filter(room=>room.id!=='0_5')};await settle(card);
+  assert.match(root(card).querySelector('dialog').textContent,/no longer on the current map/);
+  assert.equal(root(card).querySelector('dialog select'),null);
+  field.value='turbo';field.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
+  assert.deepEqual(card.roomSetups,before);assert.deepEqual(calls,[]);
 });

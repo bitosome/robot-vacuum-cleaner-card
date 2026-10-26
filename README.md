@@ -92,13 +92,13 @@ Configure the optional telemetry entities you have. Missing values are omitted. 
 
 Robot tools—**Find, Dock, Map, Settings, Care and Details**—stay directly below status and cleaning actions, above plan settings and all rooms. Available tools use labeled pills in three columns on phones and one row on wider cards. **Dock** opens dock controls; **Return to dock** is the separate movement action. Unsupported tools stay hidden.
 
-Every room shows its mode, suction, water, route and repeat count as compact icon-and-value pills. Expand the settings row inside a tile to edit it, even before selecting the room. Only relevant native options appear: vacuum omits water/route; mop omits suction. Suction uses **Quiet**, **Balanced**, **Turbo**, **Max**, and **Max+**; **Max+ is available only in Vacuum mode**, including when connected to an older companion. Mixed modes stop at Max. A saved Max+ mixed-mode room remains visible but needs an explicit correction before starting or saving. **Water flow** offers Low, Medium, and High; the Roborock app’s custom 1–30 control is not exposed by the current integration. **Use defaults** removes a room override. **Room defaults** affects rooms without overrides. **Apply to all rooms** explicitly replaces custom settings and loaded-plan overrides on the current map, while keeping the selected room order and other floors unchanged. Editing sends no robot command.
+Every room shows its mode, suction, water, route and repeat count as compact icon-and-value pills. Open the cog in a room tile to edit its settings in the shared modal, even before selecting the room. The Room defaults cog opens the same editor for defaults; closing either modal keeps edits and their existing save or queue-apply behavior. Only relevant native options appear: vacuum omits water/route; mop omits suction. Suction uses **Quiet**, **Balanced**, **Turbo**, **Max**, and **Max+**; **Max+ is available only in Vacuum mode**, including when connected to an older companion. Mixed modes stop at Max. A saved Max+ mixed-mode room remains visible but needs an explicit correction before starting or saving. **Water flow** offers Low, Medium, and High; the Roborock app’s custom 1–30 control is not exposed by the current integration. **Use defaults** removes a room override. **Room defaults** affects rooms without overrides. **Apply to all rooms** explicitly replaces custom settings and loaded-plan overrides on the current map, while keeping the selected room order and other floors unchanged. Editing sends no robot command.
 
 Drag rooms by their handles to arrange the cleaning order, then use each room’s toggle to include or exclude it. Toggling never changes the order or starts cleaning. Enabled rooms show their sequence numbers. Handles also support Arrow Up/Down and Home/End; Escape cancels a drag. The rest of each tile remains available for normal touch scrolling. **Start sequence · N rooms** starts exactly that order. **Select all** explicitly includes every room on the current map. No selection means Start is disabled.
 
 Each native room finishes all its passes before the next room. **Vacuum then mop ×2** vacuums that room twice, then mops it twice, then advances. Completion counts cleaning stages internally; room tiles only say Completed after all that room's stages finish.
 
-**Save plan** stores the selection and exact per-room settings in Home Assistant for the wall switch, without starting cleaning. **Load plan** restores it for review. One plan is stored per robot and survives restarts/browser changes. A retired Roborock routine plan must be replaced explicitly; it never falls back to full-house cleaning. Missing rooms, map changes and unsupported settings are rejected rather than silently substituted.
+On the current companion, the selection and exact per-room settings save automatically in Home Assistant for the wall switch, without starting cleaning. Older companions retain **Save plan** and **Reload** controls. One plan is stored per robot and survives restarts/browser changes. A retired Roborock routine plan must be replaced explicitly; it never falls back to full-house cleaning. Missing rooms, map changes and unsupported settings are rejected rather than silently substituted.
 
 ## Reliability and recovery
 
@@ -148,7 +148,7 @@ Open `http://127.0.0.1:8767/preview/`. The interactive preview is entirely local
 
 ## Design provenance
 
-Space Hub Card is the design reference; the inline room controls follow the NIBE dashboard’s compact surfaces and progressive disclosure. The shared tokens, glow helper, stacking model and modal shell are bundled from `@bitosome/ha-card-ui`. See [provenance](src/shared/PROVENANCE.md). There is no runtime dependency on another local checkout.
+Space Hub Card is the design reference; the room list and shared modal editors follow the NIBE dashboard’s compact surfaces and progressive disclosure. The shared tokens, glow helper, stacking model and modal shell are bundled from `@bitosome/ha-card-ui`. See [provenance](src/shared/PROVENANCE.md). There is no runtime dependency on another local checkout.
 
 This is a public, reusable project. Examples contain no production configuration, household maps or credentials. MIT licensed.
 
@@ -173,9 +173,11 @@ operation. Older companions retain manual save controls for compatibility.
 
 The saved wall-switch plan preloads automatically when the robot is available and
 no sequence is active. Its room order and effective cleaning settings are restored
-without starting a clean. **Save plan** becomes available only when that plan
-changes; reverting the change disables it again. **Reload** discards plan edits
-and restores the shared saved plan. The compact plan row replaces the large tile.
+without starting a clean. Current companions autosave changes and show saving or
+conflict status. On older companions, **Save plan** becomes available only when
+that plan changes; reverting the change disables it again. **Reload** discards
+legacy plan edits and restores the shared saved plan. The compact plan row
+replaces the large tile.
 
 Loaded plan settings are separate from shared defaults/room preferences. Reading
 or reloading a plan never replaces unrelated preferences. With companion v0.9.1,
@@ -278,4 +280,4 @@ Sorting uses Home Assistant's native `ha-sortable`, loaded through its built-in 
 
 The build bundles [`@bitosome/ha-card-ui`](https://github.com/bitosome/ha-card-ui), the versioned Space Hub design and behavior library. Its tokens, under-tile activation glows, MDI controls and shared native dialog controller are included in this card's JavaScript. Home Assistant does not need a separate library resource or another card installed. The release URL and integrity are pinned by `package-lock.json`; see [provenance](src/shared/PROVENANCE.md).
 
-Dock, Map, Settings, Care, Details and recovery confirmations use the shared modal shell. Room planning and per-room settings intentionally stay inline; sequence activity stays collapsed on the main card. Shared autosave, native HA sorting, bound recovery and explicit Apply/Cancel for an active queue retain their domain behavior. Closing a modal does not cancel or duplicate a dispatched command.
+Dock, Map, Settings, Care, Details, Room defaults, per-room settings and recovery confirmations use the shared modal shell. Room planning stays inline with selected-setting pills, native drag handles and selection toggles; sequence activity stays collapsed on the main card. Every settings editor opens from the same cog icon. Started rooms remain inspectable but read-only, and changes to remaining rooms stay in a draft until Apply changes is pressed. Shared autosave, native HA sorting, bound recovery and explicit Apply/Cancel for an active queue retain their domain behavior. Closing a modal does not cancel or duplicate a dispatched command.
