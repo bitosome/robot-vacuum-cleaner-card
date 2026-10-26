@@ -417,9 +417,13 @@ test('map shows only HA proxy images and care has no reset commands',async()=>{
   card.closePanel();await settle(card);card.shadowRoot.querySelector('[data-panel="care"]').click();await settle(card);
   assert.match(card.shadowRoot.textContent,/Maintenance due/);assert.equal(calls.length,0);
 });
-test('unavailable native devices disappear and Stop sends stop rather than cancel',async()=>{
+test('unavailable dock controls stay discoverable and Stop sends stop rather than cancel',async()=>{
   const {card,calls}=await deviceFixture({'switch.rover_wash':entity('unavailable'),'switch.rover_dry':entity('unavailable'),'vacuum.rover':entity('cleaning',{supported_features:FEATURES|8|512}),'binary_sensor.rover_cleaning':entity('on'),'sensor.rover_status':entity('segment_cleaning')});await settle(card);
-  assert.equal(card.shadowRoot.querySelector('[data-panel="dock"]'),null);
+  assert.ok(card.shadowRoot.querySelector('[data-panel="dock"]'));
+  card.shadowRoot.querySelector('[data-panel="dock"]').click();await settle(card);
+  for(const key of ['mop_washing','mop_drying'])assert.equal(card.shadowRoot.querySelector(`[data-device="${key}"]`).disabled,true);
+  assert.match(card.shadowRoot.querySelector('.device-dialog').textContent,/Unavailable/);
+  card.shadowRoot.querySelector('dialog [title="Close"]').click();await settle(card);
   card.shadowRoot.querySelector('[data-action="stop"]').click();await settle(card);
   assert.equal(calls.at(-1).data.command,'stop');assert.equal(calls.at(-1).domain,'robot_cleaner_queue');
 });

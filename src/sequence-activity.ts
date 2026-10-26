@@ -1,6 +1,7 @@
 import {html,nothing} from 'lit';
 import {MODE_ICONS,MODE_LABELS} from './manual-setup';
 import {runRooms,runStateLabel,stageStateLabel,stageTime,type CleaningRun} from './run-history';
+import {renderDockCleanup} from './dock-cleanup-view';
 
 interface ActivityOptions {
   runs:CleaningRun[]; selectedRunId?:string; locale?:string; timeZone?:string;
@@ -45,7 +46,7 @@ export function renderSequenceActivity(options:ActivityOptions) {
           return html`<span class="activity-stage ${current?'paused':stage.state}" data-history-stage=${stage.index} title=${current?`${label}: ${state}`:stage.reason??`${label}: ${state}`}><ha-icon .icon=${MODE_ICONS[stage.mode]} aria-hidden="true"></ha-icon><span class="activity-stage-text"><span>${label} · ${state}</span>${when?time(when.at,when.label):stage.state==='completed'?html`<span class="activity-time-unknown">Time unavailable</span>`:nothing}</span><ha-icon class="activity-status-icon" .icon=${current?'mdi:battery-charging':statusIcon(stage.state)} aria-hidden="true"></ha-icon></span>`;
         })}</div>
       </li>`)}</ol>
-      ${run.stages.every(stage=>stage.state==='completed') && run.state!=='completed'?html`<p class="activity-note">Floor cleaning is confirmed. Final docking and dock care are not yet confirmed.</p>`:nothing}
+      ${run.dock_cleanup?renderDockCleanup(run.dock_cleanup,{locale:options.locale,timeZone:options.timeZone}):run.stages.every(stage=>stage.state==='completed') && run.state!=='completed'?html`<p class="activity-note">Floor cleaning is confirmed. Final docking and dock care are not yet confirmed.</p>`:nothing}
       ${edits.length?html`<details class="activity-interruptions activity-edits"><summary><ha-icon icon="mdi:playlist-edit" aria-hidden="true"></ha-icon>Queue changes · ${edits.length}<ha-icon icon="mdi:chevron-down" aria-hidden="true"></ha-icon></summary><ol>${edits.map(entry=>{
         const changes:string[]=[];
         if(entry.removed_rooms.length)changes.push(`Removed: ${entry.removed_rooms.map(room=>options.roomName(room.id,room.name)).join(', ')}`);

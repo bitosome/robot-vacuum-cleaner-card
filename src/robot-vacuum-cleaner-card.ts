@@ -11,6 +11,7 @@ import {cleaningRuns, type CleaningRun} from './run-history';
 import {renderSequenceActivity} from './sequence-activity';
 import {renderRoomSettings,renderSettingPills,settingsSummary} from './room-settings';
 import {dockServiceLabel, passiveMopDrying, returningToDock} from './robot-status';
+import {cleanupComplete,cleanupLabel,readDockCleanup,type DockControls} from './dock-cleanup';
 import { panelKeys, renderDevicePanel, panelTitles, type DevicePanel } from './device-panel';
 import { designTokens } from './shared/design-tokens';
 import { familyStyles, headerStyles, dialogStyles, FamilyFlowController, renderFamilyDialog, componentStyles, notice, UI_ICONS } from './shared/card-primitives';
@@ -29,7 +30,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   @property({attribute:false}) hass?: Hass;
   @state() private config?: CardConfig;
   @state() private selected: string[] = [];
-  @state() private request?: {kind:string; since:number; phase:string; runId?:string};
+  @state() private request?: {kind:string; since:number; phase:string; runId?:string;cleanupRevision?:number};
   @state() private feedback = '';
   @state() private commandError = '';
   @state() private source: CleaningSource = 'rooms';
@@ -109,6 +110,7 @@ export class RobotVacuumCleanerCard extends LitElement {
   private capsFor = '';
   private capsRequest = 0;
   private mapState?: string;
+  private dockControlsObserved='';
   private barrierTimer?: ReturnType<typeof setTimeout>;
   private requestTimer?: ReturnType<typeof setTimeout>;
 
@@ -148,12 +150,17 @@ export class RobotVacuumCleanerCard extends LitElement {
     return available(native) ? native!.state : String(this.queue?.attributes.dock_status ?? '');
   }
   private get dockService() { return dockServiceLabel(this.dockStatus); }
+  private get dockCleanup() { return readDockCleanup(this.queue?.attributes.dock_cleanup); }
+  private get cleanupOwed() { const cleanup=this.dockCleanup;return !!cleanup&&!cleanupComplete(cleanup); }
+  private get cleanupAwaitingDock() { return this.cleanupOwed&&!this.dockCleanup!.armed&&['cancelled','idle'].includes(this.phase); }
+  private get cleanupPending() { return this.cleanupOwed&&(this.dockCleanup!.armed||this.cleanupAwaitingDock); }
+  private get dockControls():DockControls|undefined { return this.queue?.attributes.dock_controls??this.caps?.dock_controls; }
   private get dockServicing() { return !!this.dockService || returningToDock(this.dockStatus); }
   private get dockDrying() {
     const reported=this.queue?.attributes.dock_drying;
     return typeof reported==='boolean' ? reported : this.entity(this.caps?.device_entities?.mop_drying)?.state==='on' || passiveMopDrying(this.dockStatus);
   }
-  private get floorCleaningComplete() { return this.phase==='finishing' || this.queue?.attributes.floor_cleaning_complete===true; }
+  private get floorCleaningComplete() { return this.queue?.attributes.floor_cleaning_complete===true || this.phase==='finishing'&&this.queue?.attributes.floor_cleaning_complete===undefined; }
   private get startUncertain() { return this.queue?.attributes.start_uncertain===true; }
   private get nativeJobActive() { return this.entity(this.config?.cleaning_entity)?.state === 'on' || this.queue?.attributes.robot_job === 'on'; }
   private get jobActive() { return this.nativeJobActive || ['cleaning','paused','returning'].includes(this.vacuum?.state ?? ''); }
@@ -224,7 +231,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     const dock = this.entity(this.config?.dock_error_entity)?.state;
     return !quietError(err) ? humanize(err) : !quietError(dock) && !(dock==='water_empty' && (this.waterAllowed||this.waterAcknowledged)) ? humanize(dock) : this.vacuum?.state === 'error' ? 'Robot needs attention' : '';
   }
-  private get canStart() { return !this.queueDraft && (this.phase !== 'attention' || this.recoveryReady) && (!this.config?.require_queue || this.queueReady) && this.robotReady && !this.jobActive && !this.queueActive && !this.dockServicing && !this.dispatchBlocked && !this.fault && ['docked','idle'].includes(this.vacuum?.state ?? ''); }
+  private get canStart() { return !this.cleanupOwed && !this.queueDraft && (this.phase !== 'attention' || this.recoveryReady) && (!this.config?.require_queue || this.queueReady) && this.robotReady && !this.jobActive && !this.queueActive && !this.dockServicing && !this.dispatchBlocked && !this.fault && ['docked','idle'].includes(this.vacuum?.state ?? ''); }
   /** Stopping ends a job, not the trip home: native idle does not mean docked. */
   private get canReturnToDock() { return this.feature(16) && !['returning','docked'].includes(this.vacuum?.state ?? '') && !this.dockServicing; }
   private get queueReady() { return available(this.queue) && (!!this.hass?.services?.robot_cleaner_queue?.control || available(this.entity(this.config?.queue_script))); }
@@ -629,6 +636,10 @@ export class RobotVacuumCleanerCard extends LitElement {
       void this.readHistory();
     }
     if (changed.has('hass')) {
+      if(this.panel==='dock'&&!this.queue?.attributes.dock_controls) {
+        const observed=JSON.stringify([this.phase,this.vacuum?.state,this.jobActive,this.dockStatus,this.fault,...['dust_emptying','mop_washing','mop_drying'].map(key=>this.entity(this.caps?.device_entities?.[key])?.state)]);
+        if(observed!==this.dockControlsObserved){this.dockControlsObserved=observed;this.requestCapabilitiesRefresh();}
+      }
       const revision=this.entity(this.config?.queue_entity)?.attributes.preferences_revisions?.[this.config?.entity ?? ''];
       const savedRevision=this.entity(this.config?.queue_entity)?.attributes.saved_plan_revisions?.[this.config?.entity ?? ''];
       if (this.caps && typeof savedRevision==='number' && savedRevision!==this.savedPlanFetchedRevision && !this.savingPreset) this.requestCapabilitiesRefresh();
@@ -659,6 +670,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       : kind === 'pause' ? this.vacuum?.state === 'paused' || this.phase === 'paused'
       : kind === 'resume' || kind==='resume_now' ? this.vacuum?.state === 'cleaning' && !this.dockServicing
       : kind === 'continue_sequence' ? this.phase!=='attention' && this.queue?.attributes.run_id===this.request.runId
+      : kind === 'resume_dock_cleanup' ? !!this.dockCleanup&&this.dockCleanup.run_id===this.request.runId && this.dockCleanup.revision!==this.request.cleanupRevision
       : kind === 'return_to_dock' ? ['returning','docked'].includes(this.vacuum?.state ?? '')
       : false;
     if (acknowledged) {
@@ -693,6 +705,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       resume: 'Waiting for the robot to resume…',
       resume_now: 'Waiting for the robot to leave the charging break…',
       continue_sequence: 'Continuing the retained sequence…',
+      resume_dock_cleanup: 'Resuming unfinished dock care…',
       cancel: 'Clearing the sequence…',
     } as Record<string,string>)[kind] ?? 'Waiting for the robot…';
   }
@@ -740,7 +753,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     }
     await this.command('resume_now',false,prompt.token);
   }
-  private async command(kind: 'start_manual'|'pause'|'resume'|'return_to_dock'|'cancel'|'stop'|'continue_sequence'|'resume_now',waterRefilled=false,recoveryToken?:string) {
+  private async command(kind: 'start_manual'|'pause'|'resume'|'return_to_dock'|'cancel'|'stop'|'continue_sequence'|'resume_now'|'resume_dock_cleanup',waterRefilled=false,recoveryToken?:string) {
     if (!this.hass || !this.config) return;
     if(kind==='start_manual'&&this.sharedPlan&&this.preferencesDirty) {
       clearTimeout(this.autoSaveTimer);this.autoSaveKey='';
@@ -772,6 +785,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     if (kind==='continue_sequence' && (!this.continuationReady || !this.hass.services?.robot_cleaner_queue?.control)) return;
     if (kind==='continue_sequence' && this.waterRefillConfirmation && !waterRefilled) return;
     if (kind==='resume_now' && (!(recoveryToken?this.restartResumeReady&&recoveryToken===this.restartResumeToken:this.resumeNowReady) || !this.hass.services?.robot_cleaner_queue?.control)) return;
+    if(kind==='resume_dock_cleanup'&&(!this.dockCleanup?.retry_allowed||!this.cleanupPending||!this.hass.services?.robot_cleaner_queue?.control))return;
     if (kind === 'start_manual') {
       if (!this.canStart || !this.manualSelected.length || !this.validSelection) return;
       const plan = this.startPlan();
@@ -783,7 +797,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       }
     }
     this.commandError = ''; this.feedback = this.waitingText(kind);
-    this.request = {kind,since:Date.now(),phase:this.phase,runId:this.queue?.attributes.run_id};
+    this.request = {kind,since:Date.now(),phase:this.phase,runId:kind==='resume_dock_cleanup'?this.dockCleanup?.run_id:this.queue?.attributes.run_id,cleanupRevision:kind==='resume_dock_cleanup'?this.dockCleanup?.revision:undefined};
     clearTimeout(this.requestTimer);
     const pendingRequest = this.request, epoch=this.configEpoch;
     // Long enough not to contradict the integration's own 60-second window, and tied to
@@ -796,7 +810,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     try {
       if (kind === 'start_manual') {
         await this.startClean();
-      } else if (this.queueActive || ['cancel','continue_sequence','resume_now'].includes(kind) || (['pause','resume','return_to_dock','stop'].includes(kind) && this.queueReady && (this.config.require_queue || !!this.hass.services?.robot_cleaner_queue?.control))) {
+      } else if (this.queueActive || ['cancel','continue_sequence','resume_now','resume_dock_cleanup'].includes(kind) || (['pause','resume','return_to_dock','stop'].includes(kind) && this.queueReady && (this.config.require_queue || !!this.hass.services?.robot_cleaner_queue?.control))) {
         const variables: Record<string,unknown> = {command:kind,vacuum:this.config.entity};
         if (kind==='continue_sequence'||kind==='resume_now') {
           variables.run_id=this.recoveryContext!.runId;
@@ -804,11 +818,12 @@ export class RobotVacuumCleanerCard extends LitElement {
           if (kind==='continue_sequence'&&waterRefilled) variables.water_refilled=true;
           if (kind==='resume_now'&&recoveryToken) variables.recovery_token=recoveryToken;
         }
+        if(kind==='resume_dock_cleanup') {variables.run_id=pendingRequest.runId;variables.cleanup_revision=pendingRequest.cleanupRevision;}
         for (const key of Object.keys(variables)) if (variables[key] === undefined) delete variables[key];
         if (this.hass.services?.robot_cleaner_queue?.control) await this.hass.callService('robot_cleaner_queue','control',variables);
         else await this.hass.callService('script','turn_on',{entity_id:this.config.queue_script,variables});
       } else {
-        const action = {pause:'pause',resume:'start',return_to_dock:'return_to_base',stop:'stop',cancel:undefined,start_manual:undefined,continue_sequence:undefined,resume_now:undefined}[kind];
+        const action = {pause:'pause',resume:'start',return_to_dock:'return_to_base',stop:'stop',cancel:undefined,start_manual:undefined,continue_sequence:undefined,resume_now:undefined,resume_dock_cleanup:undefined}[kind];
         if (!action) throw new Error('Unsupported command.');
         await this.hass.callService('vacuum',action,{entity_id:this.config.entity});
       }
@@ -828,6 +843,13 @@ export class RobotVacuumCleanerCard extends LitElement {
 
   private headline(): string {
     if (!this.robotReady) return 'Robot unavailable';
+    if(this.cleanupPending) {
+      if(this.cleanupAwaitingDock)return this.vacuum?.state==='docked'?'Waiting for dock care':'Return for dock care';
+      if(this.dockCleanup!.state==='attention')return 'Dock care needs attention';
+      if(this.dockService)return this.dockService;
+      if(this.vacuum?.state==='returning'||returningToDock(this.dockStatus))return 'Returning for dock care';
+      return cleanupLabel(this.dockCleanup!);
+    }
     if (this.observingRetainedJob) {
       if (this.dockService) return this.dockService;
       if (this.vacuum?.state==='cleaning') return `${this.stages[this.index]?.mode==='vacuum'?'Vacuuming':this.stages[this.index]?.mode==='mop'?'Mopping':'Cleaning'} ${this.stageName}`;
@@ -877,6 +899,8 @@ export class RobotVacuumCleanerCard extends LitElement {
   private subline(): string {
     if (this.restartRecovering) return this.restartRecoveryReason;
     if (!this.robotReady) return 'Waiting for Home Assistant to reconnect.';
+    if(this.cleanupAwaitingDock)return this.vacuum?.state==='docked'?'Cleaning stopped. Confirming the dock before required care.':'Cleaning stopped. Return the robot to the dock to wash used mops and empty the bin as needed.';
+    if(this.cleanupPending)return this.dockCleanup!.reason||(this.floorCleaningComplete?'Floor cleaning is complete. Finishing required dock care.':'Cleaning stopped. Completed rooms are kept; required dock care is still pending.');
     if (this.observingRetainedJob) return 'The robot continued. Reconnect the sequence to keep the remaining rooms.';
     const failure = this.queue?.attributes.command_failure;
     if (this.phase === 'attention' && failure?.operation === 'configure' && Array.isArray(failure.codes) && failure.codes.includes(-10005)) {
@@ -923,7 +947,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     return this.vacuum?.state === 'docked' ? 'At the dock · Select rooms to clean' : 'Select rooms to clean';
   }
   private renderRecovery() {
-    if (this.phase!=='attention') return nothing;
+    if (this.phase!=='attention'||this.cleanupPending) return nothing;
     const failed=this.queue?.attributes.error;
     if (this.continuationSupported) {
       const description=this.continuationAction==='retry_stage'
@@ -944,10 +968,11 @@ export class RobotVacuumCleanerCard extends LitElement {
     return html`<section class="recovery-note" aria-label="Previous cleaning sequence"><div class="recovery-heading"><strong>Previous sequence stopped</strong><span>${this.completed} of ${this.stages.length || this.queueTargets.length || 0} passes completed</span></div>${failed ? html`<p>${failed}</p>`:nothing}<button class="${this.recoveryReady?'text-button':'action primary'}" data-action="clear-queue" ?disabled=${!this.queueReady || this.request?.kind==='cancel'} @click=${()=>this.command('cancel')}>${icon('mdi:close-circle-outline')}${this.request?.kind==='cancel'?'Clearing…':'Clear stopped sequence'}</button><p class="recovery-hint">${this.historySupported?'Clearing releases the stopped queue. Recorded activity and your saved plan are kept; the robot does not move.':'Clearing dismisses this run. It does not move the robot or change your saved plan.'}</p></section>`;
   }
   private renderActions() {
-    if (this.phase==='finishing') return nothing;
     const busy = this.dispatchBlocked || !this.robotReady || ((this.queueActive || this.config?.require_queue) && !this.queueReady);
     const waiting = this.barrierActive && !this.blocked ? this.barrierNotice : 'Waiting…';
     const dockAction=(primary=false)=>this.canReturnToDock ? html`<button class="action ${primary?'primary':'secondary'}" data-action="dock" ?disabled=${busy} @click=${()=>this.command('return_to_dock')}>${icon('mdi:home-import-outline')}Return to dock</button>`:nothing;
+    if(this.cleanupPending)return html`<div class="actions">${this.dockCleanup!.state==='attention'?html`<button class="action family-action primary" data-action="resume-dock-cleanup" ?disabled=${busy||!this.dockCleanup!.retry_allowed||!this.hass?.services?.robot_cleaner_queue?.control} @click=${()=>this.command('resume_dock_cleanup')}>${icon('mdi:restart')}${this.request?.kind==='resume_dock_cleanup'?'Resuming…':'Resume dock care'}</button>`:nothing}${dockAction()}</div>`;
+    if (this.phase==='finishing') return nothing;
     // Retained plans have their own recovery action. Getting an idle robot home
     // remains independent of whether that plan can start or continue.
     if (!this.jobActive && (this.continuationSupported || this.phase==='attention' && !this.recoveryReady)) {
@@ -979,7 +1004,8 @@ export class RobotVacuumCleanerCard extends LitElement {
   }
   private closePanel() { this.flow.close(); }
   private async deviceCommand(control:string,value:string|number='') {
-    if (!this.hass || !this.config || this.deviceSending || (control!=='locate' && (this.blocked || this.queueActive))) return;
+    const dockStop=value==='off'&&(['dust_emptying','mop_washing','mop_drying'] as string[]).includes(control)&&this.dockControls?.[control as keyof DockControls]?.can_stop===true;
+    if (!this.hass || !this.config || this.deviceSending || (control!=='locate' && !dockStop && (this.blocked || this.queueActive || this.cleanupPending))) return;
     const epoch=this.configEpoch, vacuum=this.config.entity;
     this.deviceSending=true; this.commandError='';
     try { await this.hass.callService('robot_cleaner_queue','device_control',{vacuum,control,value}); if(this.configEpoch===epoch && control==='selected_map') await this.readCapabilities(); }
@@ -989,8 +1015,8 @@ export class RobotVacuumCleanerCard extends LitElement {
   private renderUtilities() {
     if(!this.modernController || !this.hass?.services?.robot_cleaner_queue?.device_control) return nothing;
     const entities=this.caps?.device_entities??{};
-    const panels: Array<[DevicePanel,string,string]>=[['dock','Dock','mdi:ev-station'],['map','Map','mdi:map-outline'],['settings','Settings',UI_ICONS.settings],['care','Care','mdi:tools'],['status','Details',UI_ICONS.details]];
-    const visiblePanels=panels.filter(([panel])=>panelKeys(panel,entities,this.hass!).length);
+    const panels: Array<[DevicePanel,string,string]>=[['dock','Dock','mdi:home-import-outline'],['map','Map','mdi:map-outline'],['settings','Settings',UI_ICONS.settings],['care','Care','mdi:tools'],['status','Details',UI_ICONS.details]];
+    const visiblePanels=panels.filter(([panel])=>panelKeys(panel,entities,this.hass!,this.dockControls).length||panel==='dock'&&!!this.dockCleanup);
     const canLocate=this.feature(512);
     const count=visiblePanels.length+(canLocate?1:0);
     if (!count) return nothing;
@@ -1176,7 +1202,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       </section></div>
       ${this.waterEmpty&&!this.continuationSupported ? html`<div class="note water-warning">${icon('mdi:water-alert-outline')}<span>${this.waterAcknowledged?'The dock still reports a water warning. You confirmed the tank was refilled for this pass.':this.waterAllowed?`Refill and reseat the dock’s clean-water tank for mopping. ${this.queueActive?'Vacuuming can continue.':'Vacuuming can start.'} Any later mopping stage waits for a healthy dock.`:'Refill and reseat the dock’s clean-water tank for mopping.'}</span></div>`:nothing}
 
-      ${this.terminalSequence && this.phase!=='attention' ? html`<div class="note">This sequence has finished. Choose rooms for a fresh plan.<button class="text-button" data-action="clear-queue" ?disabled=${!this.queueReady || this.request?.kind==='cancel'} @click=${()=>this.command('cancel')}>Start a new sequence</button></div>`:nothing}
+      ${this.terminalSequence && this.phase!=='attention'&&!this.cleanupPending ? html`<div class="note">This sequence has finished. Choose rooms for a fresh plan.<button class="text-button" data-action="clear-queue" ?disabled=${!this.queueReady || this.request?.kind==='cancel'} @click=${()=>this.command('cancel')}>Start a new sequence</button></div>`:nothing}
       ${this.capsError || this.caps?.error ? html`<div class="note" role="status">${this.capsError || this.caps?.error}<button class="text-button" data-action="retry-capabilities" ?disabled=${this.capsLoading} @click=${()=>this.readCapabilities()}>Refresh rooms</button></div>`:nothing}
       ${this.selection.length && !this.validSelection ? html`<p class="note">Some selected rooms or settings are no longer available. Review them before saving or starting.</p>`:nothing}
       ${this.commandError && this.commandError!==this.queue?.attributes.error ? html`<div class="error" role="alert">${this.commandError}<button class="text-button" @click=${()=>this.commandError=''}>Dismiss</button></div>`:nothing}
@@ -1203,7 +1229,16 @@ export class RobotVacuumCleanerCard extends LitElement {
       long: this.panel==='map'||this.panel==='status',
       ariaDescribedBy: this.recoveryPrompt ? 'recovery-description' : undefined,
       content: this.flow.current==='room-defaults'||this.flow.current==='room-settings'?this.renderRoomSettingsContent():this.recoveryPrompt ? html`<p id="recovery-description">${this.recoveryPrompt.kind==='restart'?'The robot has an unfinished job. Resume it now and keep your saved sequence? The remaining rooms will continue only after its cleaning record matches this pass.':'The dock still reports an empty clean-water tank. Confirm you filled and reseated it before continuing this pass.'}</p>`
-        : this.panel && this.hass ? renderDevicePanel({panel:this.panel,hass:this.hass,entities:this.caps?.device_entities??{},busy:this.blocked||this.queueActive||(this.phase==='attention'&&!this.recoveryReady),motionBlocked:this.barrierActive||!!this.queue?.attributes.pending_command||(this.phase==='attention'&&!this.recoveryReady),motionReason:this.phase==='attention'?this.recoveryReason:this.barrierActive?this.barrierNotice:'Waiting for the robot to confirm the previous command.',robotDocked:this.vacuum?.state==='docked'&&!this.jobActive,waterEmpty:this.waterEmpty,fault:!!this.fault&&this.fault!=='Water empty',error:this.commandError,pending:this.deviceSending||this.phase==='controlling',close:()=>this.closePanel(),send:(key,value)=>void this.deviceCommand(key,value)}) : nothing,
+        : this.panel && this.hass ? renderDevicePanel({
+          panel:this.panel,hass:this.hass,entities:this.caps?.device_entities??{},dockControls:this.dockControls,cleanup:this.dockCleanup,
+          cleanupDisabled:this.dispatchBlocked||!this.robotReady||!this.hass.services?.robot_cleaner_queue?.control,
+          cleanupPending:this.request?.kind==='resume_dock_cleanup',resumeCleanup:()=>void this.command('resume_dock_cleanup'),
+          busy:this.blocked||this.queueActive||this.cleanupPending||(this.phase==='attention'&&!this.recoveryReady),sending:this.deviceSending,
+          motionBlocked:this.barrierActive||!!this.queue?.attributes.pending_command||(this.phase==='attention'&&!this.recoveryReady),
+          motionReason:this.cleanupPending?this.dockCleanup!.reason||'Required dock care is in progress.':this.phase==='attention'?this.recoveryReason:this.barrierActive?this.barrierNotice:'Waiting for the robot to confirm the previous command.',
+          robotDocked:this.vacuum?.state==='docked'&&!this.jobActive,waterEmpty:this.waterEmpty,fault:!!this.fault&&this.fault!=='Water empty',
+          error:this.commandError,pending:this.deviceSending||this.phase==='controlling',close:()=>this.closePanel(),send:(key,value)=>void this.deviceCommand(key,value),
+        }) : nothing,
       footer: this.flow.current==='room-defaults'||this.flow.current==='room-settings'?this.renderRoomSettingsFooter():this.recoveryPrompt ? html`${this.recoveryPrompt.kind==='restart'?html`<button class="action family-action secondary" data-action="cancel-restart-resume" data-family-initial-focus @click=${()=>this.closeRecoveryPrompt()}>Cancel</button><button class="action family-action primary" data-action="confirm-restart-resume" ?disabled=${this.dispatchBlocked||!this.restartResumeReady} @click=${()=>this.confirmRestartResume()}>${icon('mdi:play')}Resume current job</button>`:html`<button class="action family-action secondary" data-action="cancel-refill" data-family-initial-focus @click=${()=>this.closeRecoveryPrompt()}>Cancel</button><button class="action family-action primary" data-action="confirm-refill" ?disabled=${this.dispatchBlocked||!this.continuationReady} @click=${()=>this.confirmWaterRefilled()}>${icon('mdi:water-check-outline')}I refilled the tank</button>`}` : html`<p>${this.panel==='settings'?'Changes apply to the robot immediately.':'Live state from Home Assistant'}</p>`,
     })}`;
   }
@@ -1211,4 +1246,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.17.3');
+console.info('ROBOT VACUUM CLEANER CARD 0.18.0');

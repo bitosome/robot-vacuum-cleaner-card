@@ -90,7 +90,7 @@ Configure the optional telemetry entities you have. Missing values are omitted. 
 
 ## Plan on the main screen
 
-Robot tools—**Find, Dock, Map, Settings, Care and Details**—stay directly below status and cleaning actions, above plan settings and all rooms. Available tools use labeled pills in three columns on phones and one row on wider cards. **Dock** opens dock controls; **Return to dock** is the separate movement action. Unsupported tools stay hidden.
+Robot tools—**Find, Dock, Map, Settings, Care and Details**—stay directly below status and cleaning actions, above plan settings and all rooms. Available tools use labeled pills in three columns on phones and one row on wider cards. **Dock** opens the shared modal with **Wash mops**, **Empty bin** and **Dry mops**, when supported. Each row shows the native state and a Start/Stop action. Supported controls that are temporarily unavailable remain visible and disabled; the companion checks action-specific supplies, jobs and command ownership before dispatch. A supported Stop remains available during queue-owned dock care. **Return to dock** is the separate movement action. Unsupported tools stay hidden.
 
 Every room shows its mode, suction, water, route and repeat count as compact icon-and-value pills. Open the cog in a room tile to edit its settings in the shared modal, even before selecting the room. The Room defaults cog opens the same editor for defaults; closing either modal keeps edits and their existing save or queue-apply behavior. Only relevant native options appear: vacuum omits water/route; mop omits suction. Suction uses **Quiet**, **Balanced**, **Turbo**, **Max**, and **Max+**; **Max+ is available only in Vacuum mode**, including when connected to an older companion. Mixed modes stop at Max. A saved Max+ mixed-mode room remains visible but needs an explicit correction before starting or saving. **Water flow** offers Low, Medium, and High; the Roborock app’s custom 1–30 control is not exposed by the current integration. **Use defaults** removes a room override. **Room defaults** affects rooms without overrides. **Apply to all rooms** explicitly replaces custom settings and loaded-plan overrides on the current map, while keeping the selected room order and other floors unchanged. Editing sends no robot command.
 
@@ -112,7 +112,7 @@ A specific empty clean-water warning permits vacuum-only work. Mopping still nee
 
 ## Robot feature coverage
 
-Only enabled, available native Home Assistant entities are offered. The card never enables entities automatically.
+Only supported native Home Assistant controls are offered. Supported dock controls stay visible when temporarily unavailable; the card never enables entities automatically.
 
 | Feature | Support |
 | --- | --- |
@@ -132,7 +132,7 @@ This is not complete Roborock app parity. Coverage depends on robot model, firmw
 
 ## Hardware toggle
 
-Call `robot_cleaner_queue.control` with `{command: toggle_saved, vacuum: vacuum.robot}`. When idle it runs the saved room plan. Holding again while busy cancels future rooms, stops the unfinished job when necessary and returns to the dock. Native dock care follows the robot's own settings, DND and supplies; no duplicate wash/dry/empty commands are added. Legacy service/storage names containing `preset` remain for compatibility, but no Roborock routine is executed.
+Call `robot_cleaner_queue.control` with `{command: toggle_saved, vacuum: vacuum.robot}`. When idle it runs the saved room plan. Holding again while busy cancels future rooms, stops the unfinished job when necessary and returns to the dock. With companion v0.17.0, the retained dock-care checkpoint requires emptying if vacuuming was observed and mop washing if mopping was observed. The companion observes native automatic care first and dispatches only missing required work, subject to current dock availability and supplies. Legacy service/storage names containing `preset` remain for compatibility, but no Roborock routine is executed.
 
 ## Develop and preview
 
@@ -189,12 +189,17 @@ their own frozen settings and are never started by loading a plan.
 
 ### Floor cleaning and dock care
 
-With queue companion v0.10.0, the card keeps the sequence visible while the robot
-returns and services its dock after the final room. Completed room tiles describe
-floor cleaning; the header separately reports returning, washing mops, emptying
-the dustbin and settled docking. Passive mop drying remains visible after the
-sequence completes and does not block another clean. Native dock settings decide
-which care actions run; the card does not force washing or emptying.
+With queue companion v0.17.0, the card keeps floor results and dock care separate,
+including a partial sequence cancelled and sent back to the dock. Required bin
+emptying and mop washing are tracked in the integration's persisted checkpoint.
+**Dock** and **Sequence activity** show each required action, its observed outcome
+and its confirmation time. Docked or charging state alone cannot mark care done.
+An interrupted checkpoint offers **Resume dock care** only when the companion
+allows it; the request is bound to the displayed run and checkpoint revision.
+Completed rooms stay completed and stopped rooms stay stopped. Unfinished care
+does not become a successful full-house clean. Passive mop drying remains visible
+after verified care and does not hold the next clean for its full drying duration.
+The card sends no cleanup timers or low-level Roborock commands.
 
 If a room-start response fails, the card explains that the queue is observing the
 robot without sending another start. A confirmed late start can continue normally.

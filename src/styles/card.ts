@@ -177,6 +177,26 @@ export const cardStyles = css`
   .device-row:last-child { border-bottom:0; }
   .device-row small { display:block;margin-top:5px;color:var(--secondary-text-color); }
   .device-row .setting-pill { min-width:68px; }
+  .dock-control { gap:10px;padding:12px 0; }
+  .dock-control-icon { display:grid;place-items:center;flex:0 0 40px;width:40px;height:40px;border-radius:50%;background:color-mix(in srgb,var(--primary-text-color) 5%,transparent);color:var(--secondary-text-color); }
+  .dock-control-icon.active { color:var(--robot-accent);background:color-mix(in srgb,var(--robot-accent) 12%,transparent); }
+  .dock-control-copy { flex:1;min-width:0;line-height:1.35; }
+  .dock-control-copy strong { font-size:13px;font-weight:600; }
+  .dock-control .setting-pill { flex:0 0 auto;min-height:44px;gap:5px;padding:8px 12px; }
+  .dock-control .setting-pill ha-icon { width:18px;height:18px;--mdc-icon-size:18px;flex-basis:18px; }
+  .dock-cleanup { margin:12px 0;padding:12px;border-radius:var(--tile-border-radius);background:color-mix(in srgb,var(--primary-text-color) 5%,transparent);font-size:12px;line-height:1.4; }
+  .dock-cleanup-heading { display:flex;align-items:center;gap:8px; }
+  .dock-cleanup-heading > ha-icon { color:var(--robot-accent); }
+  .dock-cleanup[data-cleanup-state="attention"] .dock-cleanup-heading > ha-icon { color:var(--warning-color,#efb76a); }
+  .dock-cleanup[data-cleanup-state="completed"] .dock-cleanup-heading > ha-icon,.dock-cleanup-step.completed .dock-step-state { color:var(--success-color,#76c58a); }
+  .dock-cleanup-steps { display:grid;gap:9px;margin-top:12px; }
+  .dock-cleanup-step { display:flex;align-items:center;gap:8px;min-width:0; }
+  .dock-cleanup-step > span { flex:1;min-width:0; }
+  .dock-cleanup-step small { display:block;font-size:11px;color:var(--secondary-text-color);margin-top:2px; }
+  .dock-cleanup ha-icon { width:18px;height:18px;--mdc-icon-size:18px;flex-basis:18px; }
+  .dock-step-state { color:var(--secondary-text-color); }
+  .dock-cleanup .hint { margin:12px 0 0; }
+  .dock-cleanup .action { width:100%;margin-top:12px;min-height:44px;font-size:13px; }
   .device-row input,.device-row select { font:inherit;color:inherit;background:var(--robot-surface);border:1px solid var(--divider-color);border-radius:12px;min-height:44px;max-width:55%;padding:5px;box-sizing:border-box; }
   .device-row input:focus-visible,.device-row select:focus-visible { outline:2px solid var(--robot-accent); }
   .volume-row { display:block; }

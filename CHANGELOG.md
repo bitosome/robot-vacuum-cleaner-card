@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.0 — 2026-10-26
+
+- Give Dock a compact shared modal with explicit Wash mops, Empty bin and Dry mops controls, native running state and Start/Stop actions. Supported unavailable controls remain visible with an explanation.
+- Keep an allowed Stop available while the queue owns dock care; every action still goes through the companion's live validation.
+- Show the companion's persisted dock-care checkpoint, per-action confirmation times and a guarded Resume dock care action. Returning to the dock alone never claims a wash or emptying completed.
+- Retain partial room outcomes after cancellation. Cleanup obligations recorded during active floor work do not hide Pause, Stop, Return to dock or water-error recovery.
+- Add reusable synthetic dock scenarios to the preview and release-bundle regression coverage for native controls, cancellation, interrupted care and truthful history.
+
 ## 0.17.1 — 2026-10-26
 
 - Open Room defaults and each room’s settings from the common cog into the shared modal, while retaining visible settings pills, native sorting and room toggles on the card.

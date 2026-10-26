@@ -123,6 +123,10 @@
             <label for="scenario">Robot state</label>
             <select class="control" id="scenario">
               <option value="ready">Ready to clean</option>
+              <option value="dock_manual">Dock controls · drying</option>
+              <option value="cancelled_care">Cancelled · washing mops</option>
+              <option value="care_attention">Cancelled · dock care needs attention</option>
+              <option value="care_complete">Cancelled · dock care complete</option>
               <option value="cleaning">Cleaning a sequence</option>
               <option value="queue_edit">Edit remaining rooms · live sequence</option>
               <option value="paused">Paused</option>
@@ -182,6 +186,11 @@
   <script type="module">
     // This page intentionally has no HA connection. All entities and commands are fixtures.
     const paths = {
+      "water-sync": "M12 3.2C12 3.2 6 10 6 14C6 17.3 8.7 20 12 20S18 17.3 18 14C18 10 12 3.2 12 3.2M12 8.5V10C14.2 10 16 11.8 16 14C16 14.8 15.8 15.6 15.3 16.2L14.2 15.1C14.4 14.8 14.5 14.4 14.5 14C14.5 12.6 13.4 11.5 12 11.5V13L9.8 10.8L12 8.5M8.7 11.8L9.8 12.9C9.6 13.2 9.5 13.6 9.5 14C9.5 15.4 10.6 16.5 12 16.5V15L14.2 17.2L12 19.5V18C9.8 18 8 16.2 8 14C8 13.2 8.2 12.4 8.7 11.8Z",
+      "weather-windy": "M4,10A1,1 0 0,1 3,9A1,1 0 0,1 4,8H12A2,2 0 0,0 14,6A2,2 0 0,0 12,4C11.45,4 10.95,4.22 10.59,4.59C10.2,5 9.56,5 9.17,4.59C8.78,4.2 8.78,3.56 9.17,3.17C9.9,2.45 10.9,2 12,2A4,4 0 0,1 16,6A4,4 0 0,1 12,10H4M19,12A1,1 0 0,0 20,11A1,1 0 0,0 19,10C18.72,10 18.47,10.11 18.29,10.29C17.9,10.68 17.27,10.68 16.88,10.29C16.5,9.9 16.5,9.27 16.88,8.88C17.42,8.34 18.17,8 19,8A3,3 0 0,1 22,11A3,3 0 0,1 19,14H5A1,1 0 0,1 4,13A1,1 0 0,1 5,12H19M18,18H4A1,1 0 0,1 3,17A1,1 0 0,1 4,16H18A3,3 0 0,1 21,19A3,3 0 0,1 18,22C17.17,22 16.42,21.66 15.88,21.12C15.5,20.73 15.5,20.1 15.88,19.71C16.27,19.32 16.9,19.32 17.29,19.71C17.47,19.89 17.72,20 18,20A1,1 0 0,0 19,19A1,1 0 0,0 18,18Z",
+      "delete-variant": "M21.03,3L18,20.31C17.83,21.27 17,22 16,22H8C7,22 6.17,21.27 6,20.31L2.97,3H21.03M5.36,5L8,20H16L18.64,5H5.36M9,18V14H13V18H9M13,13.18L9.82,10L13,6.82L16.18,10L13,13.18Z",
+      "restart": "M12,4C14.1,4 16.1,4.8 17.6,6.3C20.7,9.4 20.7,14.5 17.6,17.6C15.8,19.5 13.3,20.2 10.9,19.9L11.4,17.9C13.1,18.1 14.9,17.5 16.2,16.2C18.5,13.9 18.5,10.1 16.2,7.7C15.1,6.6 13.5,6 12,6V10.6L7,5.6L12,0.6V4M6.3,17.6C3.7,15 3.3,11 5.1,7.9L6.6,9.4C5.5,11.6 5.9,14.4 7.8,16.2C8.3,16.7 8.9,17.1 9.6,17.4L9,19.4C8,19 7.1,18.4 6.3,17.6Z",
+
       "water-check-outline": "M21.75 16.25L17 21L14.25 18L15.41 16.84L17 18.43L20.59 14.84L21.75 16.25M8 14C8 12.23 10 8.96 12 6.39C13.5 8.33 15 10.67 15.67 12.47C16.27 12.21 16.93 12.06 17.62 12C16.31 8.1 12 3.25 12 3.25S6 10 6 14C6 17.31 8.69 20 12 20C12.12 20 12.23 20 12.34 20C12.12 19.36 12 18.7 12 18C9.79 18 8 16.21 8 14Z",
       'drag': 'M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z',
       'drag-horizontal': 'M20,9H4V11H20V9M4,15H20V13H4V15Z',
@@ -310,11 +319,19 @@
       {value: 'vacuum_mop', label: 'Vacuum & mop'}, {value: 'vacuum_then_mop', label: 'Vacuum then mop'}
     ];
     const deviceEntities = {dust_emptying:'switch.rover_empty',mop_washing:'switch.rover_wash',mop_drying:'switch.rover_dry',volume:'number.rover_volume',dnd:'switch.rover_dnd',dnd_start:'time.rover_dnd_start',dnd_end:'time.rover_dnd_end',child_lock:'switch.rover_child',empty_mode:'select.rover_empty',main_brush_time_left:'sensor.rover_brush',sensor_time_left:'sensor.rover_sensors',map_0:'image.rover_map'};
+    function dockControls() {
+      const cleanup=states[config.queue_entity]?.attributes.dock_cleanup;
+      const busy=['running','paused','starting','preparing','finishing','controlling'].includes(states[config.queue_entity]?.state)||cleanup?.armed&&cleanup.state!=='completed';
+      return Object.fromEntries(['dust_emptying','mop_washing','mop_drying'].map(key=>{
+        const state=states[deviceEntities[key]]?.state??'unavailable',water=key==='mop_washing'&&states[config.dock_error_entity]?.state==='water_empty';
+        return [key,{supported:true,available:!['unavailable','unknown'].includes(state),state,can_start:!busy&&!water&&states[config.entity]?.state==='docked',can_stop:state==='on',reason:water?'Refill the clean-water tank':busy?'Waiting for dock care':''}];
+      }));
+    }
     let preferences = {revision:0,defaults:{},rooms:{}};
     function capabilities() {
       if (scenario === 'manual_unavailable' || states[config.entity]?.state === 'unavailable') return {supported: false, modes: [], suction: [], water: [], routes: [], repeats: [], room_targets: [], defaults: {}, error: 'Manual cleaning settings are unavailable. Check the robot connection.'};
       const vacuumOnly = scenario === 'vacuum_only';
-      return {preferences,shared_plan_version:1,saved_plan_revision:savedPreset?.revision??0,saved_preset:savedPreset,current_map:0,control_version:5,execution_version:3,device_entities:deviceEntities,supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
+      return {preferences,shared_plan_version:1,saved_plan_revision:savedPreset?.revision??0,saved_preset:savedPreset,current_map:0,control_version:8,execution_version:6,device_entities:deviceEntities,dock_cleanup_version:1,dock_controls:dockControls(),supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
         suction: ['quiet', 'balanced', 'turbo', 'max', 'max_plus'],
         water: vacuumOnly ? [] : ['low', 'medium', 'high'],
         routes: vacuumOnly ? [] : ['standard', 'deep', 'deep_plus', 'fast'],
@@ -383,6 +400,7 @@
     }
     function paint() {
       if (!ready) return;
+      if(states[config.queue_entity])states[config.queue_entity].attributes.dock_controls=dockControls();
       card.hass = {
         states: {...states}, language: 'en', locale: {language: 'en', number_format: 'comma_decimal', time_format: '24', date_format: 'DMY'},
         themes: {darkMode: document.documentElement.dataset.theme !== 'light'},
@@ -457,10 +475,22 @@
       try {
         if (domain==='robot_cleaner_queue' && service==='device_control') {
           if(data.control!=='locate') { const id=deviceEntities[data.control]; if(!id)throw new Error('Unsupported control');set(id,data.value,states[id].attributes); }
+          if(data.value==='off'&&queue()?.attributes.dock_cleanup?.armed&&queue().attributes.dock_cleanup.state!=='completed') {
+            const cleanup=queue().attributes.dock_cleanup;
+            set(config.queue_entity,'attention',{...queueAttrs(),dock_cleanup:{...cleanup,state:'attention',revision:cleanup.revision+1,reason:'Dock care was stopped. Resume it when ready.',retry_allowed:true}});
+            robotState('docked','charging');
+          }
         } else if ((domain === 'script' && service === 'turn_on') || (domain === 'robot_cleaner_queue' && service === 'control')) {
           const variables = domain === 'script' ? data.variables || {} : data;
           const attrs = queueAttrs();
-          if(variables.command==='stop') {set(config.queue_entity,'cancelled',attrs);robotState('idle','idle');}
+          if(variables.command==='resume_dock_cleanup') {
+            const cleanup=attrs.dock_cleanup;
+            if(variables.run_id!==cleanup?.run_id||variables.cleanup_revision!==cleanup.revision)throw new Error('Dock care changed. Review its current state.');
+            const next={...cleanup,state:'running',revision:cleanup.revision+1,reason:'',retry_allowed:false,actions:{...cleanup.actions,mop_washing:{state:'running',started_at:Date.now()/1000}}};
+            set(config.queue_entity,'finishing',{...attrs,dock_cleanup:next});set(deviceEntities.mop_washing,'on');robotState('docked','washing_the_mop');
+            if(sequenceHistory.last_run){sequenceHistory.last_run.dock_cleanup=next;sequenceHistory.history_revision++;states[config.queue_entity].attributes.history_revision=sequenceHistory.history_revision;}
+          }
+          else if(variables.command==='stop') {set(config.queue_entity,'cancelled',attrs);robotState('idle','idle');}
           else if (variables.command === 'start_manual') {
             startManual(variables);
           } else if (variables.command === 'start') {
@@ -612,6 +642,16 @@
       }
       if (value === 'washing') robotState('docked', 'washing_the_mop');
       if (value === 'manual_cleaning') startManual({rooms:[{id:'0_3',mode:'vacuum_then_mop',suction:'max',water:'high',route:'standard',repeat:1},{id:'0_5',mode:'vacuum',suction:'max',repeat:1}]});
+      if(value==='dock_manual')set(deviceEntities.mop_drying,'on');
+      if(['cancelled_care','care_attention','care_complete'].includes(value)) {
+        startManual({rooms:[{id:'0_1',...capabilities().defaults},{id:'0_3',...capabilities().defaults}]});
+        const attrs=queueAttrs(),now=Date.now()/1000,complete=value==='care_complete';
+        const cleanup={version:1,run_id:'preview-dock-care',revision:4,armed:true,state:complete?'completed':value==='care_attention'?'attention':'running',required:{dust_emptying:true,mop_washing:true},actions:{dust_emptying:{state:'completed',started_at:now-180,completed_at:now-160},mop_washing:complete?{state:'completed',started_at:now-150,completed_at:now-20}:value==='care_attention'?{state:'pending'}:{state:'running',started_at:now-30}},reason:value==='care_attention'?'Dock care was stopped. Resume it when ready.':'',retry_allowed:value==='care_attention'};
+        const run={run_id:cleanup.run_id,vacuum:config.entity,state:'cancelled',assigned_at:now-900,updated_at:now,rooms:attrs.setup.rooms.map(({id,name})=>({id,name})),stages:attrs.stages.map((stage,index)=>({...stage,index,state:index===0?'completed':'cancelled',started_at:now-600+index*300,...(index===0?{finished_at:now-330}:{})})),interruptions:[{at:now-200,reason:'Cleaning cancelled and robot sent to the dock.'}],dock_cleanup:cleanup};
+        sequenceHistory={history_revision:fixtureRevision,last_run:run,previous_runs:[]};
+        set(config.queue_entity,complete?'cancelled':value==='care_attention'?'attention':'finishing',{...attrs,run_id:cleanup.run_id,current_index:1,completed:1,floor_cleaning_complete:false,dock_cleanup:cleanup,run_history_version:1,history_revision:fixtureRevision});
+        robotState('docked',value==='cancelled_care'?'washing_the_mop':'charging');set(deviceEntities.mop_washing,value==='cancelled_care'?'on':'off');set(deviceEntities.mop_drying,complete?'on':'off');
+      }
       document.querySelector('#scenario').value = value;
       paint();
     }
