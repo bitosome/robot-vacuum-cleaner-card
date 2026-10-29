@@ -582,9 +582,13 @@ test('editor configures the robot and room appearance without routine rooms', as
   assert.equal(editor.shadowRoot.querySelector('[aria-label="Full-home preset"]'), null);
   // A configuration that still carries one loads without error and is simply unused.
   assert.equal(original.full_clean_entity, 'button.robot_all_rooms');
+  assert.equal(editor.shadowRoot.querySelector('[aria-label="Queue control"]'), null);
+  assert.equal(editor.shadowRoot.querySelector('[aria-label="Require shared cleaning controller"]'), null);
   const display = editor.shadowRoot.querySelector('[aria-label="Display name"]');
   display.value = 'My cleaner'; display.dispatchEvent(new Event('change', { bubbles: true })); await settle(editor);
   assert.equal(events.length, 1); assert.equal(events[0].name, 'My cleaner');
+  assert.equal(events[0].queue_script, undefined);
+  assert.equal(events[0].require_queue, undefined);
   const addAppearance = editor.shadowRoot.querySelector('[data-action="add-area-override"]');
   addAppearance.click(); await settle(editor);
   const id = editor.shadowRoot.querySelector('[aria-label="Area 1 ID"]');
@@ -742,9 +746,9 @@ test('standalone acknowledgement blocks edits without inventing a room sequence'
   assert.equal(calls.length,0);
 });
 
-for (const missing of ['sensor','service']) test(`required companion ${missing} loss never falls back to native cleaning`, async () => {
-  const {card,calls}=await fixture({overrides:{require_queue:true},services:missing==='service'?{}:{robot_cleaner_queue:{control:{}}},states:{
-    'script.robot_queue_control':undefined,
+for (const missing of ['sensor','service']) test(`companion ${missing} loss ignores legacy wrappers and never falls back to native cleaning`, async () => {
+  const {card,calls}=await fixture({overrides:{require_queue:false,queue_script:'script.robot_queue_control'},services:missing==='service'?{script:{turn_on:{}}}:{robot_cleaner_queue:{control:{}}},states:{
+    'script.robot_queue_control':entity('off'),
     ...(missing==='sensor'?{'sensor.robot_queue':undefined}:{}),
   }});
   assert.equal(button(card,'start').disabled,true);

@@ -12,6 +12,7 @@ export interface CardConfig {
   battery_entity?: string; activity_entity?: string; status_entity?: string; cleaning_entity?: string;
   current_room_entity?: string; progress_entity?: string; area_entity?: string; time_entity?: string;
   error_entity?: string; dock_error_entity?: string; full_clean_entity?: string; last_clean_end_entity?: string;
+  /** Legacy configuration accepted but ignored: the integration is always required. */
   require_queue?: boolean; queue_entity?: string; queue_script?: string; area_overrides?: Record<string, AreaAppearance>;
 }
 export const BAD = new Set(['unknown', 'unavailable', 'none', '']);
@@ -28,7 +29,6 @@ export function numeric(entity?: EntityState): number | undefined {
 export function validateConfig(raw: CardConfig): CardConfig {
   if (!raw || !/^vacuum\.[a-z0-9_]+$/.test(raw.entity ?? '')) throw new Error('Choose a vacuum entity.');
   if (raw.rooms !== undefined && !Array.isArray(raw.rooms)) throw new Error('rooms must be a list of rooms.');
-  if (raw.require_queue !== undefined && typeof raw.require_queue !== 'boolean') throw new Error('require_queue must be true or false.');
   const ids = new Set<string>(); const presets = new Set<string>();
   (raw.rooms ?? []).forEach(room => {
     if (!room.id || !room.name) throw new Error('Every room needs an id and a name.');
@@ -37,10 +37,9 @@ export function validateConfig(raw: CardConfig): CardConfig {
     if (ids.has(room.id) || (room.preset && presets.has(room.preset))) throw new Error('Room IDs and preset entities must be unique.');
     ids.add(room.id); if (room.preset) presets.add(room.preset);
   });
-  for (const key of ['queue_script','queue_entity','battery_entity','activity_entity','status_entity','cleaning_entity','current_room_entity','progress_entity','area_entity','time_entity','error_entity','dock_error_entity','full_clean_entity','last_clean_end_entity'] as const) {
+  for (const key of ['queue_entity','battery_entity','activity_entity','status_entity','cleaning_entity','current_room_entity','progress_entity','area_entity','time_entity','error_entity','dock_error_entity','full_clean_entity','last_clean_end_entity'] as const) {
     if (raw[key] && !/^[a-z_]+\.[a-z0-9_]+$/.test(raw[key]!)) throw new Error(`Invalid ${key} entity.`);
   }
-  if (raw.queue_script && !raw.queue_script.startsWith('script.')) throw new Error('queue_script must be a script entity.');
   let areaOverrides: Record<string, AreaAppearance> | undefined;
   if (raw.area_overrides !== undefined) {
     const plainObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(value));
@@ -53,5 +52,6 @@ export function validateConfig(raw: CardConfig): CardConfig {
       return [id, {...(appearance.name !== undefined ? {name: appearance.name as string} : {}), ...(appearance.icon !== undefined ? {icon: appearance.icon as string} : {})}];
     }));
   }
-  return { ...raw, ...(areaOverrides !== undefined ? {area_overrides: areaOverrides} : {}), queue_entity: raw.queue_entity ?? 'sensor.robot_cleaner_queue', queue_script: raw.queue_script ?? 'script.robot_cleaner_queue_control', rooms: (raw.rooms ?? []).map(room => ({...room})) };
+  const {queue_script: _script, require_queue: _required, ...config} = raw;
+  return { ...config, ...(areaOverrides !== undefined ? {area_overrides: areaOverrides} : {}), queue_entity: raw.queue_entity ?? 'sensor.robot_cleaner_queue', rooms: (raw.rooms ?? []).map(room => ({...room})) };
 }

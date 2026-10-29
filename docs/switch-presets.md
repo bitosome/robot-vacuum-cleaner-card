@@ -1,87 +1,69 @@
-# Room plans from wall switches and other dashboards
+# Shared room plans from wall switches and other dashboards
 
-## Card-saved room plan
+The integration owns the shared plan, sequence execution and safety checks. The card
+saves the idle room selection, order and per-room settings automatically in Home
+Assistant. Saving never starts cleaning. A failed or pending save does not change the
+plan used by a wall switch.
 
-Choose the room order and manual settings in the card and press **Save plan**. This persists one plan per robot in Home Assistant. Use a stable zero-argument script for the wall switch:
+## Native cleaning-plan button
 
-```yaml
-script:
-  robot_vacuum_cleaner_preset:
-    alias: Robot vacuum cleaner preset
-    mode: single
-    sequence:
-      - action: robot_cleaner_queue.control
-        data:
-          command: toggle_saved
-          vacuum: vacuum.robot
-```
-
-Idle starts the saved plan; another hold cancels remaining stages and returns to dock for native care. Repeated holds while finishing do not restart cleaning. A saved plan that is no longer valid is rejected rather than replaced; routines are no longer a fallback. Saving itself never starts cleaning. Existing input-button compatibility automations can call this same script without a firmware flash.
-
-## Fixed room-plan scripts
-
-Use a named Home Assistant script for a plan a switch should always run, rather than relying on the saved preset:
+After the first plan is saved, the integration creates a button for that robot, for
+example `button.robot_cleaning_plan`. Use the actual entity shown in Home Assistant:
 
 ```yaml
-script:
-  robot_clean_downstairs:
-    sequence:
-      - action: robot_cleaner_queue.control
-        data:
-          command: start_manual
-          vacuum: vacuum.robot
-          rooms:
-            - {id: "0_12", mode: vacuum_mop, suction: max, water: high, route: standard}
-            - {id: "0_13", mode: mop, water: medium, route: deep}
-            - {id: "0_5", mode: vacuum, suction: turbo, repeat: 2}
+action: button.press
+target:
+  entity_id: button.robot_cleaning_plan
 ```
 
-Room ids come from `robot_cleaner_queue.get_capabilities` (`robot_rooms` for the current map), and the mode, suction, water, route and repeat values must be ones that same response offers. A switch that only accepts a service and an entity calls such a script with `script.turn_on`; the plan runs through the same controller as the robot card, so it keeps the queue's busy and uncertainty checks. Substitute your own vacuum and room ids.
-
-
-## A zero-argument room script
+For SwitchMan hold-action fields:
 
 ```yaml
-script:
-  robot_clean_office:
-    alias: Clean Office
-    mode: single
-    sequence:
-      - action: robot_cleaner_queue.control
-        data:
-          command: start_manual
-          vacuum: vacuum.robot
-          rooms:
-            - {id: "0_4", mode: vacuum_mop, suction: max, water: high}
+channel_b_hold_service: "button.press"
+channel_b_hold_entity: "button.robot_cleaning_plan"
 ```
 
-For a whole-home script, list every room the companion reports for the current map in `rooms`; omitting the field is not a shortcut, because a plan is always an explicit room list. Put `script:` at package level; in an existing `scripts.yaml`, use only its entries. Never duplicate a top-level `script:` mapping.
+The button calls `robot_cleaner_queue.control` with `command: toggle_saved` internally.
+Idle starts the shared plan; another hold cancels remaining stages and returns to the
+dock for required care. Repeated holds while finishing do not restart cleaning.
+A missing, empty or invalid saved plan is rejected instead of substituting a routine
+or a whole-home clean. The button uses the same permissions, locking and recovery
+checks as the card. No script, helper or compatibility automation is required.
 
-The SwitchMan hold-action fields can now be:
+## Explicit plans from other dashboards
+
+For a fixed plan with explicit settings, call the integration directly:
 
 ```yaml
-channel_b_hold_service: "script.turn_on"
-channel_b_hold_entity: "script.robot_clean_office"
+action: robot_cleaner_queue.control
+data:
+  command: start_manual
+  vacuum: vacuum.robot
+  rooms:
+    - {id: "0_12", mode: vacuum_mop, suction: max, water: high, route: standard}
+    - {id: "0_13", mode: mop, water: medium, route: deep}
 ```
 
-Change the entity to choose another named room plan. Ordered room objects in the wrapper's `rooms` list create a fixed sequence. An active or unfinished job is rejected, not replaced or silently appended to. Script errors are available in HA's script trace; a wall switch cannot display the card's inline error.
+Room IDs and allowed settings come from `robot_cleaner_queue.get_capabilities` for
+that robot's current map. The integration rejects an active or unfinished job;
+an explicit fixed plan does not replace the shared saved plan. The card never
+submits a whole-home fallback when the integration is unavailable.
 
-## Preserve existing switch firmware
+## Migrating legacy entrypoints
 
-An already-flashed switch that presses an `input_button` can keep doing so. Change the existing HA automation behind that input button to call the named script. A legacy boolean can remain a compatibility input: its ON transition submits once, then resets it to OFF; its OFF transition sends no robot command. Keep helper entity/unique IDs intact.
+The current card calls the integration directly for every cleaning or movement
+control. Old `queue_script` and `require_queue` configuration keys are accepted but
+ignored. There is no script or native-vacuum fallback after rejection, timeout or
+missing integration state.
 
-Use a direct script call from that compatibility automation so errors propagate to its trace. Avoid adding a second listener while retaining the old native-start listener. No firmware flash is needed when the existing input routes through the new controller.
+Before removing an old script, helper or automation, inspect dashboards, scenes,
+automations, script callers and ESPHome configuration **and flashed firmware**.
+Update callers to the native cleaning-plan button or direct integration actions.
+Then remove unused aliases and request-only helpers. Editing an ESPHome YAML file
+alone does not update the firmware running on a wall switch, so keep any verified
+old-firmware compatibility entrypoint until that firmware is updated.
 
-## Manual settings and controls
-
-An unsaved browser draft never changes the wall-switch preset. Use **Save plan** and `toggle_saved` to reuse manual settings. For a fixed manual plan, create a separate wrapper calling `robot_cleaner_queue.control` with `command: start_manual`, explicit `vacuum`, `rooms` and `setup`; use only capabilities supported by that robot. See [manual cleaning](https://github.com/bitosome/ha-robot-cleaner-queue/blob/main/docs/manual-cleaning.md).
-
-Route pause/resume/dock through the companion too, with an explicit vacuum. Version 0.2.2 can control an existing app-started job without adopting it as an ordered queue. Resume requires a confirmed paused, unfinished job, and every physical command waits for acknowledgement. A failed command is never retried or replaced by native `vacuum.start`.
-
-Set `require_queue: true` in the robot card when all controls must use this shared controller. Missing controller state disables controls instead of falling back to a default clean. The card requires explicit selection. **Select all** selects the map’s rooms; **Start sequence** runs them with the settings shown inline on each tile.
-
-## Audit before migration
-
-Inspect loaded packages, scripts, automations, scenes, dashboard actions and ESPHome hold/click configuration. Replace managed direct routine-button presses, `vacuum.start`, old helper toggles and scripts that permit replacement with a shared wrapper or a direct room-plan call. Preserve working aliases by routing them into that same path.
-
-Keep historical backups as history; do not deploy old dashboard snapshots over a fresh live export. Native HA entity controls and the Roborock app remain external controls. The companion detects conflicting HA commands and stops sequence progression; it cannot remove every native control surface or identify every app action from telemetry alone.
+Keep the native Roborock integration and its telemetry/settings entities. They
+supply the device connection and measured state; they are not redundant helpers.
+No lifecycle or cleanup automation is needed for the integration's queue,
+preferences, run history or dock-care tracking.

@@ -14,7 +14,8 @@ export class RobotVacuumCleanerCardEditor extends LitElement {
     :host{display:block;color:var(--primary-text-color);font-family:inherit}*{box-sizing:border-box}label{display:grid;gap:6px;font-size:13px;margin:12px 0}input,select,button{font:inherit;color:inherit;min-height:44px;border:1px solid var(--divider-color,#777);border-radius:10px;padding:10px;background:var(--card-background-color,#fff)}input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.room{border:1px solid var(--divider-color,#aaa);border-radius:12px;padding:12px;margin:12px 0}.room header{display:flex;justify-content:space-between;align-items:center;gap:8px}.room header button{font-size:12px}h3{font-size:15px;margin:20px 0 8px}p{color:var(--secondary-text-color);font-size:12px;line-height:1.5}details{margin-top:16px}summary{cursor:pointer;min-height:44px;padding:12px 0}.add{width:100%;color:var(--primary-color)}@media(max-width:420px){.row{grid-template-columns:1fr}}
   `;
   setConfig(config: CardConfig) {
-    this.config = {...config,rooms:(config.rooms??[]).map(room=>({...room})), ...(config.area_overrides ? {area_overrides:Object.fromEntries(Object.entries(config.area_overrides).map(([id,value])=>[id,{...value}]))} : {})};
+    const {queue_script: _script, require_queue: _required, ...current} = config;
+    this.config = {...current,rooms:(config.rooms??[]).map(room=>({...room})), ...(config.area_overrides ? {area_overrides:Object.fromEntries(Object.entries(config.area_overrides).map(([id,value])=>[id,{...value}]))} : {})};
     this.areaRows = Object.entries(this.config.area_overrides ?? {}).map(([id,value])=>({id,name:value.name ?? '',icon:value.icon ?? ''}));
     this.areaError = '';
   }
@@ -51,8 +52,8 @@ export class RobotVacuumCleanerCardEditor extends LitElement {
         <button class="add" data-action="add-area-override" @click=${()=>{this.areaRows=[...this.areaRows,{id:'',name:'',icon:''}];}}>Add area appearance</button>
       </details>
       <details><summary>Telemetry and queue entities</summary>
-        <label>Require shared cleaning controller<select aria-label="Require shared cleaning controller" @change=${(event:Event)=>{this.config={...this.config!,require_queue:(event.target as HTMLSelectElement).value==='true'};this.emit();}}><option value="false" ?selected=${!this.config.require_queue}>No — standalone controls allowed</option><option value="true" ?selected=${!!this.config.require_queue}>Yes — all controls use the companion</option></select></label>
-        ${this.field('battery_entity','Battery','sensor')}${this.field('status_entity','Detailed status','sensor')}${this.field('cleaning_entity','Cleaning job active','binary_sensor')}${this.field('current_room_entity','Current room','sensor')}${this.field('progress_entity','Cleaning progress','sensor')}${this.field('area_entity','Cleaning area','sensor')}${this.field('time_entity','Cleaning time','sensor')}${this.field('error_entity','Vacuum error','sensor')}${this.field('dock_error_entity','Dock error','sensor')}${this.field('last_clean_end_entity','Last clean end','sensor')}${this.field('queue_entity','Queue status','sensor')}${this.field('queue_script','Queue control','script')}
+
+        ${this.field('battery_entity','Battery','sensor')}${this.field('status_entity','Detailed status','sensor')}${this.field('cleaning_entity','Cleaning job active','binary_sensor')}${this.field('current_room_entity','Current room','sensor')}${this.field('progress_entity','Cleaning progress','sensor')}${this.field('area_entity','Cleaning area','sensor')}${this.field('time_entity','Cleaning time','sensor')}${this.field('error_entity','Vacuum error','sensor')}${this.field('dock_error_entity','Dock error','sensor')}${this.field('last_clean_end_entity','Last clean end','sensor')}${this.field('queue_entity','Queue status','sensor')}
       </details>`;
   }
 }

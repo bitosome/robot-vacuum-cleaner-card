@@ -71,10 +71,10 @@ area_entity: sensor.robot_cleaning_area
 time_entity: sensor.robot_cleaning_time
 error_entity: sensor.robot_vacuum_error
 dock_error_entity: sensor.robot_dock_error
-require_queue: true
 queue_entity: sensor.robot_cleaner_queue
-queue_script: script.robot_cleaner_queue_control
 ```
+
+All cleaning and movement controls call the integration directly. Legacy `queue_script` and `require_queue` keys are ignored; a missing integration disables controls, with no script or native-vacuum fallback. Use the integration’s native cleaning-plan button for a wall switch.
 
 Rooms, their names and their floors come from the robot, so there is no room list to maintain. The only per-room configuration left is optional appearance:
 
