@@ -76,6 +76,26 @@ test('verified steps survive room transitions, errors, pauses and a dashboard re
   assert.equal(sequenceProgress(state('starting', 0, twoRooms, {run_id: 'new-run'})).percent, 0);
 });
 
+test('return-to-dock ownership retains bound floor confirmations through control, cancellation and attention', () => {
+  for(const phase of ['controlling','cancelling','cancelled','finishing','attention']) {
+    const snapshot=state(phase,1,twoRooms,{mode:'finish',run_id:'retained-run',last_run:{run_id:'retained-run',completed_count:1}});
+    const progress=sequenceProgress(snapshot,vacuum);
+    assert.equal(progress.completedRooms,1);
+    assert.equal(progress.roomPercent,50);
+    assert.equal(progress.complete,false);
+    assert.deepEqual(sequenceProgress(structuredClone(snapshot),vacuum),progress);
+  }
+});
+
+test('finish ownership needs its own run identity and never borrows another retained history', () => {
+  for(const attributes of [
+    {run_id:undefined},{run_id:''},{run_id:42},
+    {run_id:'current-run',last_run:{run_id:'previous-run',completed_count:2}},
+  ]) assert.equal(sequenceProgress(state('attention',1,twoRooms,{mode:'finish',...attributes})),undefined);
+  // A retained summary is optional. Only the current frozen plan supplies counts.
+  assert.equal(sequenceProgress(state('attention',0,twoRooms,{mode:'finish',run_id:'current-run',last_run:{run_id:'current-run',completed_count:2}})).completedRooms,0);
+});
+
 test('whole-home mode still counts its explicit floor passes', () => {
   const result = sequenceProgress(state('running', 1, [pass('', 'vacuum'), pass('', 'mop')], {targets: []}));
   assert.equal(result.totalPasses, 2);

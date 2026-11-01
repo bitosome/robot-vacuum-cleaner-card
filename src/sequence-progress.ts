@@ -20,7 +20,7 @@ export interface SequenceProgress {
 
 const SEQUENCE_PHASES = new Set([
   'preparing', 'starting', 'running', 'paused', 'cancelling', 'finishing',
-  'completed', 'cancelled', 'attention', 'recovering',
+  'completed', 'cancelled', 'attention', 'recovering', 'controlling',
 ]);
 
 /**
@@ -35,7 +35,12 @@ const SEQUENCE_PHASES = new Set([
 export function sequenceProgress(queue?: EntityState, vacuum?: string): SequenceProgress | undefined {
   if (!queue || !SEQUENCE_PHASES.has(queue.state)) return undefined;
   const attributes = queue.attributes;
-  if (attributes.mode !== 'manual' || (vacuum && attributes.vacuum !== vacuum)) return undefined;
+  // Returning to the dock changes execution ownership to `finish`, but keeps
+  // this run’s frozen floor stages and confirmation count. Device/external
+  // operations clear those fields and must never borrow a previous run.
+  if (!['manual', 'finish'].includes(attributes.mode) || (vacuum && attributes.vacuum !== vacuum)) return undefined;
+  if (attributes.mode==='finish' && (typeof attributes.run_id!=='string' || !attributes.run_id
+      || attributes.last_run && attributes.last_run.run_id!==attributes.run_id)) return undefined;
   const stages: unknown = attributes.stages;
   if (!Array.isArray(stages) || stages.length < 1 || stages.length > 128) return undefined;
   if (stages.some(stage => !stage || typeof stage !== 'object'

@@ -6,6 +6,8 @@ Drag rooms into the desired order, then toggle the rooms to include. Each enable
 
 Faults appear under **Sequence activity → Errors & warnings**, with the affected room, reported time and resolution time. Resolved warnings remain in the shared history; they do not mean the robot still has a fault. This requires companion v0.14.1 or newer.
 
+An unresolved interrupted sequence keeps its assigned room tiles and settings visible: **Cleaned** means every assigned pass was confirmed; a partly finished room shows its confirmed pass count. These outcomes survive returning to the dock and dashboard reloads. A new plan uses separate selection state, while earlier results remain in **Sequence activity**.
+
 ## Features
 
 - Robot status, battery, overall sequence progress, and optional current-pass cleaning area/time.

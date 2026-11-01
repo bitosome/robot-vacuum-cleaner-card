@@ -51,7 +51,7 @@ for(const [status,vacuum,title] of [
   for(const room of plan){
     const button=root(card).querySelector(`[data-room="${room.id}"]`);
     assert.equal(button.disabled,true);
-    assert.match(button.textContent,/Completed/);
+    assert.match(button.textContent,/Cleaned/);
   }
   assert.equal(action(card,'start'),null);
   assert.equal(action(card,'select-all'),null);

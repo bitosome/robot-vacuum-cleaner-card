@@ -300,8 +300,8 @@ test('finishing a run never claims that an unsubmitted added room was cleaned',a
   const q=editableRun({queue_revision:8,current_index:5,completed:5,floor_cleaning_complete:true,
     protected_room_ids:['0_1','0_2','0_3','0_4'],editable_room_ids:[],queue_editable:false});q.state='finishing';
   await changeStates(card,{'sensor.robot_queue':q});
-  assert.match(room(card,'0_1').textContent,/Completed/);
-  assert.doesNotMatch(room(card,'0_5').textContent,/Completed/);
+  assert.match(room(card,'0_1').textContent,/Cleaned/);
+  assert.doesNotMatch(room(card,'0_5').textContent,/Cleaned/);
   assert.equal(button(card,'apply-queue-edit').disabled,true);
 });
 test('unavailable live setting controls still allow removing and reordering the frozen pending tail',async()=>{
@@ -396,7 +396,7 @@ test('a queue assigned to another vacuum is ignored rather than reused', async (
   } });
   // The other robot's committed order must never appear on this card.
   assert.equal(order(card, '0_1'), undefined);
-  assert.ok(!/Queued|Completed/.test(room(card, '0_1').textContent));
+  assert.ok(!/Queued|Cleaned/.test(room(card, '0_1').textContent));
   const start = button(card, 'start');
   if (start && !start.disabled) { start.click(); await settle(card); }
   assert.equal(calls.some(call => ['script', 'button'].includes(call.domain)), false);
@@ -711,7 +711,7 @@ test('next room stays queued while the robot returns to the dock', async () => {
       setup:{rooms:[{id:'0_2',name:'Kitchen',setup:{...ROOM_DEFAULTS}},{id:'0_3',name:'Hall',setup:{...ROOM_DEFAULTS}}]},current_index:1,completed:1,waiting_for_dock:true}),
   }});
   assert.equal(order(card,'0_2'),'1');
-  assert.match(room(card,'0_2').textContent,/Completed/);
+  assert.match(room(card,'0_2').textContent,/Cleaned/);
   assert.match(room(card,'0_3').textContent,/Queued/);
   assert.match(root(card).querySelector('.subline').textContent,/Next: Hall/);
 });
@@ -826,17 +826,20 @@ test('a recovered stopped run preloads the saved plan and starts a new explicit 
   assert.deepEqual(calls[0].data.rooms,[{id:'0_2',...ROOM_DEFAULTS}]);
 });
 
-test('a stopped run immediately releases per-room editors and stale pending attributes do not lock local plans',async()=>{
+test('an unresolved stopped run keeps frozen settings until recovery permits the next plan',async()=>{
   const {card,calls}=await fixture({states:{'sensor.robot_queue':stoppedQueue({recovery_ready:false,pending_command:'start',recovery_reason:'Waiting for a fresh robot update.'})}});
   await openSettings(card,'0_1');
-  const field=root(card).querySelector('[data-room-id="0_1"][data-room-setting="mode"]');
+  let field=root(card).querySelector('[data-room-id="0_1"][data-room-setting="mode"]');
+  assert.equal(field.disabled,true);
+  await changeStates(card,{'sensor.robot_queue':stoppedQueue({recovery_ready:true,pending_command:'start'})});
+  field=root(card).querySelector('[data-room-id="0_1"][data-room-setting="mode"]');
   assert.equal(field.disabled,false);
   field.value='vacuum';field.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
   await tap(card,'0_1');
   assert.equal(room(card,'0_1').getAttribute('aria-checked'),'true');
   assert.equal(button(card,'save-preset').disabled,false);
-  assert.equal(button(card,'start'),null);
-  assert.match(root(card).querySelector('.subline').textContent,/Waiting for a fresh robot update/);
+  assert.equal(button(card,'start')?.disabled,true);
+  assert.doesNotMatch(root(card).querySelector('.room-section h3').textContent,/Interrupted sequence/);
   assert.equal(button(card,'clear-queue').disabled,false);
   assert.equal(calls.length,0);
 });

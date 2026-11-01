@@ -285,7 +285,7 @@ test('manual cleaning started elsewhere shows the committed native-area sequence
   assert.ok(room(card, 'kitchen_area')); assert.ok(room(card, 'hall_area'));
   assert.equal(room(card, 'kitchen_area').disabled, true);
   assert.equal(room(card, 'hall_area').disabled, true);
-  assert.doesNotMatch(room(card, 'hall_area').textContent, /Completed/);
+  assert.doesNotMatch(room(card, 'hall_area').textContent, /Cleaned/);
 });
 
 
@@ -357,7 +357,7 @@ test('an external completed run releases room tiles for the next plan', async ()
   await openSetup(card); await click(card, (await mode(card,'vacuum'))); await apply(card);
   assert.match(root(card).querySelector('[data-room-editor="kitchen_area"]').textContent, /Vacuum/);
   assert.doesNotMatch(root(card).querySelector('[data-room-editor="kitchen_area"]').textContent, /then mop/);
-  assert.doesNotMatch(room(card, 'kitchen_area').textContent, /Completed/);
+  assert.doesNotMatch(room(card, 'kitchen_area').textContent, /Cleaned/);
   assert.match(root(card).querySelector('h2').textContent, /Ready to clean/);
   await click(card, room(card, 'hall_area')); await click(card, action(card, 'start'));
   assert.equal(calls.length, 1); assert.equal(calls[0].data.setup.mode, 'vacuum');

@@ -92,7 +92,7 @@ export const cardStyles = css`
   .room.selected .room-icon { color:var(--robot-accent); }
   .room.active { border-color:var(--status-active-color); }
   .room.active .room-icon, .room.active .room-state { color:color-mix(in srgb,var(--status-active-color) 65%,var(--primary-text-color) 35%); }
-  .room.done .room-state { color:color-mix(in srgb,var(--status-success-color) 65%,var(--primary-text-color) 35%); }
+  .room.done .room-state,.room.done .room-protected { color:color-mix(in srgb,var(--status-success-color) 65%,var(--primary-text-color) 35%); }
   .order { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:750; background:var(--robot-accent); color:var(--primary-background-color,#181a27); }
   .order ha-icon { width:16px;height:16px;--mdc-icon-size:16px; }
   .room.active .order { background:var(--status-active-color); color:var(--status-icon-on-color); }
