@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18.2 — 2026-11-01
+
+- Keep confirmed rooms visibly **Cleaned** when a sequence is interrupted, cancelled into dock care or waiting for attention. Retain its assigned order and settings across a dashboard reload.
+- Distinguish the interrupted sequence from an unrelated native robot job, and show a partial room’s confirmed passes without claiming the whole room is clean.
+- Keep historical progress separate from the next plan: clearing, recovery or a fresh sequence cannot copy earlier completion into new room tiles.
+- Add mobile release-bundle regressions for retained floor progress, dock transitions, missing map rooms, partial passes and stale-run isolation.
+
 ## 0.18.0 — 2026-10-26
 
 - Give Dock a compact shared modal with explicit Wash mops, Empty bin and Dry mops controls, native running state and Start/Stop actions. Supported unavailable controls remain visible with an explanation.
