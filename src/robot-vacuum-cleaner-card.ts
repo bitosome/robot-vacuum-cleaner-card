@@ -14,7 +14,7 @@ import {dockServiceLabel, passiveMopDrying, returningToDock} from './robot-statu
 import {cleanupComplete,cleanupLabel,readDockCleanup,type DockControls} from './dock-cleanup';
 import { panelKeys, renderDevicePanel, panelTitles, type DevicePanel } from './device-panel';
 import { designTokens } from './shared/design-tokens';
-import { familyStyles, headerStyles, dialogStyles, FamilyFlowController, renderFamilyDialog, componentStyles, notice, asyncState, pendingIndicator, stateChip, UI_ICONS } from './shared/card-primitives';
+import { familyStyles, headerStyles, dialogStyles, FamilyFlowController, renderFamilyDialog, componentStyles, notice, asyncState, pendingIndicator, stateChip, levelMeter, UI_ICONS } from './shared/card-primitives';
 import { buildGlow, glowStyles, type PulseColors } from './shared/glow';
 import { cardStyles } from './styles/card';
 import { available, BAD, humanize, numeric, QUEUE_ACTIVE, validateConfig, type CardConfig, type EntityState, type Hass, type RoomConfig } from './types';
@@ -1202,9 +1202,9 @@ export class RobotVacuumCleanerCard extends LitElement {
       <div class="tile-wrap"><div class="glow-under" style=${glow.style}>${glow.overlay}</div><section class="surface hero" aria-label="Robot status">
         <div class="identity family-header"><span class="robot-icon family-brand">${icon('mdi:robot-vacuum')}</span><div class="identity-text family-identity"><div class="name family-title">${this.config.name ?? this.vacuum?.attributes.friendly_name ?? 'Robot'}</div></div>${battery!==undefined ? html`<span class="battery" aria-label=${`Battery ${battery} percent`}>${icon(this.vacuum?.state==='docked'?'mdi:battery-charging':'mdi:battery')} ${battery}%</span>`:nothing}</div>
         <h2>${this.headline()}</h2><p class="subline">${this.subline()}</p>
-        ${sequence ? html`<div class="progress-summary" title=${sequence.valueText}><span>${sequenceLabel}</span><strong>${sequence.label}</strong></div><div class="progress" role="progressbar" aria-label=${this.phase==='attention'?`${sequenceLabel} progress`:'Rooms completed'} aria-valuenow=${Math.round(sequence.roomPercent)} aria-valuemin="0" aria-valuemax="100" aria-valuetext=${sequence.valueText}><span style=${`width:${sequence.roomPercent}%`}></span></div>${sequence.dockLabel?html`<span class="metric-caption" role="status">${sequence.dockLabel}</span>`:nothing}`:nothing}
+        ${sequence ? html`<div class="progress-summary" title=${sequence.valueText}><span>${sequenceLabel}</span><strong>${sequence.label}</strong></div>${levelMeter({value:sequence.roomPercent,label:this.phase==='attention'?`${sequenceLabel} progress`:'Rooms completed',valueText:sequence.valueText,role:'progressbar',className:'robot-progress'})}${sequence.dockLabel?html`<span class="metric-caption" role="status">${sequence.dockLabel}</span>`:nothing}`:nothing}
         ${this.jobActive && !this.dockServicing && (!this.queueActive || !this.floorCleaningComplete) && (area || time || (!this.queueActive&&progress!==undefined)) ? html`<div class="pills" aria-label=${this.queueActive&&!this.restartRecovering?'Current cleaning pass':'Current clean'}>${this.queueActive?html`<span class="metric-caption">${this.restartRecovering?'Robot so far':this.chargingBreak?'Pass so far':'Current pass'}</span>`:nothing}${area?stateChip({label:area,icon:'mdi:ruler-square',ariaLabel:`Area ${area}`}):nothing}${time?stateChip({label:time,icon:'mdi:timer-outline',ariaLabel:`Time ${time}`}):nothing}${!this.queueActive&&progress!==undefined?stateChip({label:`${Math.round(progress)}%`,ariaLabel:`Progress ${Math.round(progress)}%`}):nothing}</div>`:nothing}
-        ${!this.queueActive&&!sequence&&this.jobActive&&progress!==undefined ? html`<div class="progress" role="progressbar" aria-label="Current cleaning progress" aria-valuenow=${Math.round(progress)} aria-valuemin="0" aria-valuemax="100"><span style=${`width:${progress}%`}></span></div>`:nothing}
+        ${!this.queueActive&&!sequence&&this.jobActive&&progress!==undefined ? levelMeter({value:progress,label:'Current cleaning progress',role:'progressbar',className:'robot-progress'}):nothing}
         ${this.renderRecovery()}
         ${this.renderActions()}
         ${this.renderUtilities()}
@@ -1261,4 +1261,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.19.0');
+console.info('ROBOT VACUUM CLEANER CARD 0.20.0');

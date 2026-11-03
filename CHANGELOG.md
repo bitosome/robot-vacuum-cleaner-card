@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.20.0 — 2026-11-03
+
+- Bundle `@bitosome/ha-card-ui` 1.6.0. The sequence and cleaning progress bars are the shared family level meter, with the same 6px track as the vehicle battery, Vallox fan speed and printer progress bars; the fill keeps the active colour and still reads as a progress bar to assistive technology.
+- Unselected device On/Off toggles keep their label centred instead of reserving an invisible check mark.
+
 ## 0.19.0 — 2026-11-03
 
 - Adopt `@bitosome/ha-card-ui` 1.4.0. Pending Start, Pause, Resume, Stop, Return to dock, Continue, Clear and Save actions keep their place with the shared busy indicator, a named pending label and `aria-busy`; the polite live region still announces the wait.

@@ -193,6 +193,12 @@ test('an app-started clean after a completed sequence keeps its own metrics and 
   const progress=root(card).querySelector('[role="progressbar"]');
   assert.equal(progress.getAttribute('aria-label'),'Current cleaning progress');
   assert.equal(progress.getAttribute('aria-valuenow'),'35');
+  // The bar is the shared family level meter, the same as the battery, fan and print bars.
+  assert.ok(progress.classList.contains('family-level-meter') && progress.classList.contains('robot-progress'));
+  assert.match(progress.querySelector('.family-level-fill').getAttribute('style'),/width:\s*35%/);
+  const css=customElements.get('robot-vacuum-cleaner-card').elementStyles.map((sheet)=>sheet.cssText).join('\n');
+  assert.match(css,/\.robot-progress\s*\{[^}]*--family-level-color:\s*var\(--family-active\)/);
+  assert.doesNotMatch(css,/\.progress\s*>\s*span/);
 });
 
 test('collapsed room settings expose their selected values in the accessible name', async () => {

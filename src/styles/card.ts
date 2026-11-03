@@ -26,9 +26,9 @@ export const cardStyles = css`
   .pills .family-chip { font-variant-numeric:tabular-nums; }
   .progress-summary { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-top:18px; font-size:12px; color:var(--robot-muted); }
   .progress-summary strong { color:var(--primary-text-color); font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
-  .progress-summary + .progress { margin-top:8px; }
-  .progress { height:5px; border-radius:999px; overflow:hidden; background:color-mix(in srgb,var(--primary-text-color) 12%,transparent); margin-top:18px; }
-  .progress > span { display:block; height:100%; background:var(--family-active); border-radius:inherit; transition:width .3s; }
+  /* The bar is the shared levelMeter(); the card only places it and keeps the active colour. */
+  .robot-progress { margin-top:18px; --family-level-color:var(--family-active); }
+  .progress-summary + .robot-progress { margin-top:8px; }
   .recovery-note { margin-top:18px; padding:14px; border-radius:var(--tile-border-radius); background:color-mix(in srgb,var(--primary-text-color) 5%,transparent); font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
   .recovery-heading { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 12px; margin-bottom:6px; }
   .recovery-heading span,.recovery-hint { color:var(--secondary-text-color); }
