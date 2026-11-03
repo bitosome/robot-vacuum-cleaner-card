@@ -36,7 +36,7 @@ export const cardStyles = css`
   .recovery-heading { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 12px; margin-bottom:6px; }
   .recovery-heading span,.recovery-hint { color:var(--secondary-text-color); }
   .recovery-note button { display:flex; align-items:center; gap:7px; margin:8px 0 4px; }
-  .recovery-note .primary { width:100%; }
+  .recovery-note .family-action.primary { width:100%; }
   .recovery-note ha-icon { width:18px; height:18px; --mdc-icon-size:18px; flex-basis:18px; }
   .recovery-details { margin-top:8px; color:var(--secondary-text-color); }
   .recovery-details summary { min-height:44px; display:flex; align-items:center; cursor:pointer; }
@@ -45,15 +45,13 @@ export const cardStyles = css`
   .recovery-dialog-body p { color:var(--secondary-text-color); margin:0; }
   .actions:not(:has(button)) { display:none; }
   .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
-  .action { border:0; border-radius:999px; min-height:46px; display:flex; justify-content:center; align-items:center; gap:8px; padding:10px 16px; font-size:14px; font-weight:650; line-height:1.3; background:color-mix(in srgb,var(--primary-text-color) 8%,transparent); }
-  .primary { flex:1; color:var(--primary-background-color,#181a27); background:var(--robot-accent); }
-  .secondary { color:var(--secondary-text-color); }
+  .actions:not(.family-dialog-footer) > .family-action.primary { flex:1; }
   .room-section { padding:0 4px 3px; min-width:0; }
   .section-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; min-height:44px; margin-bottom:4px; gap:4px 8px; }
   .plan-bar { padding:0 4px; }
   .plan-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; min-height:44px; }
   .plan-label { flex:1; min-width:72px; color:var(--robot-muted); font-size:12px; line-height:1.4; }
-  .plan-toolbar .action { min-height:44px; padding:9px 12px; font-size:12px; }
+  .plan-toolbar .family-action { padding:9px 12px; }
   .plan-toolbar .text-button { padding:8px; }
   .plan-bar .hint { margin:4px 0 0; }
   .section-heading h3 { font-size:14px; font-weight:700; margin:0; }
@@ -76,7 +74,7 @@ export const cardStyles = css`
   .queue-edit-status .error { margin-top:8px; }
   .queue-edit-footer { display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding-top:14px; }
   .queue-edit-footer > span { flex:1 1 130px;font-size:11px;color:var(--robot-muted); }
-  .queue-edit-footer .action { flex:0 1 auto;min-height:44px;font-size:13px; }
+  .queue-edit-footer .family-action { flex:0 1 auto; }
   .room-item.dragging .surface { border-color:var(--robot-accent); box-shadow:0 8px 24px #0004; }
   .room-toggle { display:flex; align-items:center; flex:0 0 36px; width:36px; height:22px; padding:3px; border-radius:999px; background:color-mix(in srgb,var(--robot-muted) 25%,transparent); }
   .room-toggle > span { width:16px; height:16px; border-radius:50%; background:var(--robot-muted); transition:transform .15s; }
@@ -196,7 +194,7 @@ export const cardStyles = css`
   .dock-cleanup ha-icon { width:18px;height:18px;--mdc-icon-size:18px;flex-basis:18px; }
   .dock-step-state { color:var(--secondary-text-color); }
   .dock-cleanup .hint { margin:12px 0 0; }
-  .dock-cleanup .action { width:100%;margin-top:12px;min-height:44px;font-size:13px; }
+  .dock-cleanup .family-action { width:100%;margin-top:12px; }
   .device-row input,.device-row select { font:inherit;color:inherit;background:var(--robot-surface);border:1px solid var(--divider-color);border-radius:12px;min-height:44px;max-width:55%;padding:5px;box-sizing:border-box; }
   .device-row input:focus-visible,.device-row select:focus-visible { outline:2px solid var(--robot-accent); }
   .volume-row { display:block; }
@@ -230,7 +228,7 @@ export const cardStyles = css`
   .defaults-heading > ha-icon { width:22px;height:22px;--mdc-icon-size:22px;flex:0 0 22px;color:var(--robot-muted); }
   .room-settings-content .family-notice { margin-bottom:12px; }
   .defaults-actions { display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding-bottom:8px; }
-  .defaults-actions .action { font-size:12px;min-height:44px;padding:10px 12px; }
+  .defaults-actions .family-action { padding:10px 12px; }
   .defaults-actions .text-button { display:inline-flex;align-items:center;justify-content:center;gap:6px; }
   .defaults-actions ha-icon { width:18px;height:18px;--mdc-icon-size:18px;flex:0 0 18px; }
   .room-settings-content .hint { margin:0 0 12px; }
@@ -239,7 +237,7 @@ export const cardStyles = css`
   .preferences-toolbar { display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;min-height:52px;padding:4px 0;border-top:1px solid color-mix(in srgb,var(--primary-text-color) 7%,transparent); }
   .preferences-label { flex:1;min-width:100px;color:var(--robot-muted);font-size:12px;line-height:1.4; }
   .preferences-actions { display:flex;flex-wrap:wrap;align-items:center;gap:4px; }
-  .preferences-actions .action { min-height:44px;font-size:12px;padding:9px 12px; }
+  .preferences-actions .family-action { padding:9px 12px; }
   .preferences-actions .text-button { padding:8px; }
   .preferences-panel > .hint { margin:0;padding:0 0 12px; }
   .sequence-activity { padding:0 14px;min-width:0; }
@@ -285,7 +283,7 @@ export const cardStyles = css`
     .room-select { padding:13px 14px; }
     .room-settings-summary { padding-left:12px; }
     .preferences-panel { padding:0 14px; }
-    .action { padding:10px 12px; }
+    .family-action { padding:10px 12px; }
   }
   @media (prefers-reduced-motion:reduce) { *, .glow-under { animation:none!important;transition:none!important; } }
 `;

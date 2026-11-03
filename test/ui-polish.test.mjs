@@ -254,3 +254,9 @@ test('a room removed from the map while its modal is open cannot be changed by a
   field.value='turbo';field.dispatchEvent(new Event('change',{bubbles:true}));await settle(card);
   assert.deepEqual(card.roomSetups,before);assert.deepEqual(calls,[]);
 });
+
+test('every card action uses the shared family-action button, with no private button system',()=>{
+  const css=customElements.get('robot-vacuum-cleaner-card').elementStyles.map(sheet=>sheet.cssText).join('\n');
+  assert.doesNotMatch(css,/(^|[\s,}])\.(action|primary|secondary)\s*\{/m,'private .action/.primary/.secondary rules must not override family-action');
+  assert.doesNotMatch(css,/\.family-action\s*\{[^}]*font-size:\s*12px/,'action labels keep the shared 13px size');
+});

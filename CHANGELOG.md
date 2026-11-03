@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.3 — 2026-11-03
+
+- Use the shared button style for every card action. Return to dock and Clear stopped sequence no longer use a separate 46px accent style next to Pause and Stop, and toolbar actions keep the shared 13px labels.
+- The two recovery confirmation buttons are no longer stretched to unequal widths.
+
 ## 0.18.2 — 2026-11-01
 
 - Keep confirmed rooms visibly **Cleaned** when a sequence is interrupted, cancelled into dock care or waiting for attention. Retain its assigned order and settings across a dashboard reload.
