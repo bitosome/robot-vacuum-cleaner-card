@@ -9,7 +9,7 @@ export function settingsSummary(setup:ManualSetup): string {
 }
 /** Compact, readable values; icon labels remain available to assistive technology. */
 export function renderSettingPills(setup:ManualSetup) {
-  const chip=(key:string,label:string,value:string,mdi:string)=>html`<span class="setting-chip ${key==='mode'?'mode-chip':''}" data-setting-chip=${key} title=${`${label}: ${value}`}><ha-icon .icon=${mdi} aria-hidden="true"></ha-icon>${key!=='mode'?html`<span class="sr-only">${label} </span>`:nothing}<span>${value}</span></span>`;
+  const chip=(key:string,label:string,value:string,mdi:string)=>html`<span class="family-chip setting-chip" data-tone=${key==='mode'?'accent':'neutral'} data-setting-chip=${key} title=${`${label}: ${value}`}><ha-icon .icon=${mdi} aria-hidden="true"></ha-icon>${key!=='mode'?html`<span class="family-visually-hidden">${label} </span>`:nothing}<span>${value}</span></span>`;
   return html`<span class="setting-chips">
     ${chip('mode','Mode',MODE_LABELS[setup.mode]??setup.mode,MODE_ICONS[setup.mode]??'mdi:robot-vacuum')}
     ${setup.mode!=='mop'&&setup.suction?chip('suction','Suction',optionLabel(setup.suction),'mdi:fan'):nothing}

@@ -1,10 +1,11 @@
 import {html,nothing} from 'lit';
+import {formatHassDateTime,type FormatHass} from './shared/card-primitives';
 import {MODE_ICONS,MODE_LABELS} from './manual-setup';
 import {runRooms,runStateLabel,stageStateLabel,stageTime,type CleaningRun} from './run-history';
 import {renderDockCleanup} from './dock-cleanup-view';
 
 interface ActivityOptions {
-  runs:CleaningRun[]; selectedRunId?:string; locale?:string; timeZone?:string;
+  runs:CleaningRun[]; selectedRunId?:string; hass?:FormatHass;
   /** Current observed activity refines an active run without rewriting its history. */
   liveState?:{runId:string;stageIndex:number;label:string;stageLabel:string};
   roomName(id:string,name?:string):string; roomIcon(id:string):string;
@@ -21,17 +22,14 @@ export function renderSequenceActivity(options:ActivityOptions) {
   const edits=run.edits??[];
   const faults=run.faults??[];
   const stateLabel=(item:CleaningRun)=>liveFor(item)?.label??runStateLabel(item);
-  const format=(at:number,full=false)=>{
-    const settings:Intl.DateTimeFormatOptions={day:'numeric',month:full?'long':'short',...(full?{year:'numeric' as const}:{}),hour:'2-digit',minute:'2-digit',...(options.timeZone?{timeZone:options.timeZone}: {})};
-    try{return new Intl.DateTimeFormat(options.locale,settings).format(new Date(at*1000));}
-    catch{return new Intl.DateTimeFormat('en', {...settings,timeZone:'UTC'}).format(new Date(at*1000));}
-  };
+  // HA profile language, 12/24-hour clock and time zone, as on every family card.
+  const format=(at:number,full=false)=>formatHassDateTime(options.hass,at*1000,{year:full});
   const time=(at:number|undefined,label:string)=>at?html`<time datetime=${new Date(at*1000).toISOString()} title=${`${label}: ${format(at,true)}`} aria-label=${`${label}: ${format(at,true)}`}>${format(at)}</time>`:nothing;
   const statusIcon=(state:string)=>state==='completed'?'mdi:check-circle-outline':['attention','paused'].includes(state)?'mdi:pause-circle-outline':state==='cancelled'?'mdi:stop-circle-outline':['preparing','starting','running'].includes(state)?'mdi:progress-clock':'mdi:clock-outline';
   return html`<details class="surface sequence-activity" data-run-id=${run.run_id} ?open=${['attention','paused'].includes(run.state)}>
     <summary><ha-icon icon="mdi:clipboard-text-clock-outline" aria-hidden="true"></ha-icon><span class="activity-heading"><strong>${run.previous?'Earlier sequence':'Sequence activity'}</strong><span>${done} / ${rooms.length} ${rooms.length===1?'room':'rooms'} · ${stateLabel(run)}</span></span><ha-icon class="activity-chevron" icon="mdi:chevron-down" aria-hidden="true"></ha-icon></summary>
     <div class="activity-body">
-      ${options.runs.length>1?html`<label class="activity-run-select"><span class="sr-only">Choose a cleaning sequence</span><select aria-label="Choose a cleaning sequence" .value=${run.run_id} @change=${(event:Event)=>options.select((event.target as HTMLSelectElement).value)}>${options.runs.map((item,index)=>html`<option value=${item.run_id} ?selected=${item.run_id===run.run_id}>${index===0?'Latest':'Earlier'} · ${item.assigned_at?format(item.assigned_at):'Time unavailable'} · ${runRooms(item).length} rooms · ${stateLabel(item)}</option>`)}</select></label>`:nothing}
+      ${options.runs.length>1?html`<label class="activity-run-select"><span class="family-visually-hidden">Choose a cleaning sequence</span><select aria-label="Choose a cleaning sequence" .value=${run.run_id} @change=${(event:Event)=>options.select((event.target as HTMLSelectElement).value)}>${options.runs.map((item,index)=>html`<option value=${item.run_id} ?selected=${item.run_id===run.run_id}>${index===0?'Latest':'Earlier'} · ${item.assigned_at?format(item.assigned_at):'Time unavailable'} · ${runRooms(item).length} rooms · ${stateLabel(item)}</option>`)}</select></label>`:nothing}
       <div class="activity-meta"><span>${count} / ${run.stages.length} ${run.stages.length===1?'pass':'passes'} confirmed</span>${time(run.assigned_at,'Sequence assigned')}</div>
       ${faults.length?html`<details class="activity-interruptions activity-faults" ?open=${faults.some(entry=>!entry.resolved_at)}>
         <summary><ha-icon icon="mdi:alert-circle-outline" aria-hidden="true"></ha-icon>Errors & warnings · ${faults.length}<ha-icon icon="mdi:chevron-down" aria-hidden="true"></ha-icon></summary>
@@ -43,10 +41,11 @@ export function renderSequenceActivity(options:ActivityOptions) {
           const label=`${MODE_LABELS[stage.mode]}${same.length>1?` ${number}/${same.length}`:''}`;
           const current=live?.stageIndex===stage.index && ['running','paused'].includes(stage.state);
           const state=current?live.stageLabel:stageStateLabel(stage,run);
-          return html`<span class="activity-stage ${current?'paused':stage.state}" data-history-stage=${stage.index} title=${current?`${label}: ${state}`:stage.reason??`${label}: ${state}`}><ha-icon .icon=${MODE_ICONS[stage.mode]} aria-hidden="true"></ha-icon><span class="activity-stage-text"><span>${label} · ${state}</span>${when?time(when.at,when.label):stage.state==='completed'?html`<span class="activity-time-unknown">Time unavailable</span>`:nothing}</span><ha-icon class="activity-status-icon" .icon=${current?'mdi:battery-charging':statusIcon(stage.state)} aria-hidden="true"></ha-icon></span>`;
+          const tone=current||['attention','paused'].includes(stage.state)?'warning':stage.state==='completed'?'success':stage.state==='running'?'accent':'neutral';
+          return html`<span class="family-chip activity-stage ${current?'paused':stage.state}" data-tone=${tone} data-history-stage=${stage.index} title=${current?`${label}: ${state}`:stage.reason??`${label}: ${state}`}><ha-icon .icon=${MODE_ICONS[stage.mode]} aria-hidden="true"></ha-icon><span class="activity-stage-text"><span>${label} · ${state}</span>${when?time(when.at,when.label):stage.state==='completed'?html`<span class="activity-time-unknown">Time unavailable</span>`:nothing}</span><ha-icon class="activity-status-icon" .icon=${current?'mdi:battery-charging':statusIcon(stage.state)} aria-hidden="true"></ha-icon></span>`;
         })}</div>
       </li>`)}</ol>
-      ${run.dock_cleanup?renderDockCleanup(run.dock_cleanup,{locale:options.locale,timeZone:options.timeZone}):run.stages.every(stage=>stage.state==='completed') && run.state!=='completed'?html`<p class="activity-note">Floor cleaning is confirmed. Final docking and dock care are not yet confirmed.</p>`:nothing}
+      ${run.dock_cleanup?renderDockCleanup(run.dock_cleanup,{hass:options.hass}):run.stages.every(stage=>stage.state==='completed') && run.state!=='completed'?html`<p class="activity-note">Floor cleaning is confirmed. Final docking and dock care are not yet confirmed.</p>`:nothing}
       ${edits.length?html`<details class="activity-interruptions activity-edits"><summary><ha-icon icon="mdi:playlist-edit" aria-hidden="true"></ha-icon>Queue changes · ${edits.length}<ha-icon icon="mdi:chevron-down" aria-hidden="true"></ha-icon></summary><ol>${edits.map(entry=>{
         const changes:string[]=[];
         if(entry.removed_rooms.length)changes.push(`Removed: ${entry.removed_rooms.map(room=>options.roomName(room.id,room.name)).join(', ')}`);

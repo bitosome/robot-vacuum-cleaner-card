@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.19.0 — 2026-11-03
+
+- Adopt `@bitosome/ha-card-ui` 1.4.0. Pending Start, Pause, Resume, Stop, Return to dock, Continue, Clear and Save actions keep their place with the shared busy indicator, a named pending label and `aria-busy`; the polite live region still announces the wait.
+- Recovery confirmations and the queue-edit Apply/Cancel footer split the width equally; Cancel keeps first focus in recovery prompts.
+- Use the shared notices for command errors, water-tank warnings, unavailable controllers, stale selections and queue-edit problems, each with a severity icon, tone and status or alert role. Empty map and room states use the shared empty state.
+- Status colours, focus rings and selection use the family `--family-*` aliases and the theme primary colour, so completion, active work and warnings no longer show two greens or a separate accent.
+- Settings, metrics, Room defaults and activity stages use the shared chips; on/off device settings use the shared toggle with a visible check; text actions use the shared quiet button at 13px.
+- Last clean, activity and dock-care times follow the Home Assistant profile language, 12/24-hour clock and time zone instead of the browser.
+- Unavailable rooms now show their unavailable colour; activity times are no smaller than 11px.
+
 ## 0.18.3 — 2026-11-03
 
 - Use the shared button style for every card action. Return to dock and Clear stopped sequence no longer use a separate 46px accent style next to Pause and Stop, and toolbar actions keep the shared 13px labels.

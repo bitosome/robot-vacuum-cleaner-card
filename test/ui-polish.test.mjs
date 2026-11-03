@@ -260,3 +260,11 @@ test('every card action uses the shared family-action button, with no private bu
   assert.doesNotMatch(css,/(^|[\s,}])\.(action|primary|secondary)\s*\{/m,'private .action/.primary/.secondary rules must not override family-action');
   assert.doesNotMatch(css,/\.family-action\s*\{[^}]*font-size:\s*12px/,'action labels keep the shared 13px size');
 });
+
+test('card styles use the shared status aliases, notices and quiet actions instead of private copies',()=>{
+  const css=customElements.get('robot-vacuum-cleaner-card').elementStyles.map(sheet=>sheet.cssText).find(text=>text.includes('.room-select'));
+  assert.ok(css);
+  assert.match(css,/--robot-accent:\s*var\(--primary-color\)/,'focus, selection and toggles share the family primary colour');
+  assert.doesNotMatch(css,/--status-(success|active|alert|warn)-color|--(success|warning|error)-color|#efb76a|#76c58a|#bba3f2/,'status colours resolve through --family-* aliases');
+  assert.doesNotMatch(css,/\.(text-button|note|error|sr-only|pill|setting-pill|setting-chip)\s*[{,]/,'no private notice, chip or text-button styles');
+});

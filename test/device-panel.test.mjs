@@ -13,7 +13,7 @@ const caps = {
   supported:true, current_map:0, robot_rooms:[{id:'0_1',name:'Living room',segment:1}], room_targets:[],
   modes:[{value:'vacuum',label:'Vacuum'}], suction:['quiet','max'], water:[], routes:[], repeats:[1],
   defaults:{mode:'vacuum',suction:'quiet',repeat:1},
-  device_entities:{volume:'number.robot_volume',selected_map:'select.robot_map',dnd_start:'time.robot_dnd_start'},
+  device_entities:{volume:'number.robot_volume',selected_map:'select.robot_map',dnd_start:'time.robot_dnd_start',last_clean_end:'sensor.robot_last_clean_end'},
 };
 const settle = async card => {
   for (let i=0;i<8;i++) { await card.updateComplete; await Promise.resolve(); }
@@ -30,6 +30,7 @@ async function fixture(reject=true) {
       'number.robot_volume':entity('40',{min:0,max:100,step:1}),
       'select.robot_map':entity('Ground floor',{options:['Ground floor','Upstairs']}),
       'time.robot_dnd_start':entity('22:00:00'),
+      'sensor.robot_last_clean_end':entity('2026-10-13T06:05:00+00:00'),
     },
     callWS:async()=>({response:structuredClone(caps)}),
     callService:async(domain,service,data)=>{
@@ -117,5 +118,15 @@ test('telemetry keeps the shared dialog and focus stable; a late setting respons
   assert.equal(root.querySelector('[data-device="volume"]').disabled,false);
   assert.equal(root.querySelector('[data-device="volume"]').value,'45');
   assert.match(reopened.textContent,/Setting refused/);
+  assert.equal(calls.length,0);
+});
+
+test('the last clean time follows the HA profile clock and server time zone, not the browser',async()=>{
+  const {card,calls}=await fixture(false);
+  card.hass={...card.hass,locale:{language:'en-GB',time_format:'12'},config:{time_zone:'Europe/Tallinn'}};
+  card.shadowRoot.querySelector('dialog [title=Close]')?.click(); await settle(card);
+  card.shadowRoot.querySelector('[data-panel="status"]').click(); await settle(card);
+  const row=[...card.shadowRoot.querySelectorAll('dialog .device-row')].find(row=>/Last clean ended/.test(row.textContent));
+  assert.ok(row); assert.match(row.textContent,/13 Oct 2026, 9:05\s?am/i);
   assert.equal(calls.length,0);
 });

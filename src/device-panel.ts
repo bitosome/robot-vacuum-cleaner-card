@@ -1,6 +1,6 @@
 import {html, nothing} from 'lit';
 import {live} from 'lit/directives/live.js';
-import {notice} from './shared/card-primitives';
+import {asyncState,formatHassDateTime,notice,UI_ICONS} from './shared/card-primitives';
 import {available, humanize, numeric, type Hass} from './types';
 import {DOCK_ACTIONS,type DockAction,type DockControls,type DockCleanup} from './dock-cleanup';
 import {renderDockCleanup} from './dock-cleanup-view';
@@ -18,10 +18,10 @@ export function renderDevicePanel(model:{panel:DevicePanel;hass:Hass;entities:Re
   return html`<div class="device-body">
     ${model.error ? notice({message:model.error,tone:'error'}):nothing}
     ${model.pending ? notice({message:'Waiting for the robot to confirm…'}):nothing}
-    ${panel==='dock'&&model.cleanup?renderDockCleanup(model.cleanup,{locale:hass.locale?.language,timeZone:hass.config?.time_zone,retry:model.resumeCleanup,disabled:model.cleanupDisabled,pending:model.cleanupPending}):nothing}
-    ${(panel==='dock' || panel==='settings' && keys.includes('selected_map')) && model.motionBlocked && !(panel==='dock'&&model.cleanup?.reason&&model.cleanup.reason===model.motionReason) ? html`<p class="note" role="status">${model.motionReason || 'Waiting for the robot to be ready for this action.'}</p>`:nothing}
-    ${panel==='dock' && model.waterEmpty ? html`<p class="note">Refill and reseat the clean-water tank to wash mops. Dust emptying and drying do not need water.</p>`:nothing}
-    ${panel==='dock' && !model.robotDocked ? html`<p class="note">Dock actions can start when the robot is docked and its cleaning job has finished.</p>`:nothing}
+    ${panel==='dock'&&model.cleanup?renderDockCleanup(model.cleanup,{hass,retry:model.resumeCleanup,disabled:model.cleanupDisabled,pending:model.cleanupPending}):nothing}
+    ${(panel==='dock' || panel==='settings' && keys.includes('selected_map')) && model.motionBlocked && !(panel==='dock'&&model.cleanup?.reason&&model.cleanup.reason===model.motionReason) ? notice({message:model.motionReason || 'Waiting for the robot to be ready for this action.'}):nothing}
+    ${panel==='dock' && model.waterEmpty ? notice({tone:'warning',icon:'mdi:water-alert-outline',message:'Refill and reseat the clean-water tank to wash mops. Dust emptying and drying do not need water.'}):nothing}
+    ${panel==='dock' && !model.robotDocked ? notice({message:'Dock actions can start when the robot is docked and its cleaning job has finished.'}):nothing}
     ${keys.map(key=>{
       const state=hass.states[entities[key]], value=state?.state??'unavailable', label=labels[key]??humanize(key);
       if(panel==='dock') {
@@ -36,29 +36,29 @@ export function renderDevicePanel(model:{panel:DevicePanel;hass:Hass;entities:Re
         const careReason=model.cleanup?.armed&&['pending','returning','waiting','running','attention'].includes(model.cleanup.state);
         const sharedReason=careReason&&(!suppliedReason||['dock_cleanup','busy'].includes(control?.reason_code??'')||suppliedReason===model.cleanup?.reason||suppliedReason===model.motionReason||/^(required dock care is incomplete|wait for the active sequence|(finish|complete|wait for) (the )?(retained |required |active )?dock care\b)/i.test(suppliedReason));
         const reason=!online?'Unavailable':sharedReason?'Waiting for dock care':suppliedReason||(!canControl?(action==='mop_washing'&&model.waterEmpty?'Refill the clean-water tank':!model.robotDocked?'Available at the dock':'Waiting for the robot'):'');
-        return html`<div class="device-row dock-control"><span class="dock-control-icon ${on?'active':''}"><ha-icon .icon=${copy.icon} aria-hidden="true"></ha-icon></span><div class="dock-control-copy"><strong>${copy.label}</strong><small role="status">${on?copy.running:reason||'Idle'}</small></div><button class="setting-pill ${on?'chosen':''}" data-device=${key} aria-label=${on?copy.stop:copy.start} title=${disabled&&reason?reason:on?copy.stop:copy.start} ?disabled=${disabled} @click=${()=>model.send(key,on?'off':'on')}><ha-icon .icon=${on?'mdi:stop':'mdi:play'} aria-hidden="true"></ha-icon>${on?'Stop':'Start'}</button></div>`;
+        return html`<div class="device-row dock-control"><span class="dock-control-icon ${on?'active':''}"><ha-icon .icon=${copy.icon} aria-hidden="true"></ha-icon></span><div class="dock-control-copy"><strong>${copy.label}</strong><small role="status">${on?copy.running:reason||'Idle'}</small></div><button class="family-action" data-device=${key} aria-label=${on?copy.stop:copy.start} title=${disabled&&reason?reason:on?copy.stop:copy.start} ?disabled=${disabled} @click=${()=>model.send(key,on?'off':'on')}><ha-icon .icon=${on?'mdi:stop':'mdi:play'} aria-hidden="true"></ha-icon>${on?'Stop':'Start'}</button></div>`;
       }
       if(panel==='map') {
         const picture=state.attributes.entity_picture;
         // Only HA image proxy paths; never fetch arbitrary URLs from attributes.
         const src=typeof picture==='string' && /^\/api\/image_proxy\//.test(picture) ? hass.hassUrl?.(picture)??picture : '';
-        return html`<figure class="map-view">${src ? html`<img src=${src} alt=${state.attributes.friendly_name??'Robot home map'} />`:html`<p class="note">The map image is not available yet.</p>`}<figcaption>${state.attributes.friendly_name??'Map'} · View only</figcaption></figure>`;
+        return html`<figure class="map-view">${src ? html`<img src=${src} alt=${state.attributes.friendly_name??'Robot home map'} />`:asyncState({state:'empty',message:'The map image is not available yet.'})}<figcaption>${state.attributes.friendly_name??'Map'} · View only</figcaption></figure>`;
       }
-      if(panel==='status') return html`<div class="device-row"><span>${label}</span><strong>${entities[key].startsWith('binary_sensor.') ? value==='on'?'Yes':'No' : key.startsWith('last_clean_') ? new Date(value).toLocaleString() : `${value} ${state.attributes.unit_of_measurement??''}`}</strong></div>`;
+      if(panel==='status') return html`<div class="device-row"><span>${label}</span><strong>${entities[key].startsWith('binary_sensor.') ? value==='on'?'Yes':'No' : key.startsWith('last_clean_') ? formatHassDateTime(hass,value) : `${value} ${state.attributes.unit_of_measurement??''}`}</strong></div>`;
       if(panel==='care') {
         const hours=numeric(state)!;
         return html`<div class="device-row care-row"><span>${label}</span><strong class=${hours<=0?'overdue':''}>${hours<=0 ? 'Maintenance due' : `${Math.round(hours)} ${state.attributes.unit_of_measurement??'h'} left`}</strong></div>`;
       }
       if(entities[key].startsWith('switch.')) {
         const on=value==='on';
-        return html`<div class="device-row"><span>${label}</span><button class="setting-pill ${on?'chosen':''}" data-device=${key} aria-label=${`${label}: ${on?'on':'off'}`} aria-pressed=${on?'true':'false'} ?disabled=${model.busy} @click=${()=>model.send(key,on?'off':'on')}>${on?'On':'Off'}</button></div>`;
+        return html`<div class="device-row"><span>${label}</span><button class="family-action family-toggle" data-device=${key} aria-label=${`${label}: ${on?'on':'off'}`} aria-pressed=${on?'true':'false'} ?disabled=${model.busy} @click=${()=>model.send(key,on?'off':'on')}><span>${on?'On':'Off'}</span><ha-icon class="family-toggle-check" .icon=${UI_ICONS.check} aria-hidden="true"></ha-icon></button></div>`;
       }
       if(key==='volume') return html`<label class="device-row volume-row"><span>${label}<strong>${value}%</strong></span><input data-device="volume" aria-label="Voice volume" type="range" min=${state.attributes.min??0} max=${state.attributes.max??100} step=${state.attributes.step??1} .value=${live(value)} ?disabled=${model.busy} @change=${(event:Event)=>model.send(key,Number((event.target as HTMLInputElement).value))}></label>`;
       if(entities[key].startsWith('time.')) return html`<label class="device-row"><span>${label}</span><input type="time" data-device=${key} .value=${live(value.slice(0,5))} ?disabled=${model.busy} @change=${(event:Event)=>model.send(key,(event.target as HTMLInputElement).value)}></label>`;
       const options=(state.attributes.options??[]).filter((v:string)=>!['unknown','unavailable'].includes(v));
       return options.length>1 ? html`<label class="device-row"><span>${label}</span><select data-device=${key} .value=${live(value)} ?disabled=${model.busy || key==='selected_map'&&(!model.robotDocked||!!model.motionBlocked)} @change=${(event:Event)=>model.send(key,(event.target as HTMLSelectElement).value)}>${options.map((option:string)=>html`<option .value=${option} .selected=${live(option===value)}>${humanize(option)}</option>`)}</select></label>`:nothing;
     })}
-    ${!keys.length ? html`<p class="note">No available controls in this section.</p>`:nothing}
+    ${!keys.length ? asyncState({state:'empty',message:'No available controls in this section.'}):nothing}
     ${panel==='care' ? html`<p class="hint">Usage-based reminders from the robot. Service the parts before resetting their counters in the Roborock app.</p>`:nothing}
     </div>`;
 }

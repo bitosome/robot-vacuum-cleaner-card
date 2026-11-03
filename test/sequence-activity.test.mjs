@@ -32,7 +32,9 @@ test('water interruption keeps all ordered rooms, per-mode outcomes and HA-local
   assert.equal(view.open,true);assert.match(view.textContent,/0 \/ 2 rooms · Needs attention/);
   assert.deepEqual([...view.querySelectorAll('[data-history-room]')].map(n=>n.dataset.historyRoom),['0_1','0_2']);
   assert.match(view.querySelector('[data-history-stage="0"]').textContent,/Vacuum · Done/);
-  assert.match(view.querySelector('[data-history-stage="0"] time').title,/Finished: 13 October 2026 at 09:05/);
+  assert.match(view.querySelector('[data-history-stage="0"] time').title,/Finished: 13 Oct 2026, 0?9:05/);
+  assert.equal(view.querySelector('[data-history-stage="0"]').dataset.tone,'success');
+  assert.equal(view.querySelector('[data-history-stage="1"]').dataset.tone,'warning');
   assert.match(view.querySelector('[data-history-stage="1"]').textContent,/Mop · Needs attention/);
   assert.match(view.querySelector('[data-history-stage="2"]').textContent,/Vacuum & mop · Not run/);
   assert.equal(view.querySelectorAll('.activity-room-done').length,0);
@@ -145,4 +147,10 @@ test('fault journal shows source messages, affected room, onset and resolution t
   assert.equal(journal.querySelectorAll('time').length,3);
   await update(card,{'sensor.queue':queue(1,'completed')});
   assert.match(activity(card).textContent,/Clean-water tank warning/);
+});
+
+test('activity times follow the HA profile 12-hour clock in the server time zone',async()=>{
+  const {card}=await fixture();
+  card.hass={...card.hass,locale:{language:'en-GB',time_format:'12'}};await settle(card);
+  assert.match(activity(card).querySelector('[data-history-stage="0"] time').title,/Finished: 13 Oct 2026, 9:05\s?am/i);
 });

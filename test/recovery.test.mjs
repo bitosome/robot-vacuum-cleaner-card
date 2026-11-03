@@ -53,6 +53,9 @@ test('Continue now delegates only the explicit backend action, once, and waits f
   action(card,'resume-now').click();await settle(card);action(card,'resume-now').click();await settle(card);
   assert.deepEqual(calls,[{domain:'robot_cleaner_queue',action:'control',data:{command:'resume_now',vacuum,run_id:attrs.run_id,current_index:1}}]);
   assert.equal(card.request.kind,'resume_now');
+  const pending=action(card,'resume-now');
+  assert.equal(pending.getAttribute('aria-busy'),'true');assert.ok(pending.querySelector('.family-pending-indicator'));assert.match(pending.textContent,/Continuing…/);
+  assert.equal(root(card).querySelector('[role="status"][aria-live="polite"]').textContent,'Waiting for the robot to leave the charging break…','The live region still announces the wait');
   await update(card,{'sensor.queue':entity('running',{...attrs,resume_now_ready:false})});assert.equal(card.request.kind,'resume_now');
   await update(card,{[vacuum]:entity('cleaning',{supported_features:8192|4|8|16}),'sensor.status':entity('segment_cleaning')});
   assert.equal(card.request,undefined);assert.equal(action(card,'resume-now'),null);assert.match(headline(card),/Vacuuming Kitchen/);
@@ -138,6 +141,8 @@ test('latched water warning requires a refill confirmation without sending a com
   action(card,'continue-sequence').click();await settle(card);
   assert.equal(root(card).querySelector('.recovery-dialog').open,true);
   assert.match(root(card).querySelector('.recovery-dialog').textContent,/filled and reseated/);assert.equal(calls.length,0);
+  assert.ok(root(card).querySelector('.recovery-dialog .family-dialog-footer.equal'),'Cancel and confirm share the footer equally');
+  assert.equal(action(card,'cancel-refill').hasAttribute('data-family-initial-focus'),true);
   action(card,'cancel-refill').click();await settle(card);assert.equal(calls.length,0);
   assert.equal(root(card).querySelector('.recovery-dialog'),null);
   action(card,'continue-sequence').click();await settle(card);action(card,'confirm-refill').click();await settle(card);
@@ -157,6 +162,7 @@ test('a latched water warning acknowledged for the active pass does not hide act
   const {card}=await fixture({state:'cleaning',status:'segment_cleaning',water:'water_empty',attributes:{water_refill_ack_active:true}});
   assert.match(headline(card),/Vacuuming Kitchen/);
   assert.match(root(card).querySelector('.water-warning').textContent,/still reports a water warning.*refilled for this pass/);
+  assert.equal(root(card).querySelector('.water-warning').dataset.tone,'warning');assert.equal(root(card).querySelector('.water-warning').getAttribute('role'),'status');
   await update(card,{'sensor.dock_error':entity('dirty_water_full')});
   assert.equal(headline(card),'Needs attention');
 });
