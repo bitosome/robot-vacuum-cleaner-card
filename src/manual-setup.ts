@@ -19,7 +19,7 @@ export interface ManualCapabilities {
   saved_plan_revision?: number;
   saved_preset?: SavedPreset; current_map?: number;
   control_version?: number; device_entities?: Record<string,string>;
-  dock_cleanup_version?:number; dock_controls?:DockControls;
+  dock_cleanup_version?:number; dock_cleanup_skip?:boolean; dock_controls?:DockControls;
   supported: boolean; modes: Array<{value: CleaningMode; label: string}>;
   suction: string[]; suction_by_mode?: Partial<Record<CleaningMode,string[]>>; water: string[]; routes: string[]; routes_by_mode?: Partial<Record<CleaningMode,string[]>>;
   repeats: number[]; room_targets: Array<{id:string; name:string; icon?:string}>; defaults?: Partial<ManualSetup>; error?: string;

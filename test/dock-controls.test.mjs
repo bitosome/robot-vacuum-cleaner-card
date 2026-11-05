@@ -13,16 +13,16 @@ const controls=(patch={})=>Object.fromEntries(Object.keys(deviceEntities).map(ke
 const checkpoint=(patch={})=>({version:1,run_id:'kept-sequence',revision:2,armed:true,state:'attention',required:{dust_emptying:true,mop_washing:true},actions:{dust_emptying:{state:'completed',started_at:1791871200,completed_at:1791871230},mop_washing:{state:'pending'}},reason:'Refill the clean-water tank to finish washing.',retry_allowed:true,...patch});
 const history=(cleanup)=>({run_id:'kept-sequence',vacuum,state:'cancelled',rooms:[{id:'0_1',name:'Kitchen'},{id:'0_2',name:'Hall'}],stages:[{index:0,target:'0_1',mode:'vacuum_mop',state:'completed',finished_at:1791871000},{index:1,target:'0_2',mode:'vacuum_mop',state:'cancelled',started_at:1791871100}],interruptions:[],dock_cleanup:cleanup});
 const settle=async card=>{for(let i=0;i<12;i++){await card.updateComplete;await Promise.resolve();}};
-async function fixture({phase='idle',attrs={},dock=controls(),service,states={}}={}) {
+async function fixture({phase='idle',attrs={},dock=controls(),service,states={},caps={}}={}) {
   const calls=[],card=document.createElement('robot-vacuum-cleaner-card');
   card.setConfig({type:'custom:robot-vacuum-cleaner-card',entity:vacuum,status_entity:'sensor.rover_status',dock_error_entity:'sensor.rover_dock_error'});
-  const capabilities={supported:true,current_map:0,room_targets:[],robot_rooms:[{id:'0_1',name:'Kitchen'},{id:'0_2',name:'Hall'}],modes:[{value:'vacuum',label:'Vacuum'}],suction:['balanced'],water:[],routes:[],repeats:[1],defaults:{mode:'vacuum',suction:'balanced',repeat:1},device_entities:deviceEntities,dock_cleanup_version:1,dock_controls:dock};
+  const capabilities={supported:true,current_map:0,room_targets:[],robot_rooms:[{id:'0_1',name:'Kitchen'},{id:'0_2',name:'Hall'}],modes:[{value:'vacuum',label:'Vacuum'}],suction:['balanced'],water:[],routes:[],repeats:[1],defaults:{mode:'vacuum',suction:'balanced',repeat:1},device_entities:deviceEntities,dock_cleanup_version:1,dock_controls:dock,...caps};
   card.hass={locale:{language:'en-GB'},config:{time_zone:'Europe/Tallinn'},services:{robot_cleaner_queue:{get_capabilities:{},get_history:{},control:{},device_control:{}}},states:{
     [vacuum]:entity('docked',{supported_features:8192|4|8|16|512,battery_level:87}),
     [queueId]:entity(phase,{vacuum,control_version:8,execution_version:6,mode:'manual',run_id:'kept-sequence',dock_controls:dock,...attrs}),
     'sensor.rover_status':entity('charging'),'sensor.rover_dock_error':entity('none'),
     ...Object.fromEntries(Object.entries(deviceEntities).map(([key,id])=>[id,entity(dock[key]?.state??'unavailable')])),...states,
-  },callWS:async message=>({response:message.service==='get_history'?{history_revision:1,last_run:attrs.last_run??null,previous_runs:[]}:structuredClone(capabilities)}),callService:async(domain,action,data)=>{calls.push({domain,action,data:structuredClone(data)});return service?.(domain,action,data);}};
+  },callWS:async message=>({response:message.service==='get_history'?{history_revision:card.hass.states[queueId].attributes.history_revision??1,last_run:card.hass.states[queueId].attributes.last_run??null,previous_runs:[]}:structuredClone(capabilities)}),callService:async(domain,action,data)=>{calls.push({domain,action,data:structuredClone(data)});return service?.(domain,action,data);}};
   document.body.append(card);await settle(card);return {card,calls};
 }
 const root=card=>card.shadowRoot;
@@ -152,4 +152,40 @@ test('cleanup modal explains the global interruption once and does not show unsu
   assert.equal(dialog.textContent.split(cleanup.reason).length-1,1);
   assert.equal(dialog.querySelector('[data-device="mop_drying"]'),null);
   assert.match(dialog.querySelector('[data-device="mop_washing"]').closest('.dock-control').textContent,/Waiting for dock care/);
+});
+
+test('owed care can be skipped once, with its guarded checkpoint and without crediting it',async()=>{
+  const cleanup=checkpoint({reason:'Dustbin emptying ended while Home Assistant was offline.'});
+  const {card,calls}=await fixture({phase:'attention',caps:{dock_cleanup_skip:true},attrs:{dock_cleanup:cleanup,run_history_version:1,last_run:history(cleanup),floor_cleaning_complete:false,recovery_ready:false}});
+  assert.equal(root(card).querySelector('h2').textContent,'Dock care needs attention');
+  const skip=root(card).querySelector('.actions [data-action="skip-dock-cleanup"]');
+  assert.equal(skip.disabled,false);skip.click();skip.click();await settle(card);
+  assert.deepEqual(calls,[{domain:'robot_cleaner_queue',action:'control',data:{command:'skip_dock_cleanup',vacuum,run_id:'kept-sequence',cleanup_revision:2}}]);
+  assert.equal(card.request,undefined,'Skipping sends no robot I/O, so service success acknowledges it');
+  const skipped=checkpoint({revision:3,state:'skipped',armed:false,retry_allowed:false,reason:'Dock care was skipped. The bin and mops were not confirmed clean.'});
+  await updateQueue(card,{dock_cleanup:skipped,last_run:history(skipped),history_revision:2,error:''},'cancelled');
+  assert.notEqual(root(card).querySelector('h2').textContent,'Dock care needs attention');
+  assert.equal(root(card).querySelector('[data-action="skip-dock-cleanup"]'),null);
+  assert.equal(root(card).querySelector('[data-action="resume-dock-cleanup"]'),null);
+  const activity=root(card).querySelector('.sequence-activity');
+  assert.match(activity.textContent,/Dock care skipped/);
+  assert.match(activity.querySelector('[data-cleanup-action="mop_washing"]').textContent,/Skipped/);
+  assert.doesNotMatch(activity.textContent,/Mops washed|Dock care complete/);
+});
+
+test('the dock panel offers skip, and skip waits for an unconfirmed command',async()=>{
+  const cleanup=checkpoint();
+  const {card,calls}=await fixture({phase:'attention',caps:{dock_cleanup_skip:true},attrs:{dock_cleanup:cleanup,pending_command:'dock_care'}});
+  const main=root(card).querySelector('.actions [data-action="skip-dock-cleanup"]');
+  assert.equal(main.disabled,true);main.click();await settle(card);assert.equal(calls.length,0);
+  await updateQueue(card,{pending_command:''});
+  const dialog=await dockPanel(card),skip=dialog.querySelector('[data-action="skip-dock-cleanup"]');
+  assert.equal(skip.disabled,false);skip.click();await settle(card);
+  assert.equal(calls.length,1);assert.equal(calls[0].data.command,'skip_dock_cleanup');
+});
+
+test('an older companion without the skip command shows no skip action',async()=>{
+  const {card}=await fixture({phase:'attention',attrs:{dock_cleanup:checkpoint()}});
+  assert.equal(root(card).querySelector('[data-action="skip-dock-cleanup"]'),null);
+  const dialog=await dockPanel(card);assert.equal(dialog.querySelector('[data-action="skip-dock-cleanup"]'),null);
 });

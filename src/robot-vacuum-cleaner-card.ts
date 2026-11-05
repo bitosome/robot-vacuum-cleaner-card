@@ -11,7 +11,7 @@ import {cleaningRuns, type CleaningRun} from './run-history';
 import {renderSequenceActivity} from './sequence-activity';
 import {renderRoomSettings,renderSettingPills,settingsSummary} from './room-settings';
 import {dockServiceLabel, passiveMopDrying, returningToDock} from './robot-status';
-import {cleanupComplete,cleanupLabel,readDockCleanup,type DockControls} from './dock-cleanup';
+import {cleanupLabel,cleanupSettled,readDockCleanup,type DockControls} from './dock-cleanup';
 import { panelKeys, renderDevicePanel, panelTitles, type DevicePanel } from './device-panel';
 import { designTokens } from './shared/design-tokens';
 import { familyStyles, headerStyles, dialogStyles, FamilyFlowController, renderFamilyDialog, componentStyles, notice, asyncState, pendingIndicator, stateChip, levelMeter, UI_ICONS } from './shared/card-primitives';
@@ -154,7 +154,10 @@ export class RobotVacuumCleanerCard extends LitElement {
   }
   private get dockService() { return dockServiceLabel(this.dockStatus); }
   private get dockCleanup() { return readDockCleanup(this.queue?.attributes.dock_cleanup); }
-  private get cleanupOwed() { const cleanup=this.dockCleanup;return !!cleanup&&!cleanupComplete(cleanup); }
+  private get cleanupOwed() { const cleanup=this.dockCleanup;return !!cleanup&&!cleanupSettled(cleanup); }
+  /** The owner may release owed care; the companion must advertise the command. */
+  private get cleanupSkippable() { return this.cleanupPending&&this.caps?.dock_cleanup_skip===true&&!!this.hass?.services?.robot_cleaner_queue?.control; }
+  private get skipBlocked() { return !this.queueReady||!!this.request||!!this.queue?.attributes.pending_command; }
   private get cleanupAwaitingDock() { return this.cleanupOwed&&!this.dockCleanup!.armed&&['cancelled','idle'].includes(this.phase); }
   private get cleanupPending() { return this.cleanupOwed&&(this.dockCleanup!.armed||this.cleanupAwaitingDock); }
   private get dockControls():DockControls|undefined { return this.queue?.attributes.dock_controls??this.caps?.dock_controls; }
@@ -716,6 +719,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       resume_now: 'Waiting for the robot to leave the charging break…',
       continue_sequence: 'Continuing the retained sequence…',
       resume_dock_cleanup: 'Resuming unfinished dock care…',
+      skip_dock_cleanup: 'Skipping dock care…',
       cancel: 'Clearing the sequence…',
     } as Record<string,string>)[kind] ?? 'Waiting for the robot…';
   }
@@ -763,7 +767,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     }
     await this.command('resume_now',false,prompt.token);
   }
-  private async command(kind: 'start_manual'|'pause'|'resume'|'return_to_dock'|'cancel'|'stop'|'continue_sequence'|'resume_now'|'resume_dock_cleanup',waterRefilled=false,recoveryToken?:string) {
+  private async command(kind: 'start_manual'|'pause'|'resume'|'return_to_dock'|'cancel'|'stop'|'continue_sequence'|'resume_now'|'resume_dock_cleanup'|'skip_dock_cleanup',waterRefilled=false,recoveryToken?:string) {
     if (!this.hass || !this.config) return;
     if(kind==='start_manual'&&this.sharedPlan&&this.preferencesDirty) {
       clearTimeout(this.autoSaveTimer);this.autoSaveKey='';
@@ -776,10 +780,14 @@ export class RobotVacuumCleanerCard extends LitElement {
       if(this.autoSaveError || this.planChanged)return;
     }
     if (kind==='cancel' && this.request?.kind==='cancel') return;
-    if (kind !== 'cancel' && !this.robotReady) { this.commandError = 'The robot is unavailable.'; return; }
+    // Skipping sends no robot I/O, so an earlier command's uncertainty barrier does
+    // not block it; the companion still refuses while a command awaits confirmation.
+    const releasesQueue=kind==='cancel'||kind==='skip_dock_cleanup';
+    if (kind==='skip_dock_cleanup' && (!this.cleanupSkippable || this.skipBlocked)) return;
+    if (!releasesQueue && !this.robotReady) { this.commandError = 'The robot is unavailable.'; return; }
     // A refused press must say why. Silently returning looks like a broken button:
     // after Stop the queue holds the previous command open until the robot confirms it.
-    if (kind !== 'cancel' && this.dispatchBlocked) {
+    if (!releasesQueue && this.dispatchBlocked) {
       this.commandError = '';
       // The barrier is not a command in flight: name it and its remaining time.
       this.feedback = this.barrierActive && !this.blocked ? this.barrierNotice
@@ -807,7 +815,7 @@ export class RobotVacuumCleanerCard extends LitElement {
       }
     }
     this.commandError = ''; this.feedback = this.waitingText(kind);
-    this.request = {kind,since:Date.now(),phase:this.phase,runId:kind==='resume_dock_cleanup'?this.dockCleanup?.run_id:this.queue?.attributes.run_id,cleanupRevision:kind==='resume_dock_cleanup'?this.dockCleanup?.revision:undefined};
+    this.request = {kind,since:Date.now(),phase:this.phase,runId:kind==='resume_dock_cleanup'||kind==='skip_dock_cleanup'?this.dockCleanup?.run_id:this.queue?.attributes.run_id,cleanupRevision:kind==='resume_dock_cleanup'||kind==='skip_dock_cleanup'?this.dockCleanup?.revision:undefined};
     clearTimeout(this.requestTimer);
     const pendingRequest = this.request, epoch=this.configEpoch;
     // Long enough not to contradict the integration's own 60-second window, and tied to
@@ -828,7 +836,7 @@ export class RobotVacuumCleanerCard extends LitElement {
           if (kind==='continue_sequence'&&waterRefilled) variables.water_refilled=true;
           if (kind==='resume_now'&&recoveryToken) variables.recovery_token=recoveryToken;
         }
-        if(kind==='resume_dock_cleanup') {variables.run_id=pendingRequest.runId;variables.cleanup_revision=pendingRequest.cleanupRevision;}
+        if(kind==='resume_dock_cleanup'||kind==='skip_dock_cleanup') {variables.run_id=pendingRequest.runId;variables.cleanup_revision=pendingRequest.cleanupRevision;}
         for (const key of Object.keys(variables)) if (variables[key] === undefined) delete variables[key];
         await this.hass.callService('robot_cleaner_queue','control',variables);
       }
@@ -837,6 +845,9 @@ export class RobotVacuumCleanerCard extends LitElement {
       if (kind==='cancel' && this.configEpoch===epoch && this.request===pendingRequest) {
         clearTimeout(this.requestTimer); this.request=undefined; this.feedback='Stopped sequence cleared. Your saved plan is unchanged.';
         this.preloadPlan();
+      }
+      if (kind==='skip_dock_cleanup' && this.configEpoch===epoch && this.request===pendingRequest) {
+        clearTimeout(this.requestTimer); this.request=undefined; this.feedback='Dock care skipped. The robot is free for new cleaning.';
       }
     } catch(error) {
       if (this.configEpoch!==epoch || this.request!==pendingRequest) return;
@@ -978,7 +989,7 @@ export class RobotVacuumCleanerCard extends LitElement {
     const waiting = this.barrierActive && !this.blocked ? this.barrierNotice : 'Waiting…';
     const kind = this.request?.kind;
     const dockAction=(primary=false)=>this.canReturnToDock ? html`<button class="family-action${primary?' primary':''}" data-action="dock" aria-busy=${ariaBusy(kind==='return_to_dock')} ?disabled=${blocked} @click=${()=>this.command('return_to_dock')}>${lead(kind==='return_to_dock','mdi:home-import-outline')}${kind==='return_to_dock'?'Returning…':'Return to dock'}</button>`:nothing;
-    if(this.cleanupPending)return html`<div class="actions">${this.dockCleanup!.state==='attention'?html`<button class="family-action primary" data-action="resume-dock-cleanup" aria-busy=${ariaBusy(kind==='resume_dock_cleanup')} ?disabled=${blocked||!this.dockCleanup!.retry_allowed||!this.hass?.services?.robot_cleaner_queue?.control} @click=${()=>this.command('resume_dock_cleanup')}>${lead(kind==='resume_dock_cleanup','mdi:restart')}${kind==='resume_dock_cleanup'?'Resuming…':'Resume dock care'}</button>`:nothing}${dockAction()}</div>`;
+    if(this.cleanupPending)return html`<div class="actions">${this.dockCleanup!.state==='attention'?html`<button class="family-action primary" data-action="resume-dock-cleanup" aria-busy=${ariaBusy(kind==='resume_dock_cleanup')} ?disabled=${blocked||!this.dockCleanup!.retry_allowed||!this.hass?.services?.robot_cleaner_queue?.control} @click=${()=>this.command('resume_dock_cleanup')}>${lead(kind==='resume_dock_cleanup','mdi:restart')}${kind==='resume_dock_cleanup'?'Resuming…':'Resume dock care'}</button>`:nothing}${dockAction()}${this.cleanupSkippable?html`<button class="family-action quiet" data-action="skip-dock-cleanup" aria-label="Skip dock care" title="Skip dock care. The robot is released for new cleaning; the bin and mops are not marked clean." aria-busy=${ariaBusy(kind==='skip_dock_cleanup')} ?disabled=${this.skipBlocked} @click=${()=>this.command('skip_dock_cleanup')}>${lead(kind==='skip_dock_cleanup','mdi:debug-step-over')}${kind==='skip_dock_cleanup'?'Skipping…':'Skip'}</button>`:nothing}</div>`;
     if (this.phase==='finishing') return nothing;
     // Retained plans have their own recovery action. Getting an idle robot home
     // remains independent of whether that plan can start or continue.
@@ -1248,6 +1259,7 @@ export class RobotVacuumCleanerCard extends LitElement {
           panel:this.panel,hass:this.hass,entities:this.caps?.device_entities??{},dockControls:this.dockControls,cleanup:this.dockCleanup,
           cleanupDisabled:this.dispatchBlocked||!this.robotReady||!this.hass.services?.robot_cleaner_queue?.control,
           cleanupPending:this.request?.kind==='resume_dock_cleanup',resumeCleanup:()=>void this.command('resume_dock_cleanup'),
+          skipCleanup:this.cleanupSkippable?()=>void this.command('skip_dock_cleanup'):undefined,skipDisabled:this.skipBlocked,skipping:this.request?.kind==='skip_dock_cleanup',
           busy:this.blocked||this.queueActive||this.cleanupPending||(this.phase==='attention'&&!this.recoveryReady),sending:this.deviceSending,
           motionBlocked:this.barrierActive||!!this.queue?.attributes.pending_command||(this.phase==='attention'&&!this.recoveryReady),
           motionReason:this.cleanupPending?this.dockCleanup!.reason||'Required dock care is in progress.':this.phase==='attention'?this.recoveryReason:this.barrierActive?this.barrierNotice:'Waiting for the robot to confirm the previous command.',
@@ -1261,4 +1273,4 @@ export class RobotVacuumCleanerCard extends LitElement {
 const cardWindow = window as typeof window & {customCards?: Array<Record<string,unknown>>};
 cardWindow.customCards = cardWindow.customCards || [];
 cardWindow.customCards.push({type:'robot-vacuum-cleaner-card',name:'Robot Vacuum Cleaner Card',description:'Robot status and ordered cleaning of the robot’s own rooms with Space Hub styling.',preview:true});
-console.info('ROBOT VACUUM CLEANER CARD 0.20.0');
+console.info('ROBOT VACUUM CLEANER CARD 0.21.0');

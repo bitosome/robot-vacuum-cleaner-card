@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.0 — 2026-11-05
+
+- Owed dock care can be skipped. With queue companion 0.18.0 or newer, **Skip** sits beside **Resume dock care** / **Return to dock**, and **Skip dock care** is in the Dock modal. It releases the robot for new cleaning without stopping the dock or marking the bin and mops as clean; activity shows **Dock care skipped** with each step marked Skipped. The request is bound to the displayed run and checkpoint revision, and is disabled while a command awaits confirmation. Older companions show no skip action.
+
 ## 0.20.0 — 2026-11-03
 
 - Bundle `@bitosome/ha-card-ui` 1.6.0. The sequence and cleaning progress bars are the shared family level meter, with the same 6px track as the vehicle battery, Vallox fan speed and printer progress bars; the fill keeps the active colour and still reads as a progress bar to assistive technology.

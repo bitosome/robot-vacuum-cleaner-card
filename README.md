@@ -198,6 +198,9 @@ emptying and mop washing are tracked in the integration's persisted checkpoint.
 and its confirmation time. Docked or charging state alone cannot mark care done.
 An interrupted checkpoint offers **Resume dock care** only when the companion
 allows it; the request is bound to the displayed run and checkpoint revision.
+With companion v0.18.0, **Skip** (and **Skip dock care** in Dock) lets you waive
+owed care when you do not need it now. Nothing is sent to the robot or dock, the
+steps stay unconfirmed and are shown as skipped, and a new plan can start.
 Completed rooms stay completed and stopped rooms stay stopped. Unfinished care
 does not become a successful full-house clean. Passive mop drying remains visible
 after verified care and does not hold the next clean for its full drying duration.

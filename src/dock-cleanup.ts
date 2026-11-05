@@ -9,7 +9,7 @@ export interface DockControl {supported:boolean;available:boolean;state:string;c
 export type DockControls = Partial<Record<DockAction,DockControl>>;
 export interface DockCleanup {
   version:1;run_id:string;revision:number;armed:boolean;
-  state:'pending'|'returning'|'waiting'|'running'|'attention'|'completed';
+  state:'pending'|'returning'|'waiting'|'running'|'attention'|'completed'|'skipped';
   required:Record<CleanupAction,boolean>;
   actions:Partial<Record<CleanupAction,{state:'pending'|'commanded'|'running'|'completed';started_at?:number;completed_at?:number}>>;
   reason:string;retry_allowed:boolean;
@@ -19,11 +19,14 @@ const at=(value:unknown)=>typeof value==='number'&&Number.isFinite(value)&&value
 export const cleanupActions=(cleanup:DockCleanup):CleanupAction[]=>
   (['dust_emptying','mop_washing'] as const).filter(key=>cleanup.required[key]);
 export const cleanupComplete=(cleanup:DockCleanup)=>cleanup.state==='completed'&&cleanupActions(cleanup).every(key=>cleanup.actions[key]?.state==='completed');
+/** Skipped care is released by the owner: nothing is owed, nothing is credited. */
+export const cleanupSkipped=(cleanup:DockCleanup)=>cleanup.state==='skipped';
+export const cleanupSettled=(cleanup:DockCleanup)=>cleanupComplete(cleanup)||cleanupSkipped(cleanup);
 
 /** All completion evidence belongs to the integration, never to a docked icon. */
 export function readDockCleanup(value:unknown):DockCleanup|undefined {
   if(!record(value)||value.version!==1||typeof value.run_id!=='string'||!value.run_id||!Number.isInteger(value.revision)||Number(value.revision)<0||!record(value.required)||!record(value.actions)
-    ||!['pending','returning','waiting','running','attention','completed'].includes(String(value.state)))return undefined;
+    ||!['pending','returning','waiting','running','attention','completed','skipped'].includes(String(value.state)))return undefined;
   const required={dust_emptying:value.required.dust_emptying===true,mop_washing:value.required.mop_washing===true};
   if(!required.dust_emptying&&!required.mop_washing)return undefined;
   const actions:DockCleanup['actions']={};
@@ -40,6 +43,7 @@ export function readDockCleanup(value:unknown):DockCleanup|undefined {
 }
 export function cleanupLabel(cleanup:DockCleanup):string {
   if(cleanupComplete(cleanup))return 'Dock care complete';
+  if(cleanupSkipped(cleanup))return 'Dock care skipped';
   if(!cleanup.armed)return 'Care after cleaning';
   if(cleanup.state==='attention')return 'Dock care needs attention';
   if(cleanup.state==='returning')return 'Returning for dock care';

@@ -331,7 +331,7 @@
     function capabilities() {
       if (scenario === 'manual_unavailable' || states[config.entity]?.state === 'unavailable') return {supported: false, modes: [], suction: [], water: [], routes: [], repeats: [], room_targets: [], defaults: {}, error: 'Manual cleaning settings are unavailable. Check the robot connection.'};
       const vacuumOnly = scenario === 'vacuum_only';
-      return {preferences,shared_plan_version:1,saved_plan_revision:savedPreset?.revision??0,saved_preset:savedPreset,current_map:0,control_version:8,execution_version:6,device_entities:deviceEntities,dock_cleanup_version:1,dock_controls:dockControls(),supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
+      return {preferences,shared_plan_version:1,saved_plan_revision:savedPreset?.revision??0,saved_preset:savedPreset,current_map:0,control_version:8,execution_version:6,device_entities:deviceEntities,dock_cleanup_version:1,dock_cleanup_skip:true,dock_controls:dockControls(),supported: true, modes: vacuumOnly ? modeDefinitions.slice(0, 1) : modeDefinitions,
         suction: ['quiet', 'balanced', 'turbo', 'max', 'max_plus'],
         water: vacuumOnly ? [] : ['low', 'medium', 'high'],
         routes: vacuumOnly ? [] : ['standard', 'deep', 'deep_plus', 'fast'],
@@ -488,6 +488,13 @@
             if(variables.run_id!==cleanup?.run_id||variables.cleanup_revision!==cleanup.revision)throw new Error('Dock care changed. Review its current state.');
             const next={...cleanup,state:'running',revision:cleanup.revision+1,reason:'',retry_allowed:false,actions:{...cleanup.actions,mop_washing:{state:'running',started_at:Date.now()/1000}}};
             set(config.queue_entity,'finishing',{...attrs,dock_cleanup:next});set(deviceEntities.mop_washing,'on');robotState('docked','washing_the_mop');
+            if(sequenceHistory.last_run){sequenceHistory.last_run.dock_cleanup=next;sequenceHistory.history_revision++;states[config.queue_entity].attributes.history_revision=sequenceHistory.history_revision;}
+          }
+          else if(variables.command==='skip_dock_cleanup') {
+            const cleanup=attrs.dock_cleanup;
+            if(variables.run_id!==cleanup?.run_id||variables.cleanup_revision!==cleanup.revision)throw new Error('Dock care changed. Refresh its current status before skipping.');
+            const next={...cleanup,state:'skipped',armed:false,revision:cleanup.revision+1,reason:'Dock care was skipped. The bin and mops were not confirmed clean.',retry_allowed:false};
+            set(config.queue_entity,'cancelled',{...attrs,dock_cleanup:next,error:''});
             if(sequenceHistory.last_run){sequenceHistory.last_run.dock_cleanup=next;sequenceHistory.history_revision++;states[config.queue_entity].attributes.history_revision=sequenceHistory.history_revision;}
           }
           else if(variables.command==='stop') {set(config.queue_entity,'cancelled',attrs);robotState('idle','idle');}

@@ -12,13 +12,13 @@ export function panelKeys(panel:DevicePanel, entities:Record<string,string>, has
   if(panel==='dock')return PANEL_KEYS.dock.filter(key=>dockControls?.[key as DockAction]?dockControls[key as DockAction]!.supported===true:!!entities[key]);
   return (panel==='map' ? Object.keys(entities).filter(key=>key.startsWith('map_')) : PANEL_KEYS[panel]).filter(key=>available(hass.states[entities[key]]) && (panel!=='care' || numeric(hass.states[entities[key]])!==undefined));
 }
-export function renderDevicePanel(model:{panel:DevicePanel;hass:Hass;entities:Record<string,string>;dockControls?:DockControls;cleanup?:DockCleanup;cleanupDisabled?:boolean;cleanupPending?:boolean;resumeCleanup?():void;busy:boolean;sending?:boolean;motionBlocked?:boolean;motionReason?:string;robotDocked:boolean;waterEmpty:boolean;fault:boolean;error:string;pending:boolean;close():void;send(key:string,value:string|number):void}) {
+export function renderDevicePanel(model:{panel:DevicePanel;hass:Hass;entities:Record<string,string>;dockControls?:DockControls;cleanup?:DockCleanup;cleanupDisabled?:boolean;cleanupPending?:boolean;resumeCleanup?():void;skipCleanup?():void;skipDisabled?:boolean;skipping?:boolean;busy:boolean;sending?:boolean;motionBlocked?:boolean;motionReason?:string;robotDocked:boolean;waterEmpty:boolean;fault:boolean;error:string;pending:boolean;close():void;send(key:string,value:string|number):void}) {
   const {panel,hass,entities}=model;
   const keys=panelKeys(panel,entities,hass,model.dockControls);
   return html`<div class="device-body">
     ${model.error ? notice({message:model.error,tone:'error'}):nothing}
     ${model.pending ? notice({message:'Waiting for the robot to confirm…'}):nothing}
-    ${panel==='dock'&&model.cleanup?renderDockCleanup(model.cleanup,{hass,retry:model.resumeCleanup,disabled:model.cleanupDisabled,pending:model.cleanupPending}):nothing}
+    ${panel==='dock'&&model.cleanup?renderDockCleanup(model.cleanup,{hass,retry:model.resumeCleanup,disabled:model.cleanupDisabled,pending:model.cleanupPending,skip:model.skipCleanup,skipDisabled:model.skipDisabled,skipping:model.skipping}):nothing}
     ${(panel==='dock' || panel==='settings' && keys.includes('selected_map')) && model.motionBlocked && !(panel==='dock'&&model.cleanup?.reason&&model.cleanup.reason===model.motionReason) ? notice({message:model.motionReason || 'Waiting for the robot to be ready for this action.'}):nothing}
     ${panel==='dock' && model.waterEmpty ? notice({tone:'warning',icon:'mdi:water-alert-outline',message:'Refill and reseat the clean-water tank to wash mops. Dust emptying and drying do not need water.'}):nothing}
     ${panel==='dock' && !model.robotDocked ? notice({message:'Dock actions can start when the robot is docked and its cleaning job has finished.'}):nothing}
